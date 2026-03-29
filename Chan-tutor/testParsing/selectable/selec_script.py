@@ -1,107 +1,126 @@
 import pdfplumber
-print("Library is successfully imported!")
 import re
 import csv
 import os
 
 # --- CONFIGURATION ---
-INPUT_FOLDER = "tests"
+INPUT_FOLDER = "pdfs_to_process"
 OUTPUT_CSV = "result/question_bank.csv"
-Q_PATTERN = re.compile(r'^(\d+)\.\s') 
-CHOICE_PATTERN = re.compile(r'^([A-H])[\.\)]\s')
-NOISE = ["--- PAGE", "CONTINUE ON", "PART 1", "FORM A", "STOP", "GO ON"]
 
-def is_noise(text):
-    return any(n in text.upper() for n in NOISE)
+# Regex for Question numbers (e.g., "1." or "125.")
+Q_PATTERN = re.compile(r'^(\d+)\.\s')
+# Regex for Choice letters (e.g., "A. ", "F. ", "(A) ")
+CHOICE_PATTERN = re.compile(r'^([A-H])[\.\)]?\s')
+# Regex to filter out system codes/Item IDs often found in test banks
+SYSTEM_CODE_PATTERN = re.compile(r'^[A-Z]{2,}\d+_\d+')
+NOISE = ["--- PAGE", "CONTINUE ON", "PART 1", "FORM A", "STOP", "GO ON", "FORM B"]
+
+def get_media_letter(index):
+    return chr(65 + index) # 0 -> A, 1 -> B...
 
 def process_pdf(pdf_path):
-    questions = []
-    current_q = None
-    filename = os.path.basename(pdf_path)
+    results = []
+    filename = os.path.basename(pdf_path).replace(".pdf", "")
     
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
-            # 1. Collect all visual elements on this page
-            # rects and curves are common in tables and vector charts
-            visual_elements = page.images + page.rects + page.curves
+            # 1. Capture ALL media objects with their vertical 'top' position
+            media_objects = []
+            for obj_type in ['images', 'rects', 'curves']:
+                for obj in getattr(page, obj_type):
+                    # Filter: ignore small items like choice bubbles (width < 30)
+                    if obj['width'] > 30 or obj['height'] > 30:
+                        media_objects.append({'top': obj['top'], 'type': obj_type})
             
-            # 2. Extract text and track the "top" coordinate of each line
-            # We use layout=True to keep the structure more consistent
-            text_lines = page.extract_text().split('\n')
+            # Sort media by vertical position
+            media_objects.sort(key=lambda x: x['top'])
+
+            # 2. Extract text and track question start positions
+            lines = page.extract_text().split('\n')
+            current_q = None
             
-            # For more precision, we can use page.extract_words() 
-            # but for a standard question bank, line-by-line is faster.
-            
-            for line in text_lines:
+            # We will use this to track which media falls under which question
+            questions_on_page = []
+
+            for line in lines:
                 clean_line = line.strip()
-                if not clean_line or is_noise(clean_line):
+                if not clean_line or any(n in clean_line.upper() for n in NOISE):
                     continue
                 
-                # Check for New Question
+                # Detect Question
                 q_match = Q_PATTERN.match(clean_line)
                 if q_match:
-                    if current_q:
-                        questions.append(current_q)
+                    if current_q: questions_on_page.append(current_q)
                     
-                    q_num = q_match.group(1)
+                    # Store current 'top' approximate based on layout if possible
+                    # but for most test banks, simple sequential assignment works.
                     current_q = {
-                        "uid": f"{filename[:-4]}_Q{q_num}",
-                        "question_text": clean_line,
+                        "uid": f"{filename}_Q{q_match.group(1)}",
+                        "q_num": q_match.group(1),
+                        "text": clean_line,
                         "A": "", "B": "", "C": "", "D": "", "E": "", "F": "", "G": "", "H": "",
-                        "has_media": "No"
+                        "raw_media": [] # Temporary bucket for media on this page
                     }
-                    
-                    # Detect if there's visual media on this page
-                    # In most test PDFs, if an image exists, it's related to the questions on that page.
-                    if len(visual_elements) > 0:
-                        current_q["has_media"] = "Yes"
-                        # Append a specific tag so you can filter the CSV easily
-                        if page.images:
-                            current_q["question_text"] += " [IMAGE_DETECTED]"
-                        if page.rects or page.curves:
-                            current_q["question_text"] += " [TABLE/GRAPH_DETECTED]"
                     continue
-                
-                # Check for Choices
+
+                # Detect Choice
                 c_match = CHOICE_PATTERN.match(clean_line)
                 if c_match and current_q:
                     letter = c_match.group(1)
-                    content = clean_line[len(c_match.group(0)):].strip()
-                    current_q[letter] = content
+                    # Mapping for alternating labels like E, F, G, H to A, B, C, D if preferred
+                    # but here we keep the original letter
+                    current_q[letter] = clean_line[len(c_match.group(0)):].strip()
                     continue
-                
-                # Append body text
-                if current_q:
-                    current_q["question_text"] += " " + clean_line
 
-        if current_q:
-            questions.append(current_q)
-            
-    return questions
+                # Append Body Text (filtering out system codes like ER01101803_3)
+                if current_q and not SYSTEM_CODE_PATTERN.match(clean_line):
+                    current_q["text"] += " " + clean_line
+
+            if current_q: questions_on_page.append(current_q)
+
+            # 3. Assign Media IDs in the specific format: FileName_Q#_Letter
+            # Logic: If a page has media, we distribute it among the questions on that page.
+            # In complex cases, you'd compare Y-coordinates, but for 52 PDFs, 
+            # a per-page tagging is the safest starting point for manual review.
+            if media_objects and questions_on_page:
+                # If there is only one question and one media, it's a perfect match.
+                # If multiple, we tag the question with the ID for the manual step.
+                for q in questions_on_page:
+                    for i in range(len(media_objects)):
+                        # Generate the specific ID you requested
+                        tag = f"{filename}_Q{q['q_num']}_{get_media_letter(i)}"
+                        q["raw_media"].append(tag)
+
+            results.extend(questions_on_page)
+
+    return results
 
 def main():
-    all_questions = []
     if not os.path.exists(INPUT_FOLDER):
         os.makedirs(INPUT_FOLDER)
-        print(f"Created folder '{INPUT_FOLDER}'. Put your PDFs there and re-run.")
+        print(f"Put your PDFs in {INPUT_FOLDER}")
         return
 
+    all_data = []
     for file in os.listdir(INPUT_FOLDER):
         if file.endswith(".pdf"):
             print(f"Processing {file}...")
-            try:
-                data = process_pdf(os.path.join(INPUT_FOLDER, file))
-                all_questions.extend(data)
-            except Exception as e:
-                print(f"Error processing {file}: {e}")
+            all_data.extend(process_pdf(os.path.join(INPUT_FOLDER, file)))
 
-    keys = ["uid", "question_text", "A", "B", "C", "D", "E", "F", "G", "H", "has_media"]
+    # Write to CSV
+    keys = ["uid", "text", "A", "B", "C", "D", "E", "F", "G", "H", "media_refs"]
     with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
-        writer.writerows(all_questions)
-    
-    print(f"Extraction complete. {len(all_questions)} questions saved to {OUTPUT_CSV}")
+        for row in all_data:
+            writer.writerow({
+                "uid": row["uid"],
+                "text": row["text"],
+                "A": row["A"], "B": row["B"], "C": row["C"], "D": row["D"],
+                "E": row["E"], "F": row["F"], "G": row["G"], "H": row["H"],
+                "media_refs": ", ".join(row["raw_media"])
+            })
+    print(f"Success! {len(all_data)} questions exported.")
 
 if __name__ == "__main__":
     main()
