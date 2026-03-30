@@ -26,12 +26,14 @@ import pdfplumber
 INPUT_FOLDER = "pdfs_to_process"
 OUTPUT_CSV   = "result/question_bank.csv"
 
-TWO_COL_SPLIT = 295   # pixel x boundary between left and right columns
+# X pixel boundary separating left and right columns on two-column math pages
+TWO_COL_SPLIT = 295
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NOISE PATTERNS
+# REGEX PATTERNS
 # ─────────────────────────────────────────────────────────────────────────────
 ITEM_CODE_RE = re.compile(r'^[A-Z]{2,}\w*_\d+$')
+
 PAGE_NOISE_RE = re.compile(
     r'^(FORM\s+[A-Z0-9]|CONTINUE\s+ON|CONTINUE\s+TO|THIS\s+IS\s+THE\s+END|'
     r'CONTINUEON|TO\s+THE\s+NEXT|NEXT\s+PAGE|'
@@ -41,12 +43,33 @@ PAGE_NOISE_RE = re.compile(
     r'Answer\s+Key|Sample\s+Test)',
     re.IGNORECASE
 )
+
 PAGE_NUM_ONLY_RE = re.compile(r'^\s*\d{1,3}\s*$')
+
+# "80 77 CONTINUE CONTINUE ON ON ..." — two page numbers then CONTINUE
+DOUBLED_NOISE_RE = re.compile(r'^\d{1,3}\s+\d{1,3}\s+CONTINUE', re.IGNORECASE)
+
+# Trailing "NN NN CONTINUE ON/TO ..." suffix
+TRAILING_RE = re.compile(
+    r'\s+\d{1,3}\s+\d{1,3}(?:\s+\d{1,3})*\s+(?:CONTINUE\s+)+(?:ON|TO)\b.*$',
+    re.IGNORECASE
+)
+
+# End-of-test message that can bleed into the last answer choice
+END_OF_TEST_RE = re.compile(r'\s+IF\s+TIME\s+REMAINS\b.*$', re.IGNORECASE)
+
 CHOICE_RE = re.compile(r'^([A-H])\.\s+(.*)', re.DOTALL)
-Q_NUM_RE  = re.compile(r'^(\d{1,3})\.\s*(.*)', re.DOTALL)
+
+# Matches "N.  text" (group 1+2) OR bare "N." (group 3).
+# Does NOT match decimals like "8.9" because they have a digit right after the dot.
+Q_NUM_RE = re.compile(r'^(\d{1,3})\.\s+(.*)|^(\d{1,3})\.\s*$', re.DOTALL)
 
 
-def is_noise_line(line):
+# ─────────────────────────────────────────────────────────────────────────────
+# TEXT CLEANING
+# ─────────────────────────────────────────────────────────────────────────────
+
+def is_noise_line(line: str) -> bool:
     s = line.strip()
     if not s:
         return True
@@ -60,21 +83,86 @@ def is_noise_line(line):
         return True
     if re.match(r'^\d{1,3}\s+CONTINUE', s, re.I):
         return True
+    if DOUBLED_NOISE_RE.match(s):
+        return True
     return False
 
 
+def _word_is_doubled_encoded(word: str) -> bool:
+    """True if every char in word appears in exact same-char pairs (e.g. 'CCOO', '5566')."""
+    if len(word) < 4:
+        return False
+    i, pairs = 0, 0
+    while i < len(word) - 1:
+        if word[i] == word[i + 1]:
+            pairs += 1
+            i += 2
+        else:
+            return False
+    return pairs >= 2
+
+
+def _is_test_page_number(word: str) -> bool:
+    """True if word is a bare page number in the SHSAT page range (30–120)."""
+    try:
+        return 30 <= int(word) <= 120
+    except ValueError:
+        return False
+
+
+def clean_trailing_noise(text: str) -> str:
+    """
+    Strip two kinds of trailing page-continuation noise:
+
+    1. Standard: "4π 77 74 CONTINUE CONTINUE ON ON TO TO THE THE NEXT NEXT PAGE PAGE"
+       → "4π"
+
+    2. Doubled-character encoding artefact: "24 5566 CCOONNTTIINNUUEE TTOO TTHHEE..."
+       → "24"
+       (Each character is duplicated due to overlapping PDF text layers.)
+    """
+    # Pass 1: standard trailing noise patterns
+    text = TRAILING_RE.sub('', text).strip()
+    text = END_OF_TEST_RE.sub('', text).strip()
+
+    # Pass 2: doubled-character encoding noise
+    words = text.split(' ')
+    cut_at = None
+    for i, word in enumerate(words):
+        if _word_is_doubled_encoded(word):
+            # Walk back over bare page-number tokens (30–120) — but not answer values
+            start = i
+            while start > 0 and _is_test_page_number(words[start - 1]):
+                start -= 1
+            if start > 0:
+                cut_at = start
+            break
+
+    if cut_at is not None:
+        text = ' '.join(words[:cut_at]).strip()
+
+    return text
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# WORD → LINE RECONSTRUCTION
+# WORD → TEXT LINE RECONSTRUCTION
 # ─────────────────────────────────────────────────────────────────────────────
 
 def words_to_text_lines(word_list, y_tolerance=4):
+    """
+    Reconstruct text lines from pdfplumber word dicts.
+    Returns [(y_top, text), ...] sorted by reading order.
+    """
     if not word_list:
         return []
+
     sorted_words = sorted(
         word_list,
         key=lambda w: (round(w['top'] / y_tolerance) * y_tolerance, w['x0'])
     )
+
     lines, cur_words, cur_y = [], [], None
+
     for w in sorted_words:
         wy = round(w['top'] / y_tolerance) * y_tolerance
         if cur_y is None or abs(wy - cur_y) <= y_tolerance * 2:
@@ -82,12 +170,18 @@ def words_to_text_lines(word_list, y_tolerance=4):
             if cur_y is None:
                 cur_y = wy
         else:
-            text = ' '.join(ww['text'] for ww in sorted(cur_words, key=lambda ww: ww['x0']))
+            text = ' '.join(
+                ww['text'] for ww in sorted(cur_words, key=lambda ww: ww['x0'])
+            )
             lines.append((cur_words[0]['top'], text))
             cur_words, cur_y = [w], wy
+
     if cur_words:
-        text = ' '.join(ww['text'] for ww in sorted(cur_words, key=lambda ww: ww['x0']))
+        text = ' '.join(
+            ww['text'] for ww in sorted(cur_words, key=lambda ww: ww['x0'])
+        )
         lines.append((cur_words[0]['top'], text))
+
     return lines
 
 
@@ -96,16 +190,25 @@ def words_to_text_lines(word_list, y_tolerance=4):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def extract_page_columns(page):
+    """
+    Returns (left_lines, right_lines): noise-filtered text strings per column.
+    right_lines is empty for single-column (ELA) pages.
+    Two-column detection: any question-number token at x >= TWO_COL_SPLIT.
+    """
     words = page.extract_words(keep_blank_chars=False, x_tolerance=3, y_tolerance=3)
     if not words:
         return [], []
-    q_words = [w for w in words if re.match(r'^\d{1,3}\.$', w['text'])]
-    is_two_col = any(w['x0'] >= TWO_COL_SPLIT for w in q_words)
+
+    q_tokens = [w for w in words if re.match(r'^\d{1,3}\.$', w['text'])]
+    is_two_col = any(w['x0'] >= TWO_COL_SPLIT for w in q_tokens)
+
     if not is_two_col:
         lines = words_to_text_lines(words)
         return [t for _, t in lines if not is_noise_line(t)], []
+
     left_words  = [w for w in words if w['x0'] < TWO_COL_SPLIT]
     right_words = [w for w in words if w['x0'] >= TWO_COL_SPLIT]
+
     clean_left  = [t for _, t in words_to_text_lines(left_words)  if not is_noise_line(t)]
     clean_right = [t for _, t in words_to_text_lines(right_words) if not is_noise_line(t)]
     return clean_left, clean_right
@@ -116,10 +219,16 @@ def extract_page_columns(page):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def detect_media_objects(page):
+    """
+    Detect visual media (diagrams, graphs, data tables) on a page.
+    Returns list of {'y0', 'y1', 'x_center', 'type'}.
+    Sources: pdfplumber tables, raster images, diagram-frame rects, curve/line clusters.
+    Overlapping same-column detections are de-duplicated.
+    """
     page_w, page_h = page.width, page.height
     found = []
 
-    # 1. Data tables via pdfplumber table finder
+    # 1. Data tables
     try:
         for ft in page.find_tables():
             if len(ft.rows) < 2:
@@ -153,26 +262,23 @@ def detect_media_objects(page):
         found.append({'y0': img['y0'], 'y1': img['y1'],
                       'x_center': (img['x0'] + img['x1']) / 2, 'type': 'image'})
 
-    # 3. Rect-based diagram frames (not passage boxes)
+    # 3. Rect-based diagram frames (not passage/answer text boxes)
     for r in page.rects:
         w, h = r['width'], r['height']
         if w > page_w * 0.85 or h > page_h * 0.85:
             continue   # full-page border
         if w > 350 or w < 30 or h < 25:
             continue
-        bbox = (r['x0'], r['y0'], r['x1'], r['y1'])
         try:
-            txt = (page.crop(bbox).extract_text() or '').strip()
+            txt = (page.crop((r['x0'], r['y0'], r['x1'], r['y1'])).extract_text() or '').strip()
         except Exception:
             txt = ''
-        word_count = len(txt.split())
-        # Wide rects with many words are question/answer text boxes
-        if w > 200 and word_count > 10:
-            continue
+        if w > 200 and len(txt.split()) > 10:
+            continue   # question/answer text box
         found.append({'y0': r['y0'], 'y1': r['y1'],
                       'x_center': (r['x0'] + r['x1']) / 2, 'type': 'rect'})
 
-    # 4. Curve/line clusters (geometric diagrams, graphs) — per column
+    # 4. Curve/line clusters (geometric diagrams, coordinate graphs)
     graphic_items = []
     for c in page.curves:
         if c['height'] > 15 and c['width'] > 15:
@@ -182,8 +288,9 @@ def detect_media_objects(page):
         dx = abs(ln['x1'] - ln['x0'])
         dy = abs(ln['y1'] - ln['y0'])
         span = max(dx, dy)
-        if dx > page_w * 0.7 or span < 30:
-            continue
+        if dx > page_w * 0.7:           continue   # full-width divider
+        if span < 30:                   continue   # too short / zero-length
+        if dx < 5 and dy > page_h * 0.4: continue  # vertical column separator
         graphic_items.append({'y0': ln['y0'], 'y1': ln['y1'],
                                'x0': ln['x0'], 'x1': ln['x1']})
 
@@ -210,7 +317,6 @@ def detect_media_objects(page):
                                      'x0': g['x0'], 'x1': g['x1'], 'count': 1})
             for cl in clusters:
                 span = cl['y1'] - cl['y0']
-                # Keep: ≥2 elements with >40px span, OR single long element >80px
                 if not ((cl['count'] >= 2 and span > 40) or
                         (cl['count'] >= 1 and span > 80)):
                     continue
@@ -219,11 +325,13 @@ def detect_media_objects(page):
                 found.append({'y0': cl['y0'], 'y1': cl['y1'],
                               'x_center': (cl['x0'] + cl['x1']) / 2, 'type': 'graphic'})
 
-    # 5. De-duplicate overlapping detections
+    # 5. Column-aware de-duplication
     result = []
     for item in sorted(found, key=lambda x: x['y0']):
         overlap = False
         for ex in result:
+            if abs(item['x_center'] - ex['x_center']) > 200:
+                continue   # different columns → never duplicates
             oy0 = max(item['y0'], ex['y0'])
             oy1 = min(item['y1'], ex['y1'])
             if oy1 > oy0:
@@ -233,6 +341,7 @@ def detect_media_objects(page):
                     break
         if not overlap:
             result.append(item)
+
     return result
 
 
@@ -241,6 +350,10 @@ def detect_media_objects(page):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def parse_questions_from_lines(lines, filename):
+    """
+    Parse a flat list of cleaned text lines into question dicts.
+    Returns list of {uid, q_num, text, choices: {letter: text}}.
+    """
     questions      = []
     current_q      = None
     current_choice = None
@@ -249,13 +362,14 @@ def parse_questions_from_lines(lines, filename):
         nonlocal current_choice
         if current_choice and current_q:
             current_q['choices'][current_choice] = \
-                current_q['choices'][current_choice].strip()
+                clean_trailing_noise(current_q['choices'][current_choice])
         current_choice = None
 
     def save_q():
         nonlocal current_q
         if current_q:
-            current_q['text'] = ' '.join(current_q['text_parts']).strip()
+            raw = ' '.join(current_q['text_parts']).strip()
+            current_q['text'] = clean_trailing_noise(raw)
             del current_q['text_parts']
             questions.append(current_q)
         current_q = None
@@ -269,13 +383,13 @@ def parse_questions_from_lines(lines, filename):
         if m_q:
             finalize_choice()
             save_q()
-            q_num = int(m_q.group(1))
-            rest  = m_q.group(2).strip()
+            q_num = int(m_q.group(1) if m_q.group(1) else m_q.group(3))
+            rest  = (m_q.group(2) or '').strip()
             current_q = {
-                'uid': f"{filename}_Q{q_num}",
-                'q_num': q_num,
+                'uid':        f"{filename}_Q{q_num}",
+                'q_num':      q_num,
                 'text_parts': [rest] if rest else [],
-                'choices': {},
+                'choices':    {},
             }
             current_choice = None
             continue
@@ -302,12 +416,18 @@ def parse_questions_from_lines(lines, filename):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MEDIA → QUESTION ASSIGNMENT  (cross-page aware)
+# QUESTION POSITION INDEX
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_question_position_index(pdf):
+    """
+    Returns:
+      page_q_pos  : {page_num: [{'q_num', 'y', 'x', 'col'}, ...]}
+      all_q_order : [(page_num, q_num, y), ...] sorted by reading order
+    """
     page_q_pos  = {}
     all_q_order = []
+
     for page_num, page in enumerate(pdf.pages):
         if 'answer key' in (page.extract_text() or '').lower():
             continue
@@ -325,47 +445,66 @@ def build_question_position_index(pdf):
             all_q_order.append((page_num, q_num, w['top']))
         if entries:
             page_q_pos[page_num] = entries
+
     all_q_order.sort(key=lambda x: (x[0], x[2]))
     return page_q_pos, all_q_order
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# MEDIA → QUESTION ASSIGNMENT
+# ─────────────────────────────────────────────────────────────────────────────
+
 def assign_media_to_questions(page_media_map, page_q_pos, all_q_order):
+    """
+    Assign each media object to the question it belongs to.
+    Returns {q_num: count_of_media_objects}.
+
+    Priority: same-page same-column → same-page any-column → next-page forward.
+    """
     q_media_count = defaultdict(int)
+
     for page_num, media_list in page_media_map.items():
         q_on_page  = page_q_pos.get(page_num, [])
         is_two_col = any(q['col'] == 'right' for q in q_on_page)
+
         for media in media_list:
             med_y   = (media['y0'] + media['y1']) / 2
             med_xc  = media['x_center']
             med_col = 'right' if med_xc >= TWO_COL_SPLIT else 'left'
             assigned_q = None
+
             if q_on_page:
-                candidates = (
-                    [q for q in q_on_page if q['col'] == med_col] or q_on_page
-                ) if is_two_col else q_on_page
+                if is_two_col:
+                    candidates = [q for q in q_on_page if q['col'] == med_col]
+                    if not candidates:
+                        candidates = q_on_page
+                else:
+                    candidates = q_on_page
+
                 above = [q for q in candidates if q['y'] <= med_y + 60]
                 assigned_q = (
                     max(above, key=lambda q: q['y']) if above
                     else min(candidates, key=lambda q: q['y'])
                 )
             else:
-                # Passage-only page: forward-assign to first question on a later page
                 for pn, qn, _ in all_q_order:
                     if pn > page_num:
                         assigned_q = {'q_num': qn}
                         break
+
             if assigned_q:
                 q_media_count[assigned_q['q_num']] += 1
+
     return q_media_count
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MAIN PER-PDF PROCESSING
+# PER-PDF PROCESSING
 # ─────────────────────────────────────────────────────────────────────────────
 
 def process_pdf(pdf_path):
-    filename      = os.path.basename(pdf_path).replace('.pdf', '')
-    all_questions = {}
+    filename       = os.path.basename(pdf_path).replace('.pdf', '')
+    all_questions  = {}
     page_media_map = {}
 
     with pdfplumber.open(pdf_path) as pdf:
@@ -403,14 +542,21 @@ def process_pdf(pdf_path):
     for q_num in sorted(all_questions.keys()):
         q = all_questions[q_num]
         c = q['choices']
-        media_refs = [f"[{filename}_Q{q_num}_{chr(65+i)}]"
-                      for i in range(q_media_count.get(q_num, 0))]
+        media_refs = [
+            f"[{filename}_Q{q_num}_{chr(65 + i)}]"
+            for i in range(q_media_count.get(q_num, 0))
+        ]
         results.append({
-            'uid':   q['uid'],      'text': q['text'],
-            'A': c.get('A',''),    'B': c.get('B',''),
-            'C': c.get('C',''),    'D': c.get('D',''),
-            'E': c.get('E',''),    'F': c.get('F',''),
-            'G': c.get('G',''),    'H': c.get('H',''),
+            'uid':        q['uid'],
+            'text':       q['text'],
+            'A':          c.get('A', ''),
+            'B':          c.get('B', ''),
+            'C':          c.get('C', ''),
+            'D':          c.get('D', ''),
+            'E':          c.get('E', ''),
+            'F':          c.get('F', ''),
+            'G':          c.get('G', ''),
+            'H':          c.get('H', ''),
             'media_refs': ', '.join(media_refs),
         })
 
@@ -436,6 +582,7 @@ def main():
             for f in sorted(os.listdir(INPUT_FOLDER))
             if f.lower().endswith('.pdf')
         ]
+
     if not pdf_files:
         print("No PDF files found.")
         return
@@ -450,10 +597,11 @@ def main():
         try:
             all_rows.extend(process_pdf(pdf_path))
         except Exception as e:
-            print(f"  ERROR: {e}")
-            import traceback; traceback.print_exc()
+            print(f"  ERROR processing {pdf_path}: {e}")
+            import traceback
+            traceback.print_exc()
 
-    fieldnames = ['uid','text','A','B','C','D','E','F','G','H','media_refs']
+    fieldnames = ['uid', 'text', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'media_refs']
     with open(OUTPUT_CSV, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
