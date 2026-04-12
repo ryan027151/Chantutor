@@ -37,6 +37,7 @@ import pdfplumber
 INPUT_FOLDER   = "pdfs_to_process"
 OUTPUT_CSV     = "result/question_bank.csv"
 ANS_KEY_CSV    = "result/answer_keys.csv"
+MEDIA_CSV      = "result/media_list.csv"
 TWO_COL_SPLIT  = 295          # x-pixel boundary between left / right math columns
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -46,7 +47,11 @@ ITEM_CODE_RE     = re.compile(
     r'^[A-Z]{2,}\w*_\d+$'       # EWSA17029_2  ER01101812_3  M170522
     r'|^[A-Z]{2,5}\d{4,}\w*$'   # ER0110  ER0236  M060060  (no underscore variant)
 )
-PAGE_NUM_ONLY_RE = re.compile(r'^\s*\d{1,3}\s*$')
+# PAGE_NUM_ONLY_RE: filters out bare page-number lines (e.g. "49", "80").
+# Restricted to the realistic SHSAT page-number range (30–120) so that
+# single-digit or two-digit numbers like "4", "5", "13" — which are fraction
+# denominators or table values — are NOT incorrectly discarded.
+PAGE_NUM_ONLY_RE = re.compile(r'^\s*(?:[3-9]\d|1[01]\d|120)\s*$')
 DOUBLED_NOISE_RE = re.compile(r'^\d{1,3}\s+\d{1,3}\s+CONTINUE', re.IGNORECASE)
 FORM_NOISE_RE    = re.compile(
     r'^(FORM\s+[A-Z0-9]|CONTINUE\s+ON|CONTINUE\s+TO|THIS\s+IS\s+THE\s+END|'
@@ -141,6 +146,101 @@ Q_RANGE_RE       = re.compile(r'\bQUESTIONS?\s+(\d+)\s*[–\-—]\s*(\d+)\b', re
 
 # Answer-key row  "1. B"  "58. -0.4"
 AK_ROW_RE        = re.compile(r'^\d{1,3}\.\s+\S+$')
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MATH TEXT NORMALISER
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Patterns applied in order by _clean_math()
+_MATH_RULES = [
+    # 1. Two consecutive fraction tokens _N _M → "N/M"  (e.g. "_3 _17" → "3/17")
+    (re.compile(r'_(\w+)\s+_(\w+)'), r'\1/\2'),
+    # 2. Single fraction token _N → "N/?"  (e.g. "_1" → "1/?", "_π" → "π/?")
+    #    Must run BEFORE rules 1b/1c so they see "3/?" not "_3".
+    (re.compile(r'_(\w+)'), r'\1/?'),
+    # 1b. Standalone denominator at end: "3/? 13" → "3/13", "π/? 4" → "π/4"
+    #     Safe: won't fire on "1/? cup" or "1/? 1 in." (non-digit or mid-string).
+    (re.compile(r'(\w+)/\?\s+(\d{1,3})\s*$'), r'\1/\2'),
+    # 1c. Single-letter variable denominator at end: "1/? n" → "1/n"
+    (re.compile(r'(\d+)/\?\s+([a-z])\s*$'), r'\1/\2'),
+    # 3. Double negative  "− −"  (with optional spaces) → single "−", consume trailing space
+    (re.compile(r'[−\-]\s*[−\-]\s*'), '−'),
+    # 4. Negative swallowed into paren space: "( digit" → "(−digit"
+    (re.compile(r'\(\s+(\d)'), r'(−\1'),
+    # 5. Adjacent double absolute-value bars  "| |" → "|"
+    (re.compile(r'\|\s+\|'), '|'),
+    # 6. Square/blank placeholder
+    (re.compile(r'□'), '[?]'),
+    # 7. Spurious space before closing paren: "3 )" → "3)"
+    (re.compile(r'(\S)\s+\)'), r'\1)'),
+    # 8. Operator spacing: add spaces around = ≠ ≤ ≥ ÷ × when touching non-space.
+    (re.compile(r'([^\s])([=≠≤≥÷×])'), r'\1 \2'),
+    (re.compile(r'([=≠≤≥÷×])([^\s])'), r'\1 \2'),
+    # 9. Collapse multiple spaces — must run BEFORE the mixed-number rules so that
+    #    the intentional double-space separator they produce is not collapsed again.
+    (re.compile(r'  +'), ' '),
+    # ── Mixed-number formatting (applied after space-collapse so "  " survives) ──
+    # MN1. Reorder "NUM/? WHOLE DENOM" at end → "WHOLE  NUM/DENOM"
+    #      e.g. "5/? 3 6" → "3  5/6"
+    (re.compile(r'(\d+)/\?\s+(\d{1,2})\s+(\d{1,2})\s*$'), r'\2  \1/\3'),
+    # MN3. Reorder "NUM/? WHOLE UNIT DENOM" at end → "WHOLE  NUM/DENOM UNIT"
+    #      e.g. "1/? 1 in. 5" → "1  1/5 in."
+    (re.compile(r'(\d+)/\?\s+(\d{1,2})\s+([a-zA-Z][a-zA-Z\.]*)\s+(\d{1,2})\s*$'), r'\2  \1/\4 \3'),
+    # MN2. Reorder "NUM/? UNIT DENOM" at end → "NUM/DENOM UNIT"
+    #      e.g. "1/? cup 8" → "1/8 cup"
+    (re.compile(r'(\d+)/\?\s+([a-zA-Z][a-zA-Z\.]*)\s+(\d{1,2})\s*$'), r'\1/\3 \2'),
+    # SPACE. Ensure two spaces between whole number and adjacent fraction
+    #        "2 11/?" → "2  11/?",  "3 5/6" → "3  5/6"
+    #        Lookbehind prevents firing on denominators like the "4" in "3/4".
+    (re.compile(r'(?<![/\w])(\d+) (?! )(\d+/(?:\d+|\?))'), r'\1  \2'),
+]
+
+
+def _clean_math(text: str) -> str:
+    """Apply normalisation rules to a plain-text math expression."""
+    for pat, repl in _MATH_RULES:
+        text = pat.sub(repl, text)
+    return text.strip()
+
+
+def _clean_math_html(text: str) -> str:
+    """
+    Apply math normalisation to *text* while leaving HTML tags untouched.
+    Only segments between tags are cleaned; tag attributes are never modified.
+    """
+    if not text:
+        return text
+    # Split on HTML tags; odd-indexed parts are tags, even-indexed are text nodes.
+    parts = re.split(r'(<[^>]+>)', text)
+    return ''.join(
+        part if part.startswith('<') else _clean_math(part)
+        for part in parts
+    )
+
+
+# Bold choice label as it appears in math PDFs: <b>A.</b> or <b>E.</b>
+BOLD_CHOICE_RE   = re.compile(r'<b>([A-H])\.</b>')
+
+# Plain (non-bold) choice label that still appears at end-of-segment:
+# e.g.  "−18 F."  or  "_π A."  — the VALUE comes BEFORE the label
+# Pattern: optional non-alpha prefix, whitespace, single letter, period, end-or-space
+PLAIN_CHOICE_TRAIL_RE = re.compile(
+    r'(.*?)\s+([A-H])\.\s*$', re.DOTALL
+)
+
+# Trailing PDF item-code noise on the last choice / question text
+# e.g. "M990025_3", "M060060_1", "ER01101812_3"
+# Also catches "500 M990025_3" where the code follows a numeric answer
+ITEM_CODE_TRAIL  = re.compile(r'\s+[A-Z]{1,5}\d{4,}\w*(?:\s+.*)?$')
+
+# Trailing fraction-component tokens before a bold choice label.
+# The underscore is REQUIRED (not optional) so that plain number sequences
+# like "0 1 2 3 4 5 6 7" (number-line labels) are NOT mistakenly treated
+# as fraction prefixes.  Only pdfplumber-raised-position artefacts carry "_".
+_FRAC_TRAIL_RE   = re.compile(r'(\s+_\d{1,2})+\s*$')
+
+# Non-digit/letter prefix before a bold choice label: "_π <b>A.</b>"
+_NON_ALPHA_TRAIL_RE = re.compile(r'\s+\S+\s*$')
 
 
 
@@ -420,7 +520,7 @@ def detect_media_objects(page):
             except Exception:
                 pass
             bx0, by0, bx1, by1 = ft.bbox
-            found.append({'y0': by0, 'y1': by1,
+            found.append({'y0': by0, 'y1': by1, 'x0': bx0, 'x1': bx1,
                           'x_center': (bx0 + bx1) / 2, 'type': 'table'})
     except Exception:
         pass
@@ -439,6 +539,7 @@ def detect_media_objects(page):
         if w < 100 and h > 120:
             continue
         found.append({'y0': img['y0'], 'y1': img['y1'],
+                      'x0': img['x0'], 'x1': img['x1'],
                       'x_center': (img['x0'] + img['x1']) / 2, 'type': 'image'})
 
     # 3. Rect-based diagram frames
@@ -455,6 +556,7 @@ def detect_media_objects(page):
         if w > 200 and len(txt.split()) > 10:
             continue
         found.append({'y0': r['y0'], 'y1': r['y1'],
+                      'x0': r['x0'], 'x1': r['x1'],
                       'x_center': (r['x0'] + r['x1']) / 2, 'type': 'rect'})
 
     # 4. Curve / line clusters  (geometric diagrams, coordinate graphs)
@@ -502,6 +604,7 @@ def detect_media_objects(page):
                 if cl['y0'] < 30 or cl['y0'] > page_h - 30:
                     continue
                 found.append({'y0': cl['y0'], 'y1': cl['y1'],
+                              'x0': cl['x0'], 'x1': cl['x1'],
                               'x_center': (cl['x0'] + cl['x1']) / 2, 'type': 'graphic'})
 
     # Column-aware de-duplication
@@ -558,19 +661,25 @@ def assign_media_to_questions(page_media_map, page_q_pos, all_q_order,
     """
     Assign unclaimed media objects to their nearest question.
     claimed_media: set of (page_num, media_idx) already assigned to a range element.
-    Returns {q_num: count}.
+
+    Returns
+    -------
+    q_media_count : {q_num: int}   — number of per-question media items
+    q_media_assign: {(pn, mi): (q_num, per_q_idx)}  — detailed assignment map
     """
     if claimed_media is None:
         claimed_media = set()
-    q_media_count = defaultdict(int)
+    q_media_count  = defaultdict(int)
+    q_media_assign = {}                       # (pn, mi) → (q_num, per_q_idx)
+
     for pn, media_list in page_media_map.items():
         q_on_page  = page_q_pos.get(pn, [])
         is_two_col = any(q['col'] == 'right' for q in q_on_page)
         for mi, media in enumerate(media_list):
             if (pn, mi) in claimed_media:
-                continue                       # already tagged as a range element
-            med_y  = (media['y0'] + media['y1']) / 2
-            med_xc = media['x_center']
+                continue
+            med_y   = (media['y0'] + media['y1']) / 2
+            med_xc  = media['x_center']
             med_col = 'right' if med_xc >= TWO_COL_SPLIT else 'left'
             aq = None
             if q_on_page:
@@ -585,8 +694,11 @@ def assign_media_to_questions(page_media_map, page_q_pos, all_q_order,
                         aq = {'q_num': qn}
                         break
             if aq:
+                per_idx = q_media_count[aq['q_num']]
                 q_media_count[aq['q_num']] += 1
-    return q_media_count
+                q_media_assign[(pn, mi)] = (aq['q_num'], per_idx)
+
+    return q_media_count, q_media_assign
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -763,6 +875,8 @@ def build_range_elements(raw_ranges, page_media_map, page_q_pos, filename):
     claimed_media   : set of (page_num, media_idx)
         Media objects already tagged as range elements — excluded from the
         per-question media_refs counter.
+    range_media_assign : dict  (page_num, media_idx) → tag_uid  e.g. "25A_Q51-Q57_B"
+        Detailed assignment for media_list.csv output.
     """
     # question → page mapping
     q_to_pages = defaultdict(set)
@@ -770,16 +884,19 @@ def build_range_elements(raw_ranges, page_media_map, page_q_pos, filename):
         for e in entries:
             q_to_pages[e['q_num']].add(pn)
 
-    tagged_elements = []
-    claimed_media   = set()
+    tagged_elements    = []
+    claimed_media      = set()
+    range_media_assign = {}   # (pn, mi) → tag_uid
 
     for rng in raw_ranges:
         qs, qe    = rng['q_start'], rng['q_end']
-        elem_list = []   # (text_for_csv,)  ordered A, B, C…
+        elem_list = []   # ordered A, B, C…
+        elem_keys = []   # parallel list: None (text elem) or (pn, mi) for media
 
         # ── Element A: passage text ────────────────────────────────────────────
         if rng['text'].strip():
             elem_list.append(rng['text'])
+            elem_keys.append(None)
 
         # ── Find pages covered by this range ──────────────────────────────────
         pages_in_range = set()
@@ -794,28 +911,185 @@ def build_range_elements(raw_ranges, page_media_map, page_q_pos, filename):
                     continue
                 h = med['y1'] - med['y0']
                 if h >= _RANGE_MEDIA_MIN_H and med['type'] in ('table', 'image', 'graphic'):
-                    # Use a placeholder; the actual image/table content is in media_refs
                     elem_list.append(f"[{med['type'].upper()}]")
+                    elem_keys.append(key)
                     claimed_media.add(key)
 
         # ── Assign letters within this range ──────────────────────────────────
-        for idx, elem_text in enumerate(elem_list):
-            letter = chr(65 + idx)
-            tag    = f"{filename}_Q{qs}-Q{qe}_{letter}"
-            tagged_elements.append({
-                'tag':     tag,
-                'q_start': qs,
-                'q_end':   qe,
-                'text':    elem_text,
-            })
+        first_page = (min(pages_in_range) + 1) if pages_in_range else 0  # 1-indexed
 
-    return tagged_elements, claimed_media
+        for idx, (elem_text, elem_key) in enumerate(zip(elem_list, elem_keys)):
+            letter  = chr(65 + idx)
+            tag_uid = f"{filename}_Q{qs}-Q{qe}_{letter}"
+            tagged_elements.append({
+                'tag':        tag_uid,
+                'q_start':    qs,
+                'q_end':      qe,
+                'text':       elem_text,
+                'first_page': first_page,
+            })
+            if elem_key is not None:
+                range_media_assign[elem_key] = tag_uid
+
+    return tagged_elements, claimed_media, range_media_assign
 
 
 # keep old name as an alias used by process_pdf (thin wrapper)
 def detect_shared_contexts(flat_pairs, filename):
     """Delegates to detect_passage_ranges; letters are now assigned by build_range_elements."""
     return detect_passage_ranges(flat_pairs)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BOLD-CHOICE RESCUE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _extract_bold_choices(source: str):
+    """
+    Many math questions have their answer choices formatted as  <b>A.</b> text
+    rather than the plain  "A. text"  that CHOICE_RE expects.  pdfplumber
+    therefore cannot split them out and they end up merged into the question
+    text (or into a previous choice's text).
+
+    This function finds every  <b>[A-H].</b>  marker in *source* and splits
+    the string into (pre_text, {letter: 'L) body'}) where:
+
+      pre_text  — everything before the first choice marker (the question stem)
+      dict      — one entry per found letter, value already prefixed "L) …"
+
+    Fraction artefact tokens (_N) that appear IMMEDIATELY before a bold marker
+    belong to THAT choice (they are the leading numerator of a fraction in the
+    choice body), so they are moved into the choice rather than left in the
+    preceding segment.
+
+    Trailing PDF item-code labels (M[digits]+) are stripped from the last segment.
+
+    Returns (source, {}) unchanged when no bold markers are found.
+    """
+    markers = list(BOLD_CHOICE_RE.finditer(source))
+    if not markers:
+        return source, {}
+
+    new_choices = {}
+
+    # ── Clean-text boundary ────────────────────────────────────────────────────
+    # Everything before the first marker, minus any trailing tokens
+    # that logically belong to choice A/E (fraction _N or symbol like _π).
+    pre = source[:markers[0].start()]
+    # First try fraction-digit trail
+    frac_m = _FRAC_TRAIL_RE.search(pre)
+    if frac_m:
+        first_prefix = pre[frac_m.start():].strip()
+        pre_text = pre[:frac_m.start()].strip()
+    else:
+        # Try generic trailing token (e.g. "_π" before <b>A.</b>)
+        gen_m = _NON_ALPHA_TRAIL_RE.search(pre)
+        # Only use it if it looks like a math symbol / fraction prefix (starts with _)
+        if gen_m and pre[gen_m.start():].strip().startswith('_'):
+            first_prefix = pre[gen_m.start():].strip()
+            pre_text = pre[:gen_m.start()].strip()
+        else:
+            first_prefix = ''
+            pre_text = pre.strip()
+
+    # Strip trailing item-code from pre_text too
+    pre_text = ITEM_CODE_TRAIL.sub('', pre_text).strip()
+
+    # ── Extract each choice body ───────────────────────────────────────────────
+    for idx, marker in enumerate(markers):
+        letter = marker.group(1)
+        seg_start = marker.end()
+        seg_end   = markers[idx + 1].start() if idx + 1 < len(markers) else len(source)
+        segment   = source[seg_start:seg_end]
+
+        # Fraction tokens at the END of this segment belong to the NEXT choice.
+        # Collect them now (they'll be prepended when idx+1 is processed).
+        frac_trail = _FRAC_TRAIL_RE.search(segment)
+        if frac_trail and idx + 1 < len(markers):
+            body = segment[:frac_trail.start()].strip()
+            # next_prefix will be picked up when idx+1 runs (see below)
+        else:
+            body = segment.strip()
+            # Strip trailing item codes from the last choice segment
+            body = ITEM_CODE_TRAIL.sub('', body).strip()
+
+        # Prepend fraction prefix that trailed from the previous segment
+        if idx == 0:
+            leader = first_prefix
+        else:
+            prev_seg = source[markers[idx - 1].end() : marker.start()]
+            pm = _FRAC_TRAIL_RE.search(prev_seg)
+            leader = pm.group(0).strip() if pm else ''
+
+        if leader:
+            body = leader + (' ' + body if body else '')
+
+        if body:
+            new_choices[letter] = f"{letter}) {body}"
+
+    return pre_text, new_choices
+
+
+def _rescue_choices(q_text: str, choices: dict) -> tuple:
+    """
+    Run bold-choice rescue on both the question text AND on each existing
+    choice value (handles cases where G/H leaked into F's text).
+    Also handles the "value-before-label" pattern: −18 <b>F.</b>
+    where the value belonging to F appears at the end of E's choice text.
+
+    Returns (clean_text, updated_choices).
+    """
+    # 1. Rescue from question text
+    clean_text, from_text = _extract_bold_choices(q_text)
+    for letter, val in from_text.items():
+        if letter not in choices or not _strip_tags(choices[letter]).strip():
+            choices[letter] = val
+
+    # 2. Rescue from each existing choice value (handles G/H in F's text)
+    for letter in sorted(choices.keys()):
+        val = choices[letter]
+        body = re.sub(r'^[A-H]\)\s*', '', val)
+        _, from_choice = _extract_bold_choices(body)
+        if from_choice:
+            new_pre, _ = _extract_bold_choices(body)
+            choices[letter] = f"{letter}) {new_pre}" if new_pre.strip() else ''
+            for sub_letter, sub_val in from_choice.items():
+                if sub_letter not in choices or not _strip_tags(choices[sub_letter]).strip():
+                    choices[sub_letter] = sub_val
+
+    # 3. Value-before-label rescue: "−18 <b>F.</b>" means −18 belongs to F,
+    #    but it was appended as a continuation of E's text.
+    #    Pattern: choice body ends with  <optional_space> <value> <b>L.</b>
+    VBL_RE = re.compile(r'^(.*?)\s+(\S+)\s+<b>([A-H])\.</b>\s*$', re.DOTALL)
+    for letter in sorted(choices.keys()):
+        val = choices[letter]
+        prefix = re.match(r'^([A-H]\) )', val)
+        if not prefix:
+            continue
+        body = val[prefix.end():]
+        m = VBL_RE.match(body)
+        if m:
+            clean_body, value_part, next_letter = m.group(1), m.group(2), m.group(3)
+            # Fix the current choice (remove the trailing value+label)
+            choices[letter] = f"{letter}) {clean_body}".strip()
+            # The value_part is the answer for next_letter
+            if next_letter not in choices or not _strip_tags(choices[next_letter]).strip():
+                choices[next_letter] = f"{next_letter}) {value_part}"
+
+    # 4. Strip trailing item-code noise from every choice
+    for letter in list(choices.keys()):
+        if choices[letter]:
+            pfx = re.match(r'^([A-H]\) )', choices[letter])
+            p   = pfx.group(1) if pfx else ''
+            b   = choices[letter][len(p):]
+            b   = ITEM_CODE_TRAIL.sub('', b).strip()
+            # Also strip trailing "□ 2y y _ _ _" type bleed-over from next question
+            b   = re.sub(r'\s+□.*$', '', b).strip()
+            choices[letter] = p + b if b else ''
+        if not choices[letter]:
+            del choices[letter]
+
+    return clean_text, choices
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -840,9 +1114,9 @@ def parse_questions_from_lines(line_pairs, filename, range_elements):
 
     def _finalize_choice():
         if st['choice'] and st['q']:
-            st['q']['choices'][st['choice']] = clean_trailing_noise(
-                st['q']['choices'][st['choice']]
-            )
+            val = clean_trailing_noise(st['q']['choices'][st['choice']])
+            val = ITEM_CODE_TRAIL.sub('', val).strip()
+            st['q']['choices'][st['choice']] = val
         st['choice'] = None
 
     def _save_q():
@@ -850,23 +1124,30 @@ def parse_questions_from_lines(line_pairs, filename, range_elements):
             return
         qnum     = st['q']['q_num']
         fmt_text = clean_trailing_noise(' '.join(st['q']['text_parts']).strip())
+        # Strip trailing item-code labels (e.g. "M990025_3") from question text
+        fmt_text = ITEM_CODE_TRAIL.sub('', fmt_text).strip()
 
-        # Find all elements covering this question
+        # ── Rescue choices embedded as <b>A.</b> / <b>E.</b> in text or choices ──
+        fmt_text, st['q']['choices'] = _rescue_choices(fmt_text, st['q']['choices'])
+
+        # ── Clean math notation in text and choices ──────────────────────────────
+        fmt_text = _clean_math_html(fmt_text)
+        for ltr in list(st['q']['choices'].keys()):
+            st['q']['choices'][ltr] = _clean_math_html(st['q']['choices'][ltr])
+
+        # ── Prepend context tag(s) — TAG ONLY, no embedded passage text ──────────
         applicable = [e for e in range_elements
                       if e['q_start'] <= qnum <= e['q_end']]
         if applicable:
-            # Pick the most specific range (smallest span)
             min_span = min(e['q_end'] - e['q_start'] for e in applicable)
             best = sorted(
                 [e for e in applicable if e['q_end'] - e['q_start'] == min_span],
                 key=lambda e: e['tag']
             )
-            # Embed full element content so each question row is self-contained:
-            #   [TAG_A] <passage text…>  [TAG_B] [GRAPHIC]  <question stem>
-            prefix_parts = [f"[{e['tag']}] {e['text']}" for e in best]
-            prefix = '  '.join(prefix_parts)   # double-space between elements
+            # Emit only the tag — passage text lives in the passages table
+            prefix = ' '.join(f"[{e['tag']}]" for e in best)
             if prefix:
-                fmt_text = prefix + '  ' + fmt_text
+                fmt_text = prefix + ' ' + fmt_text
 
         st['q']['text'] = fmt_text
         del st['q']['text_parts']
@@ -980,11 +1261,12 @@ def process_pdf(pdf_path):
     context_rows   — one row per shared passage / table / graph (answer = '')
     answer_key_rows— one row per answer-key entry  (filename, question, answer)
     """
-    filename       = os.path.basename(pdf_path).replace('.pdf', '')
-    all_questions  = {}
-    page_media_map = {}
-    all_col_pages  = []     # list of (left_lines, right_lines) per page
+    filename        = os.path.basename(pdf_path).replace('.pdf', '')
+    all_questions   = {}
+    page_media_map  = {}
+    all_col_pages   = []
     answer_key_rows = []
+    raw_media_log   = []   # list of (pn, mi, media_dict) for media_list.csv
 
     with pdfplumber.open(pdf_path) as pdf:
         page_q_pos, all_q_order = build_question_position_index(pdf)
@@ -1000,6 +1282,8 @@ def process_pdf(pdf_path):
             media = detect_media_objects(page)
             if media:
                 page_media_map[pn] = media
+                for mi, m in enumerate(media):
+                    raw_media_log.append((pn, mi, m))
 
             ll, rl = extract_page_columns(page)
             all_col_pages.append((ll, rl))
@@ -1014,10 +1298,7 @@ def process_pdf(pdf_path):
         raw_ranges  = detect_passage_ranges(flat_pairs)
 
         # ── Assign letters A, B, C… within each range ────────────────────────
-        # Each range can have multiple elements (passage → A, table → B, …).
-        # claimed_media tracks media already tagged as a range element so they
-        # are excluded from the per-question media_refs counter.
-        range_elements, claimed_media = build_range_elements(
+        range_elements, claimed_media, range_media_assign = build_range_elements(
             raw_ranges, page_media_map, page_q_pos, filename
         )
 
@@ -1040,7 +1321,7 @@ def process_pdf(pdf_path):
                             if len(_strip_tags(text)) > len(_strip_tags(existing)):
                                 ex['choices'][letter] = text
 
-    q_media_count = assign_media_to_questions(
+    q_media_count, q_media_assign = assign_media_to_questions(
         page_media_map, page_q_pos, all_q_order, claimed_media
     )
 
@@ -1048,7 +1329,8 @@ def process_pdf(pdf_path):
     answers_dict = {row['question']: row['answer'] for row in answer_key_rows}
 
     # ── Question rows ─────────────────────────────────────────────────────────
-    question_rows = []
+    question_rows    = []
+    extra_media_rows = []   # number-line choice media discovered during row building
     for qn in sorted(all_questions.keys()):
         q  = all_questions[qn]
         c  = q['choices']
@@ -1056,17 +1338,71 @@ def process_pdf(pdf_path):
         # ── Type: consult answer key first (most reliable), then fallback ────────
         answer_val = answers_dict.get(qn, '')
         if answer_val and re.match(r'^-?\d', answer_val):
-            q_type = 'grid-in'   # numeric answer (e.g. 2.5, -0.4) → always grid-in
+            q_type = 'grid-in'
         elif re.match(r'^[A-H]$', answer_val):
-            q_type = 'mcq'       # letter answer → always multiple choice
+            q_type = 'mcq'
         elif c:
-            q_type = 'mcq'       # has parsed choices → multiple choice
+            q_type = 'mcq'
         else:
-            q_type = 'grid-in'   # no choices, no answer → grid-in
+            q_type = 'grid-in'
 
         # ── Choices → sorted list of (letter, prefixed_text) ─────────────────
-        choice_items = sorted(c.items())   # e.g. [('A','A) …'),…] or [('E','E) …'),…]
-        n_choices    = len(choice_items)
+        choice_items = sorted(c.items())
+
+        # ── Number-line axis label detection ──────────────────────────────────
+        # If a choice body is a pure integer sequence (e.g. "–4 –3 –2 –1 0 1 2 3 4 5 6 7")
+        # it represents a number-line graphic, not readable text.  Replace each such
+        # choice with a media tag and record it in media_list.csv.
+        nl_media_rows   = []   # media records to append later
+        new_choice_items = []
+        nl_idx = 0
+        for ltr, txt in choice_items:
+            body = re.sub(r'<[^>]+>', '', re.sub(r'^[A-H]\)\s*', '', txt)).strip()
+            # Normalise "– 1" → "–1" for the check only
+            body_norm = re.sub(r'([−\-–])\s+(\d)', r'\1\2', body)
+            tokens = body_norm.split()
+            is_numline = (len(tokens) >= 4 and
+                          all(re.match(r'^[−\-–]?\d+$', t) for t in tokens))
+            if is_numline:
+                tag_id  = f"{filename}_Q{qn}_NL{chr(65 + nl_idx)}"
+                tag_str = f"[{tag_id}]"
+                new_choice_items.append((ltr, f"{ltr}) {tag_str}"))
+                nl_media_rows.append({
+                    'uid': tag_id, 'filename': filename, 'page': '',
+                    'type': 'number_line',
+                    'x0': '', 'y0': '', 'x1': '', 'y1': '',
+                    'width': '', 'height': '',
+                    'scope': 'question',
+                    'assigned_to': f"{filename}_Q{qn}",
+                    'tag': tag_str,
+                    'text': body,
+                })
+                nl_idx += 1
+            else:
+                new_choice_items.append((ltr, txt))
+        choice_items = new_choice_items
+        extra_media_rows.extend(nl_media_rows)
+
+        # ── Strip number-line axis labels from question text ───────────────────
+        # When a question already has detected media AND its text begins with a
+        # "letter-labels + integer-sequence" prefix (e.g. "P Q R –3 –2 – 1 0 1…"),
+        # that prefix is redundant — the graphic is captured in media_refs.
+        has_media = q_media_count.get(qn, 0) > 0
+        if has_media:
+            q_text = q['text']
+            # Pattern: optional [TAG] prefixes, then optional single-letter labels
+            # (like P Q R), then 4+ signed integers, then rest
+            q_text = re.sub(
+                r'^((?:\[[^\]]+\]\s*)*)'           # keep any existing [TAG] prefixes
+                r'(?:[A-Z]\s+){0,6}'               # optional letter labels: P Q R
+                r'(?:[−\-–]?\s*\d+\s+){4,}'        # 4+ signed integers (axis numbers)
+                r'[−\-–]?\s*\d+\s*',               # final integer
+                r'\1',
+                q_text
+            )
+            q['text'] = q_text.strip() if q_text.strip() else q['text']
+
+        n_choices = len(choice_items)
 
         # ── Media tags for this question ──────────────────────────────────────
         media_tags = [f"[{filename}_Q{qn}_{chr(65+i)}]"
@@ -1118,7 +1454,70 @@ def process_pdf(pdf_path):
           f"{len(range_elements)} range elements across {len(raw_ranges)} ranges  |  "
           f"{len(answer_key_rows)} answers loaded")
 
-    return question_rows
+    # ── Build media records for media_list.csv ────────────────────────────────
+    media_records = []
+
+    # ── 1. Text passages (range element A) ────────────────────────────────────
+    for elem in range_elements:
+        if elem['text'].startswith('['):
+            continue   # visual placeholder ([TABLE] / [GRAPHIC]) — handled below
+        qstart, qend = elem['q_start'], elem['q_end']
+        media_records.append({
+            'uid':         elem['tag'],
+            'filename':    filename,
+            'page':        elem.get('first_page', ''),
+            'type':        'passage',
+            'x0': '', 'y0': '', 'x1': '', 'y1': '',
+            'width': '', 'height': '',
+            'scope':       'range',
+            'assigned_to': f"{filename}_Q{qstart}-Q{qend}",
+            'tag':         f"[{elem['tag']}]",
+            'text':        elem['text'],
+        })
+
+    # ── 2. Visual media objects (graphics, tables, images, rects) ─────────────
+    for pn, mi, m in raw_media_log:
+        key = (pn, mi)
+        x0  = round(m.get('x0', m['x_center'] - 50))
+        x1  = round(m.get('x1', m['x_center'] + 50))
+        y0, y1 = round(m['y0']), round(m['y1'])
+
+        if key in range_media_assign:
+            tag_uid      = range_media_assign[key]
+            assigned_to  = re.sub(r'_[A-Z]$', '', tag_uid)
+            media_tag    = f"[{tag_uid}]"
+            scope        = 'range'
+        elif key in q_media_assign:
+            qn, per_idx  = q_media_assign[key]
+            assigned_to  = f"{filename}_Q{qn}"
+            media_tag    = f"[{filename}_Q{qn}_{chr(65 + per_idx)}]"
+            scope        = 'question'
+        else:
+            assigned_to  = ''
+            media_tag    = ''
+            scope        = 'unassigned'
+
+        media_records.append({
+            'uid':         f"{filename}_P{pn + 1}_{mi}",
+            'filename':    filename,
+            'page':        pn + 1,
+            'type':        m['type'],
+            'x0':          x0,
+            'y0':          y0,
+            'x1':          x1,
+            'y1':          y1,
+            'width':       x1 - x0,
+            'height':      y1 - y0,
+            'scope':       scope,
+            'assigned_to': assigned_to,
+            'tag':         media_tag,
+            'text':        '',
+        })
+
+    # ── 3. Number-line choice media (detected during question row building) ─────
+    media_records.extend(extra_media_rows)
+
+    return question_rows, media_records
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1147,16 +1546,20 @@ def main():
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    all_q_rows = []
+    all_q_rows     = []
+    all_media_rows = []
 
     for pdf_path in pdf_files:
         print(f"Processing: {pdf_path}")
         try:
-            all_q_rows.extend(process_pdf(pdf_path))
+            q_rows, m_rows = process_pdf(pdf_path)
+            all_q_rows.extend(q_rows)
+            all_media_rows.extend(m_rows)
         except Exception as e:
             print(f"  ERROR processing {pdf_path}: {e}")
             import traceback; traceback.print_exc()
 
+    # ── Write question bank ───────────────────────────────────────────────────
     fieldnames = ['type', 'uid', 'text',
                   'choice_1', 'choice_2', 'choice_3', 'choice_4',
                   'media_refs', 'answer']
@@ -1165,7 +1568,17 @@ def main():
         w.writeheader()
         w.writerows(all_q_rows)
 
-    print(f"\n✓ Done.  {len(all_q_rows)} questions  →  '{OUTPUT_CSV}'")
+    # ── Write media list ──────────────────────────────────────────────────────
+    media_fields = ['uid', 'filename', 'page', 'type',
+                    'x0', 'y0', 'x1', 'y1', 'width', 'height',
+                    'scope', 'assigned_to', 'tag', 'text']
+    with open(MEDIA_CSV, 'w', newline='', encoding='utf-8') as f:
+        w = csv.DictWriter(f, fieldnames=media_fields)
+        w.writeheader()
+        w.writerows(all_media_rows)
+
+    print(f"\n✓ Done.  {len(all_q_rows)} questions  →  '{OUTPUT_CSV}'"
+          f"\n         {len(all_media_rows)} media objects →  '{MEDIA_CSV}'")
 
 
 if __name__ == '__main__':
