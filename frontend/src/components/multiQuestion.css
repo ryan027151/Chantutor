@@ -1,0 +1,14 @@
+.container{
+    display: grid;
+    grid-template-rows: auto auto;
+    grid-template-columns: auto auto;
+}
+
+#problem{
+    grid-column: 1 / span 2;
+    grid-row: 1;
+}
+
+#questions{
+    grid-row: 2;
+}

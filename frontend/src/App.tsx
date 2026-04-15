@@ -1,61 +1,67 @@
-import Question from "./components/question";
+import MCQuestion from "./components/multiQuestion";
+import GridInQuestion from "./components/gridInQuestion";
 import { supabase } from "./supabase-client";
-import {useEffect, useState} from "react";
+import {useEffect, useState, useRef} from "react";
 import "./App.css"
+import Question from "./other/question";
+import QuestionGenerator from "./other/questionGenerator";
 
 
 
 function App() {
-  
-  const [questionData, setQuestionData] = useState(new Map());
+  const [questionData, setQuestionData] = useState(Object);
   const [currentQuestion, setCurrentQuestion] = useState(1);
+
+  const categoryTracker = useRef(new QuestionGenerator());
+
+
 
   useEffect(() => {
     getQuestions();
   }, [])
 
+  /**
+   * category selection is broken for some reason
+   */
   async function getQuestions() {
-    const {error, data} = await supabase.from("TestQuiz").select("*");
-    
+    const {error, data} = await supabase.rpc('get_random_question', {diff : 'Easy', cat: null});
+
     if (error) {
       return;
     }
     
-    const fetchedMap = new Map();
-
-    for (let i = 0; i < data.length; i++ ) {
-      fetchedMap.set(data[i].question_num, data[i].problem_options);
-    }
-
-    
-    setQuestionData(fetchedMap);
+    setQuestionData(data[0]);
+    console.log(data[0])
+    console.log(categoryTracker.current.getTestPreset());
   } 
 
-  useEffect(() => {
-  console.log("questionData changed:", questionData);
-  console.log("questionData size:", questionData.size);
 
-  const obj = questionData.get(1);
-  console.log(obj)
-}, [questionData]);
-
-  /**
-   * can maybe use a array based renderi
-   */
   return (
     <>
+    {questionData ? ( 
     <div id="question">
-      <Question 
-      problem={questionData.get(currentQuestion) ? questionData.get(currentQuestion).probem: "Loading"} 
-      option1={questionData.get(currentQuestion) ? questionData.get(currentQuestion).options[0]: "Loading"} 
-      option2={questionData.get(currentQuestion) ? questionData.get(currentQuestion).options[1]: "Loading"}
-      option3={questionData.get(currentQuestion) ? questionData.get(currentQuestion).options[2]: "Loading"}
-      option4={questionData.get(currentQuestion) ? questionData.get(currentQuestion).options[3]: "Loading"}
-      >
-      </Question>
+      {questionData.Type ? ( (
+        questionData.Type[0] == "M" ? ( 
+          <MCQuestion 
+          problem={questionData.Question_Text ? questionData.Question_Text : "Loading"} 
+          option1={questionData.Option_A ?  questionData.Option_A : "Loading"} 
+          option2={questionData.Option_B ? questionData.Option_B : "Loading"}
+          option3={questionData.Option_C ? questionData.Option_C : "Loading"}
+          option4={questionData.Option_D ? questionData.Option_D : "Loading"}
+          >
+      </MCQuestion>
+        ) : ( 
+          <GridInQuestion problem={questionData.Question_Text ? questionData.Question_Text : "Loading"}></GridInQuestion>
+        ) )
+      ) : (
+        <p> "Loading" </p>
+      )
+      }
       <button onClick={() => setCurrentQuestion(currentQuestion + 1)}>Next</button>
       <button onClick={() => setCurrentQuestion(currentQuestion - 1)}>Back</button>
     </div>
+    ) : 
+    <p>Loading</p>}
     </>
   )
 }
