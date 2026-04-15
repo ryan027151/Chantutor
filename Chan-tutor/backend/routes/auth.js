@@ -7,10 +7,19 @@ const { getSchoolCode } = require("../utils/schoolCode");
 const { isValidEmail } = require("../utils/validateEmail");
 require("dotenv").config();
 
-// ─── ADMIN SIGNUP ───────────────────────────────────────────────────────────
+// ─── ADMIN SIGNUP ────────────────────────────────────────────────────────────
 router.post("/signup/admin", async (req, res) => {
   const { name, username, email, password, bootstrapKey } = req.body;
 
+  // Input validation
+  if (!name || !username || !email || !password || !bootstrapKey) {
+    return res.status(400).json({ error: "All fields are required." });
+  }
+  if (!isValidEmail(email)) {
+    return res
+      .status(400)
+      .json({ error: "Please enter a valid email address." });
+  }
   if (bootstrapKey !== process.env.ADMIN_BOOTSTRAP_KEY) {
     return res.status(403).json({ error: "Invalid bootstrap key." });
   }
@@ -38,14 +47,40 @@ router.post("/signup/admin", async (req, res) => {
   }
 });
 
-// ─── STUDENT SIGNUP ─────────────────────────────────────────────────────────
+// ─── STUDENT SIGNUP ──────────────────────────────────────────────────────────
 router.post("/signup/student", async (req, res) => {
   const { name, username, password, schoolCode, grade } = req.body;
 
+  // Input validation
+  if (!name || !username || !password || !schoolCode) {
+    return res
+      .status(400)
+      .json({
+        error: "Name, username, password, and school code are required.",
+      });
+  }
+  if (username.length < 3) {
+    return res
+      .status(400)
+      .json({ error: "Username must be at least 3 characters." });
+  }
+  if (password.length < 6) {
+    return res
+      .status(400)
+      .json({ error: "Password must be at least 6 characters." });
+  }
   if (schoolCode !== getSchoolCode()) {
     return res
       .status(400)
       .json({ error: "Invalid school code. Please check with your teacher." });
+  }
+  if (grade !== undefined && grade !== null && grade !== "") {
+    const gradeNum = Number(grade);
+    if (!Number.isInteger(gradeNum) || gradeNum < 1 || gradeNum > 12) {
+      return res
+        .status(400)
+        .json({ error: "Grade must be a number between 1 and 12." });
+    }
   }
 
   try {
@@ -60,14 +95,22 @@ router.post("/signup/student", async (req, res) => {
 
     if (userError) {
       if (userError.code === "23505")
-        return res.status(409).json({ error: "Username already taken." });
+        return res
+          .status(409)
+          .json({ error: "Username already taken. Please choose another." });
       return res.status(500).json({ error: userError.message });
     }
 
-    // Generate student display ID (e.g. SHS-00042)
-    const { count } = await supabase
+    // Generate student display ID safely.
+    // We fetch the current count and build SHS-XXXXX. The UNIQUE constraint on
+    // student_display_id acts as a final safety net against any race collision.
+    const { count, error: countError } = await supabase
       .from("students")
       .select("*", { count: "exact", head: true });
+
+    if (countError) {
+      return res.status(500).json({ error: "Could not generate student ID." });
+    }
 
     const studentDisplayId = `SHS-${String((count || 0) + 1).padStart(5, "0")}`;
 
@@ -76,40 +119,68 @@ router.post("/signup/student", async (req, res) => {
       {
         user_id: userData.id,
         student_display_id: studentDisplayId,
-        grade: grade || null,
+        grade: grade ? Number(grade) : null,
       },
     ]);
 
-    if (studentError)
-      return res.status(500).json({ error: studentError.message });
+    if (studentError) {
+      // Clean up the orphaned user row if student creation failed
+      await supabase.from("users").delete().eq("id", userData.id);
+      return res
+        .status(500)
+        .json({ error: "Account setup failed. Please try again." });
+    }
 
     res.status(201).json({
       message: "Student account created successfully!",
-      studentId: studentDisplayId, // Student shares this with their parent
+      // Students share this ID with their parent so they can link accounts
+      studentId: studentDisplayId,
     });
   } catch (err) {
     res.status(500).json({ error: "Server error." });
   }
 });
 
-// ─── PARENT SIGNUP ──────────────────────────────────────────────────────────
+// ─── PARENT SIGNUP ───────────────────────────────────────────────────────────
 router.post("/signup/parent", async (req, res) => {
   const { name, email, password, studentId } = req.body;
 
-  // Check that the student ID actually exists
-  const { data: studentCheck, error: studentLookupError } = await supabase
-    .from("students")
-    .select("student_display_id")
-    .eq("student_display_id", studentId)
-    .single();
-
-  if (studentLookupError || !studentCheck) {
+  // Input validation — all moved before any DB calls
+  if (!name || !email || !password || !studentId) {
     return res
-      .status(404)
-      .json({ error: "Student ID not found. Please check your child's ID." });
+      .status(400)
+      .json({
+        error:
+          "Name, email, password, and your child's student ID are required.",
+      });
+  }
+  if (!isValidEmail(email)) {
+    return res
+      .status(400)
+      .json({ error: "Please enter a valid email address." });
+  }
+  if (password.length < 6) {
+    return res
+      .status(400)
+      .json({ error: "Password must be at least 6 characters." });
   }
 
   try {
+    // Verify the student ID exists before creating any account
+    const { data: studentCheck, error: studentLookupError } = await supabase
+      .from("students")
+      .select("student_display_id")
+      .eq("student_display_id", studentId)
+      .single();
+
+    if (studentLookupError || !studentCheck) {
+      return res
+        .status(404)
+        .json({
+          error: "Student ID not found. Please double-check your child's ID.",
+        });
+    }
+
     const hash = await bcrypt.hash(password, 10);
 
     // Create user row
@@ -121,7 +192,9 @@ router.post("/signup/parent", async (req, res) => {
 
     if (userError) {
       if (userError.code === "23505")
-        return res.status(409).json({ error: "Email already registered." });
+        return res
+          .status(409)
+          .json({ error: "This email is already registered." });
       return res.status(500).json({ error: userError.message });
     }
 
@@ -130,8 +203,13 @@ router.post("/signup/parent", async (req, res) => {
       .from("parents")
       .insert([{ user_id: userData.id, linked_student_display_id: studentId }]);
 
-    if (parentError)
-      return res.status(500).json({ error: parentError.message });
+    if (parentError) {
+      // Clean up the orphaned user row if linking failed
+      await supabase.from("users").delete().eq("id", userData.id);
+      return res
+        .status(500)
+        .json({ error: "Account setup failed. Please try again." });
+    }
 
     res.status(201).json({
       message:
@@ -142,25 +220,46 @@ router.post("/signup/parent", async (req, res) => {
   }
 });
 
-// ─── LOGIN (all roles) ──────────────────────────────────────────────────────
+// ─── LOGIN (all roles) ───────────────────────────────────────────────────────
+// Students log in with username; parents log in with email.
+// We detect which one was sent and query accordingly — this avoids the
+// broken .or("username.eq.undefined,...") bug from querying both at once.
 router.post("/login", async (req, res) => {
-  const { username, email, password } = req.body;
+  const { identifier, password } = req.body;
+  // "identifier" is whatever the user typed — username OR email.
+  // The frontend should send a single field called "identifier".
+
+  if (!identifier || !password) {
+    return res
+      .status(400)
+      .json({
+        error: "Please enter your username or email and your password.",
+      });
+  }
 
   try {
-    // Try matching by username OR email
+    // Decide whether it's an email or a username
+    const isEmail = isValidEmail(identifier);
+
     const { data: user, error } = await supabase
       .from("users")
       .select("*")
-      .or(`username.eq.${username},email.eq.${email}`)
+      .eq(isEmail ? "email" : "username", identifier)
       .single();
 
     if (error || !user) {
-      return res.status(404).json({ error: "Account not found." });
+      // Use a vague message intentionally — don't reveal whether it's the
+      // identifier or the password that's wrong (security best practice)
+      return res
+        .status(401)
+        .json({ error: "Incorrect username/email or password." });
     }
 
     const passwordMatch = await bcrypt.compare(password, user.password_hash);
     if (!passwordMatch) {
-      return res.status(401).json({ error: "Incorrect password." });
+      return res
+        .status(401)
+        .json({ error: "Incorrect username/email or password." });
     }
 
     const token = jwt.sign(

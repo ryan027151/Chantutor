@@ -7,7 +7,7 @@ const { getSchoolCode } = require("../utils/schoolCode");
 // All routes require a valid token AND admin role
 router.use(verifyToken, requireRole("admin"));
 
-// ─── GET ALL USERS ──────────────────────────────────────────────────────────
+// ─── GET ALL USERS ────────────────────────────────────────────────────────────
 router.get("/users", async (req, res) => {
   const { data, error } = await supabase
     .from("users")
@@ -18,9 +18,8 @@ router.get("/users", async (req, res) => {
   res.json(data);
 });
 
-// ─── GET ALL STUDENTS (with display IDs) ────────────────────────────────────
+// ─── GET ALL STUDENTS (with display IDs) ─────────────────────────────────────
 router.get("/students", async (req, res) => {
-  // Supabase can join tables using select with relation syntax
   const { data, error } = await supabase
     .from("students")
     .select(
@@ -35,7 +34,6 @@ router.get("/students", async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
-  // Flatten the nested users object for cleaner response
   const formatted = data.map((s) => ({
     name: s.users?.name,
     username: s.users?.username,
@@ -47,7 +45,7 @@ router.get("/students", async (req, res) => {
   res.json(formatted);
 });
 
-// ─── DELETE A USER ──────────────────────────────────────────────────────────
+// ─── DELETE A USER ────────────────────────────────────────────────────────────
 router.delete("/users/:id", async (req, res) => {
   const { error } = await supabase
     .from("users")
@@ -58,7 +56,7 @@ router.delete("/users/:id", async (req, res) => {
   res.json({ message: "User deleted." });
 });
 
-// ─── GET CURRENT SCHOOL CODE ─────────────────────────────────────────────────
+// ─── GET CURRENT SCHOOL CODE ──────────────────────────────────────────────────
 router.get("/school-code", (req, res) => {
   res.json({ schoolCode: getSchoolCode() });
 });

@@ -6,16 +6,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Import and run table creation on startup
-const { createUsersTable } = require("./models/User");
-const { createStudentsTable } = require("./models/Student");
-const { createParentsTable } = require("./models/Parent");
-
-(async () => {
-  await createUsersTable();
-  await createStudentsTable();
-  await createParentsTable();
-})();
+// Tables are managed directly in the Supabase dashboard.
+// See backend/models/ for the SQL to paste into Supabase's SQL Editor.
 
 // Routes
 app.use("/api/auth", require("./routes/auth"));
