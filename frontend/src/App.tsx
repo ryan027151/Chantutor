@@ -1,18 +1,10 @@
-import { HashRouter as Router, Routes, Route} from 'react-router-dom'
-import MockTest from './pages/mocktest'
-import PageNav from './pages/pageNav'
-
+import { HashRouter as Router } from 'react-router-dom'
+import AppRoutes from './pages/appRoutes'
 
 function App() {
-
   return (
     <Router>
-      <Routes>
-        <Route element={<PageNav/>}>
-          <Route path="/home" element={<MockTest/>}/>
-          <Route path="/mock" element={<MockTest/>}/>
-        </Route>
-      </Routes>
+      <AppRoutes />
     </Router>
   )
 }
