@@ -11,7 +11,7 @@
  * this class will generate the test + track the questions done so far + the next question
  */
 import Question from "./question";
-import Category from "./subcategory";
+import Category from "./subcategoryTracker";
 
 export default class QuestionGenerator{
     static subCats = ["Stats_D", "R_P", "A_Eq", "P", "A_Ex", "G", "R_U", "F", "Per", "A", "L", "S", "Seq", "I"];
@@ -72,7 +72,7 @@ export default class QuestionGenerator{
      * app will take this info avaiable sub category info + current difficulty info and actually give a question
      * @param question
      */
-    questionGive(question : Question){
+    questionGive(){
         let availableCategories: string[] = [];
         this.currentTest.forEach((cats) => {
             this.testPreset.forEach(function(value, key, testPreset){
@@ -89,7 +89,6 @@ export default class QuestionGenerator{
          * need to make it so that difficulty/total counter is increased for this subcategory
          */
         return randomCategory;
-
     }
 
     getTestPreset(){
