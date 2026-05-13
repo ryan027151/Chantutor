@@ -26,32 +26,29 @@ function LoginPage(){
 
 
     return(
-        <>
-            <form id="login">
+        <div className="flex flex-col fixed items-center justify-center border w-full h-full gap-3">
+            <form>
                 <label>
-                    <h3>Email:</h3>
-                    <input type="email" onChange={e => setEmail(e.target.value)}></input>
-                    <br/>
+                    <h3 className="md:text-xl text-sm">Email:</h3>
+                    <input type="email" onChange={e => setEmail(e.target.value)} className="border border-black"></input>
                 </label>
                 <label>
-                    <h3>Password:</h3>
-                    <input type="password" onChange={e => setPassword(e.target.value)}></input>
-                    <br/>
+                    <h3 className="md:text-xl text-sm">Password:</h3>
+                    <input type="password" onChange={e => setPassword(e.target.value)} className="border border-black"></input>
                 </label>
-                <br/>
-                <button onClick={() => {
-                    signIn(email, password);
-                    if (success){
-                        navigate("/home");
-                    }
-                    }}>Login</button>
-                <br/>
-                <Link to="/signUp">
-                    <button>Sign up</button>
-                </Link>
             </form>
-
-        </>
+            
+            <button onClick={() => {
+                signIn(email, password);
+                if (success){
+                    navigate("/home");
+                } else {
+                    console.log("Wrong Password!!!")
+                }
+                }} className="flex items-center justify-center md:w-40 w-9 px-2 py-0.5 text-center text-xl text-black hover:bg-gray-100 rounded border transition-all">Login</button>
+            
+            <button className="flex items-center justify-center md:w-40 w-9 px-2 py-0.5 text-center text-xl text-black hover:bg-gray-100 rounded border transition-all" onClick={() => navigate("/signUp")}>Sign up</button>
+        </div>
     )
 }
 

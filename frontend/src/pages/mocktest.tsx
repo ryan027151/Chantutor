@@ -4,7 +4,7 @@ import { supabase } from "../supabase-client";
 import {useEffect, useState, useRef} from "react";
 import QuestionGenerator from "../logicclasses/questionGenerator";
 import { icons } from "../assets/icons.tsx"
-
+import { useNavigate } from "react-router-dom";
 
 
 function MockTest() {
@@ -12,6 +12,7 @@ function MockTest() {
   const [currentQuestion, setCurrentQuestion] = useState(1);
 
   const categoryTracker = useRef(new QuestionGenerator());
+  const navigate = useNavigate();
 
 
   useEffect(() => {
@@ -51,8 +52,8 @@ function MockTest() {
               </button>
 
               {/*Temporary mock test exit button*/}
-              <button>
-
+              <button onClick={() => navigate("/home")}>
+                {icons.home}
               </button>
             </div>
            </div>
@@ -69,7 +70,9 @@ function MockTest() {
         {/*Bottom section below header*/}
         <div className="flex flex-col items-center">
         {questionData ? ( 
-          <div className="flex flex-col border border-gray-300 gap-6 shadow-lg m-6 p-6 w-auto">
+
+
+          <div className="flex flex-col border border-gray-300 gap-6 shadow-lg m-6 p-6 md:w-xl sm:w-sm w-xs">
 
             {/* Problem */}
             <p>{questionData.Question_Text ? questionData.Question_Text : "Loading"}</p>
@@ -88,7 +91,7 @@ function MockTest() {
               ) : ( 
 
                 // Checks type of math question
-                <GridInQuestion problem={questionData.Question_Text ? questionData.Question_Text : "Loading"}></GridInQuestion>
+                <GridInQuestion></GridInQuestion>
               ) )
             ) : (
               <p> "Loading" </p>

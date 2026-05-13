@@ -1,7 +1,6 @@
-function GridInQuestion(props : {problem: string}){
+function GridInQuestion(){
     return (
         <div className="container">
-            <p id="problem">{props.problem}</p>
             <form id="questions">
                 <label>
                     <input type="text"></input>

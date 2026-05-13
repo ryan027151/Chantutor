@@ -1,7 +1,10 @@
 import { icons } from '../assets/icons.tsx'
 import SideNavIcons from './sideNavIcons.tsx';
+import { useNavigate } from "react-router-dom";
 
 export default function SideBar({className = ""}){
+    const navigate = useNavigate();
+
     return(
         <div className="flex flex-col justify-between py-4 top-0 h-screen md:w-48 w-12 bg-white">
             <div className="flex flex-col">
@@ -16,18 +19,18 @@ export default function SideBar({className = ""}){
                 {/* Main buttons container */}
                 <div>
                     <ul>
-                        <SideNavIcons icon={icons.home} label={"Home"}></SideNavIcons>
-                        <SideNavIcons icon={icons.test} label={"Mock Tests"}></SideNavIcons>
-                        <SideNavIcons icon={icons.practice} label={"Practice"}></SideNavIcons>
-                        <SideNavIcons icon={icons.performance} label={"Performance"}></SideNavIcons>
+                        <SideNavIcons icon={icons.home} label={"Home"} onClick={() => navigate("/home")}></SideNavIcons>
+                        <SideNavIcons icon={icons.test} label={"Mock Tests"} onClick={() => navigate("/mock")}></SideNavIcons>
+                        <SideNavIcons icon={icons.practice} label={"Practice"} onClick={() => navigate("/home")}></SideNavIcons>
+                        <SideNavIcons icon={icons.performance} label={"Performance"} onClick={() => navigate("/home")}></SideNavIcons>
                     </ul>
                 </div>
              </div>
 
             {/* Sign out container */}
             <div>
-                <SideNavIcons icon={icons.user} label={"Profile"}></SideNavIcons>
-                <SideNavIcons icon={icons.logout} label={"Sign Out"}></SideNavIcons>
+                <SideNavIcons icon={icons.user} label={"Profile"} onClick={() => navigate("/home")}></SideNavIcons>
+                <SideNavIcons icon={icons.logout} label={"Sign Out"} onClick={() => navigate("/")}></SideNavIcons>
             </div>
 
         </div>
