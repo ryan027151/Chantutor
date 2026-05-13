@@ -1,9 +1,8 @@
 import "./multiQuestion.css"
 
-function MCQuestion(props : {problem: string, option1: string, option2: string, option3: string, option4: string,}){
+function MCQuestion(props : {option1: string, option2: string, option3: string, option4: string,}){
     return (
         <div className="container">
-            <p id="problem">{props.problem}</p>
             <form id="questions">
                 <label>
                     {props.option1}
