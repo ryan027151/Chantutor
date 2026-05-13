@@ -29,8 +29,6 @@ function MockTest() {
     }
     
     setQuestionData(data[0]);
-    console.log(data[0])
-    console.log(categoryTracker.current.getTestPreset());
   } 
 
 
@@ -45,11 +43,16 @@ function MockTest() {
 
             {/*arrow buttons container*/}
             <div>
-              <button className="bg-white border shadow-md px-3 py-1.5 hover:bg-blue-300 rounded-md rounded-r-none ">
+              <button className="bg-white border shadow-md px-3 py-1.5 hover:bg-blue-300 rounded-md rounded-r-none " onClick={() => setCurrentQuestion(currentQuestion - 1)} >
                 {icons.arrowLeft}
               </button >
-              <button className="bg-white border shadow-md px-3 py-1.5 hover:bg-blue-300 rounded-md rounded-l-none">
+              <button className="bg-white border shadow-md px-3 py-1.5 hover:bg-blue-300 rounded-md rounded-l-none" onClick={() => setCurrentQuestion(currentQuestion + 1)}>
                 {icons.arrowRight}
+              </button>
+
+              {/*Temporary mock test exit button*/}
+              <button>
+
               </button>
             </div>
            </div>
@@ -63,10 +66,15 @@ function MockTest() {
         
         </div>
 
-        <div className="flex flex-col">
+        {/*Bottom section below header*/}
+        <div className="flex flex-col items-center">
         {questionData ? ( 
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col border border-gray-300 gap-6 shadow-lg m-6 p-6 w-auto">
+
+            {/* Problem */}
             <p>{questionData.Question_Text ? questionData.Question_Text : "Loading"}</p>
+
+
             {questionData.Type ? ( (
               questionData.Type[0] == "M" ? ( 
                 <MCQuestion 
@@ -76,18 +84,22 @@ function MockTest() {
                 option4={questionData.Option_D ? questionData.Option_D : "Loading"}
                 >
             </MCQuestion>
+
               ) : ( 
+
+                // Checks type of math question
                 <GridInQuestion problem={questionData.Question_Text ? questionData.Question_Text : "Loading"}></GridInQuestion>
               ) )
             ) : (
               <p> "Loading" </p>
             )
             }
-            <button onClick={() => setCurrentQuestion(currentQuestion + 1)}>Next</button>
-            <button onClick={() => setCurrentQuestion(currentQuestion - 1)}>Back</button>
           </div>
           ) : 
           <p>Loading</p>}
+        
+        
+        
         </div>
       </div>
 
