@@ -5,11 +5,14 @@ import {useEffect, useState, useRef} from "react";
 import QuestionGenerator from "../logicclasses/questionGenerator";
 import { icons } from "../assets/icons.tsx"
 import { useNavigate } from "react-router-dom";
+import Question from "../logicclasses/question.ts";
+import QuestionRenderer from "../components/questionRenderer.tsx";
 
 
 function MockTest() {
   const [questionData, setQuestionData] = useState(Object);
   const [currentQuestion, setCurrentQuestion] = useState(1);
+  const [chosenAnswer, setChosenAnswer] = useState("");
 
   const categoryTracker = useRef(new QuestionGenerator());
   const navigate = useNavigate();
@@ -23,14 +26,22 @@ function MockTest() {
    * category selection is broken for some reason
    */
   async function getQuestions() {
-    const {error, data} = await supabase.rpc('get_random_question', {diff : 'Easy', cat: null});
+    const { data, error } = await supabase.rpc('get_random_question', {
+      diff: 'Easy',
+      cat: 'Linear_Eq._Formula'
+    });
 
     if (error) {
       return;
     }
     
     setQuestionData(data[0]);
+    console.log(data[0]);
   } 
+
+   useEffect(() => {
+    console.log("chosenAnswer changed:", chosenAnswer);
+  }, [chosenAnswer]);
 
 
   return (
@@ -69,38 +80,18 @@ function MockTest() {
 
         {/*Bottom section below header*/}
         <div className="flex flex-col items-center">
-        {questionData ? ( 
+        {questionData ?  
 
 
-          <div className="flex flex-col border border-gray-300 gap-6 shadow-lg m-6 p-6 md:w-xl sm:w-sm w-xs">
-
+          <div className="flex flex-col border border-gray-300 gap-6 shadow-xl m-6 px-6 py-8 md:w-3xl sm:w-xl w-xs">
+            <h3 className="md:text-xl text-md">{"Question " + currentQuestion}</h3>
             {/* Problem */}
-            <p>{questionData.Question_Text ? questionData.Question_Text : "Loading"}</p>
-
-
-            {questionData.Type ? ( (
-              questionData.Type[0] == "M" ? ( 
-                <MCQuestion 
-                option1={questionData.Option_A ?  questionData.Option_A : "Loading"} 
-                option2={questionData.Option_B ? questionData.Option_B : "Loading"}
-                option3={questionData.Option_C ? questionData.Option_C : "Loading"}
-                option4={questionData.Option_D ? questionData.Option_D : "Loading"}
-                >
-            </MCQuestion>
-
-              ) : ( 
-
-                // Checks type of math question
-                <GridInQuestion></GridInQuestion>
-              ) )
-            ) : (
-              <p> "Loading" </p>
-            )
-            }
+            <p>{questionData.text ? questionData.text : "Loading"}</p>
+           <QuestionRenderer chosenAnswer={setChosenAnswer} type={questionData.type} uid={questionData.uid} options={[questionData.choice_1, questionData.choice_2, questionData.choice_3, questionData.choice_4]} answer={questionData.answer}></QuestionRenderer>       
           </div>
-          ) : 
+          
+          : 
           <p>Loading</p>}
-        
         
         
         </div>

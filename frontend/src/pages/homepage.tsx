@@ -1,10 +1,31 @@
 import SideBar from "../components/sideBar";
 import TestTable from "../components/testTable";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "../supabase-client";
 
 
 function HomePage(){
     const navigate = useNavigate();
+
+    async function MockTest() {
+        const {data: { user }} = await supabase.auth.getUser();
+        console.log(user)
+        const { data, error } = await supabase.from("tests").insert([
+        {
+          user_id: user.id,
+          test_name: "New Test",
+          score: null,
+        },
+        ]);
+
+        if (error) {
+            console.error("Insert failed:", error.message);
+            return;
+        }
+
+        console.log("Inserted row:", data);
+        navigate("/mock");
+    };
     
     return(
         <div className="flex h-screen bg-gray-200">
@@ -20,7 +41,7 @@ function HomePage(){
                         <h1 className="md:text-5xl text-2xl font-bold">Welcome</h1>
                         <h3 className="md:text-xl text-sm">Name</h3>
                     </div>
-                    <button className="h-auto rounded-lg bg-blue-500 px-2 text-white text-base" onClick={() => navigate("/mock")}>
+                    <button className="h-auto rounded-lg bg-blue-500 px-2 text-white text-base" onClick={MockTest}>
                         Take New Test
                     </button>
                 </div>
