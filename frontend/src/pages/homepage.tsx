@@ -2,14 +2,17 @@ import SideBar from "../components/sideBar";
 import TestTable from "../components/testTable";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase-client";
+import MockTextPopUp from "../components/mockTestPopUp";
+import { useState } from "react";
 
 
 function HomePage(){
     const navigate = useNavigate();
+    const [mockTestPopUp, setMockTestPopUp] = useState(false);
+    const [media, setMedia] = useState(false);
 
     async function MockTest() {
         const {data: { user }} = await supabase.auth.getUser();
-        console.log(user)
         const { data, error } = await supabase.from("tests").insert([
         {
           user_id: user.id,
@@ -29,6 +32,28 @@ function HomePage(){
     
     return(
         <div className="flex h-screen bg-gray-200">
+            <MockTextPopUp appear={mockTestPopUp} setAppear={setMockTestPopUp}>
+                        <h3 className="md:text-xl text-sm">Enter in test settings: </h3>
+                        <form className="flex flex-col gap-1">
+                            <label>
+                                Time:
+                                
+                                <input type="number" className="border mx-2" required></input>
+                            </label>
+                            <label>
+                                # of ELA:
+                                <input type="number" className="border mx-2" required></input>
+                            </label>
+                            <label>
+                                # of Math:
+                                <input type="number" className="border mx-2" required></input>
+                            </label>
+                        </form>
+                        <button className="w-full bg-blue-200 hover:bg-blue-400 p-3 hover:text-white" onClick={MockTest}>
+                            Begin
+                        </button>
+                    </MockTextPopUp>
+            
             <div>
                 <SideBar className="border-r border-gray-300 p-4"></SideBar>
             </div>
@@ -41,7 +66,7 @@ function HomePage(){
                         <h1 className="md:text-5xl text-2xl font-bold">Welcome</h1>
                         <h3 className="md:text-xl text-sm">Name</h3>
                     </div>
-                    <button className="h-auto rounded-lg bg-blue-500 px-2 text-white text-base" onClick={MockTest}>
+                    <button className="h-auto rounded-lg bg-blue-500 px-2 text-white text-base" onClick={() => setMockTestPopUp(true)}>
                         Take New Test
                     </button>
                 </div>

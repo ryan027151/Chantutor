@@ -1,6 +1,6 @@
 
 
-export default class CategoryTracker{
+export default class  CategoryTracker{
     name: string;
     currentDifficulty: number;
     streak: number;
