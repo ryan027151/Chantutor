@@ -9,27 +9,43 @@ import { useState } from "react";
 function HomePage(){
     const navigate = useNavigate();
     const [mockTestPopUp, setMockTestPopUp] = useState(false);
+    const [tests, setTests] = useState(Map);
     const [media, setMedia] = useState(false);
+    const [duration, setDuration] = useState(0);
 
+    //Function to inianiate a mock test within supabase once you press begin on popup
     async function MockTest() {
-        const {data: { user }} = await supabase.auth.getUser();
-        const { data, error } = await supabase.from("tests").insert([
-        {
-          user_id: user.id,
-          test_name: "New Test",
-          score: null,
-        },
-        ]);
+     const { data: { user } } = await supabase.auth.getUser();
 
-        if (error) {
-            console.error("Insert failed:", error.message);
-            return;
-        }
+    const { data, error } = await supabase
+    .from("tests")
+    .insert([
+      {
+        user_id: user.id,
+        test_name: "New Test",
+        score: null,
+        duration: Math.floor(duration),
+        total_questions: 3,
+      },
+    ])
+    .select() 
+    .single();  
 
-        console.log("Inserted row:", data);
-        navigate("/mock");
-    };
+    if (error) {
+        console.error("Insert failed:", error.message);
+        return;
+    }
+
+    const testID = data.id;
+
+    navigate(`/mock/${testID}`);
+    }
     
+    function setError(): import("react").MouseEventHandler<HTMLButtonElement> | undefined {
+        throw new Error("Function not implemented.");
+    }
+    
+
     return(
         <div className="flex h-screen bg-gray-200">
             <MockTextPopUp appear={mockTestPopUp} setAppear={setMockTestPopUp}>
@@ -38,7 +54,7 @@ function HomePage(){
                             <label>
                                 Time:
                                 
-                                <input type="number" className="border mx-2" required></input>
+                                <input type="number" className="border mx-2" required onChange={(e) => setDuration(parseInt(e.target.value))}></input>
                             </label>
                             <label>
                                 # of ELA:

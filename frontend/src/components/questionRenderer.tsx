@@ -18,7 +18,7 @@ export default function QuestionRenderer( {type, uid, options, media, answer, ch
                 option3={options[2]}
                 option4={options[3]} 
                 chosenAnswer={chosenAnswer}></MCQuestion>;
-        case "grid-in": return <GridInQuestion></GridInQuestion>;
+        case "grid-in": return <GridInQuestion chosenAnswer={chosenAnswer}></GridInQuestion>;
 
     }
 }

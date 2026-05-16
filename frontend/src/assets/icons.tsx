@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faBars, faBookOpen, faBook, faChartLine, faHouse, faClock, faCircleUser, faArrowRightFromBracket, faCrown, faArrowRight, faArrowLeft, faXmark} from '@fortawesome/free-solid-svg-icons';
+import { faBars, faBookOpen, faBook, faChartLine, faHouse, faClock, faCircleUser, faArrowRightFromBracket, faCrown, faArrowRight, faArrowLeft, faXmark, faTable} from '@fortawesome/free-solid-svg-icons';
 import Logo from "./logo.tsx";
 
 export const icons: Record<string, ReactNode> = {
@@ -39,5 +39,8 @@ export const icons: Record<string, ReactNode> = {
     ),
     exit : (
         <FontAwesomeIcon icon={faXmark}/>
+    ),
+    table : (
+        <FontAwesomeIcon icon={faTable}></FontAwesomeIcon>
     )
 };

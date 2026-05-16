@@ -7,39 +7,42 @@ import { icons } from "../assets/icons.tsx"
 import { useNavigate } from "react-router-dom";
 import Question from "../logicclasses/question.ts";
 import QuestionRenderer from "../components/questionRenderer.tsx";
+import { useParams } from "react-router-dom";
+import MockTextPopUp from "../components/mockTestPopUp.tsx";
+
 
 
 function MockTest() {
   const [questionData, setQuestionData] = useState(Object);
   const [currentQuestion, setCurrentQuestion] = useState(1);
   const [chosenAnswer, setChosenAnswer] = useState("");
+  const [nullSubmission, setNullSubmission] = useState(false);
   const [mediaData, setMediaData] = useState(null)
-  
-
-  const categoryTracker = useRef(new QuestionGenerator());
+  const [isFinished, setIsFinished] = useState(false);
   const navigate = useNavigate();
 
+  const { testID } = useParams();
 
-  useEffect(() => {
-    getQuestions();
-  }, [])
+  const getQuestion = async () => {
+      const { data, error } = await supabase.rpc("get_random_question", {
+        p_test_id: testID,
+      });
 
-  /**
-   * category selection is broken for some reason
-   */
-  async function getQuestions() {
-    const { data, error } = await supabase.rpc('get_random_question', {
-      diff: 'Easy',
-      cat: 'Linear_Eq._Formula'
-    });
+      if (error) {
+        console.error("Function error:", error);
+        return;
+      }
+      
+      setQuestionData(data[0])
+      console.log(questionData[0])
+      if (data && data.length > 0) {
+        console.log("Question ID:", data[0]);
+      } else {
+        console.warn("No question found for this test.");
+      }
 
-    if (error) {
-      return;
-    }
-    
-    setQuestionData(data[0]);
-    console.log(data[0]);
-  } 
+    };
+  
   //use media type to determine what to display
   async function getMedia() {
     const { data, error } = await supabase.from('dictionary_of_media').select('*').eq('question_id', '21A_Q56_A');
@@ -53,22 +56,17 @@ function MockTest() {
   } 
 
 
-  //Answer Submission Handler
-
-   useEffect(() => {
-    console.log("chosenAnswer changed:", chosenAnswer);
-  }, [chosenAnswer]);
-
-
   async function handleSubmit(){
      const {data: { user }} = await supabase.auth.getUser();
+     setCurrentQuestion(currentQuestion + 1)
+
     
     if (user && questionData){
       const { data, error } = await supabase
         .from('questions')
         .upsert({
             id: questionData.uid, 
-            test_id: "24e08fd4-c0e0-486d-a4e7-bf82cea1b3a9", 
+            test_id: testID, 
             user_id: user.id,
             student_answer: chosenAnswer,
             order_index: currentQuestion
@@ -79,9 +77,39 @@ function MockTest() {
       if (error) {
         console.log("Answer not submitted", error)
         return;
+      } else {
+        isFinishedFunc()
+        getQuestion();
+        setChosenAnswer("");
+        setNullSubmission(false);
+        if (isFinished) {
+          navigate("/home")
+          console.log("woo")
+        }
+      }
+
+
+    }
+  }
+
+  //doesn't work for 1 question tests
+  async function isFinishedFunc(){
+    const { data, error } = await supabase.from('tests').select('total_questions').eq('id', testID)
+    if (data) {
+      if ( Number(data[0].total_questions) === Number(currentQuestion)) {
+        console.log(data[0].total_questions);
+        console.log("Penis" + currentQuestion);
+        Number(data[0].total_questions) === Number(currentQuestion) ? setIsFinished(true) : setIsFinished(false);
       }
     }
   }
+
+  /**
+   * Load the first question the moment the mock test begins
+   */
+  useEffect(() => {
+    getQuestion();
+  }, []);
 
   return (
     <>
@@ -97,7 +125,7 @@ function MockTest() {
               <button className="bg-white border shadow-md px-3 py-1.5 hover:bg-blue-300 rounded-md rounded-r-none " onClick={() => setCurrentQuestion(currentQuestion - 1)} >
                 {icons.arrowLeft}
               </button >
-              <button className="bg-white border shadow-md px-3 py-1.5 hover:bg-blue-300 rounded-md rounded-l-none" onClick={handleSubmit}>
+              <button className="bg-white border shadow-md px-3 py-1.5 hover:bg-blue-300 rounded-md rounded-l-none" onClick={chosenAnswer ? handleSubmit : () => setNullSubmission(true)}>
                 {icons.arrowRight}
               </button>
 
@@ -111,7 +139,7 @@ function MockTest() {
             </div>
            </div>
 
-          <h2 className="md:text-2xl text-xl">0/117</h2>
+          <h2 className="md:text-2xl text-xl">0/114</h2>
 
           <div className="flex flex-row gap-6">
             <h2 className="md:text-2xl text-xl">00:00:00</h2>
@@ -134,6 +162,7 @@ function MockTest() {
             <h3 className="md:text-xl text-md">{"Question " + currentQuestion}</h3>
             {/* Problem */}
             <p>{questionData.text ? questionData.text : "Loading"}</p>
+            {nullSubmission ? <p className="md:text-sm text-xs text-red-600 font-bold animate-bounce">Input a answer!!!</p> : ""}
            <QuestionRenderer chosenAnswer={setChosenAnswer} type={questionData.type} uid={questionData.uid} options={[questionData.choice_1, questionData.choice_2, questionData.choice_3, questionData.choice_4]} answer={questionData.answer}></QuestionRenderer>       
             </div>
           </div>

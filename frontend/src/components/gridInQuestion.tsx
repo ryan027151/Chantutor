@@ -1,9 +1,10 @@
-function GridInQuestion(){
+
+function GridInQuestion(props : {chosenAnswer : (answer : string) => void}){
     return (
         <div className="container">
             <form id="questions">
                 <label>
-                    <input type="text"></input>
+                    <input type="text" onChange={(e) => props.chosenAnswer(e.target.value)}></input>
                 </label>
             </form>
         </div>

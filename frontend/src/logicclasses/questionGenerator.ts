@@ -88,6 +88,7 @@ export default class QuestionGenerator{
         /**
          * need to make it so that difficulty/total counter is increased for this subcategory
          */
+
         return randomCategory;
     }
 
