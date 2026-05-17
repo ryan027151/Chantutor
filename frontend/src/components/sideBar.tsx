@@ -49,7 +49,6 @@ export default function SideBar({className = ""}){
 
             {/* Sign out container */}
             <div>
-                <SideNavIcons icon={icons.user} label={"Profile"} onClick={() => navigate("/home")}></SideNavIcons>
                 <SideNavIcons icon={icons.logout} label={"Sign Out"} onClick={() => navigate("/")}></SideNavIcons>
             </div>
 

@@ -1,14 +1,11 @@
-import MCQuestion from "../components/multiQuestion";
-import GridInQuestion from "../components/gridInQuestion";
 import { supabase } from "../supabase-client";
-import {useEffect, useState, useRef} from "react";
-import QuestionGenerator from "../logicclasses/questionGenerator";
+import {useEffect, useState, useRef, useContext} from "react";
 import { icons } from "../assets/icons.tsx"
 import { useNavigate } from "react-router-dom";
-import Question from "../logicclasses/question.ts";
 import QuestionRenderer from "../components/questionRenderer.tsx";
 import { useParams } from "react-router-dom";
-import MockTextPopUp from "../components/mockTestPopUp.tsx";
+import { UserContext } from "../components/userContext.ts";
+import { Test } from "../components/types.ts";
 
 
 
@@ -17,11 +14,14 @@ function MockTest() {
   const [currentQuestion, setCurrentQuestion] = useState(1);
   const [chosenAnswer, setChosenAnswer] = useState("");
   const [nullSubmission, setNullSubmission] = useState(false);
-  const [mediaData, setMediaData] = useState(null)
   const [isFinished, setIsFinished] = useState(false);
+  const [currentTest, setCurrentTest] = useState<Test | null>(null)
   const navigate = useNavigate();
-
+  const user = useContext(UserContext);
   const { testID } = useParams();
+
+
+
 
   const getQuestion = async () => {
       const { data, error } = await supabase.rpc("get_random_question", {
@@ -34,30 +34,10 @@ function MockTest() {
       }
       
       setQuestionData(data[0])
-      console.log(questionData[0])
-      if (data && data.length > 0) {
-        console.log("Question ID:", data[0]);
-      } else {
-        console.warn("No question found for this test.");
-      }
-
     };
-  
-  //use media type to determine what to display
-  async function getMedia() {
-    const { data, error } = await supabase.from('dictionary_of_media').select('*').eq('question_id', '21A_Q56_A');
-
-    if (error) {
-      return;
-    }
-    
-    setMediaData(data[0])
-    console.log(data[0])
-  } 
 
 
   async function handleSubmit(){
-     const {data: { user }} = await supabase.auth.getUser();
      setCurrentQuestion(currentQuestion + 1)
 
     
@@ -84,23 +64,30 @@ function MockTest() {
         setNullSubmission(false);
         if (isFinished) {
           navigate("/home")
-          console.log("woo")
         }
       }
-
-
     }
   }
 
   //doesn't work for 1 question tests
   async function isFinishedFunc(){
-    const { data, error } = await supabase.from('tests').select('total_questions').eq('id', testID)
-    if (data) {
-      if ( Number(data[0].total_questions) === Number(currentQuestion)) {
-        console.log(data[0].total_questions);
-        console.log("Penis" + currentQuestion);
-        Number(data[0].total_questions) === Number(currentQuestion) ? setIsFinished(true) : setIsFinished(false);
+    if (currentTest) {
+      if (Number(currentTest.total_questions) === Number(currentQuestion)) {
+        setIsFinished(true);
       }
+    }
+  }
+
+  async function getCurrenTest(){
+    const { data, error } = await supabase.from('tests').select('*').eq('id', testID)
+    if (data) {
+      setCurrentTest(data[0]);
+      console.log(currentTest);
+    }
+
+    if (error){
+      console.log("Test not found!!!");
+      return;
     }
   }
 
@@ -109,6 +96,7 @@ function MockTest() {
    */
   useEffect(() => {
     getQuestion();
+    getCurrenTest();
   }, []);
 
   return (
@@ -118,7 +106,7 @@ function MockTest() {
         <div className="flex flex-row w-full md:h-auto h-auto px-10 py-3 gap-6 items-center justify-between border-b-3 border-dotted">
 
           <div className="flex flex-row gap-6">
-            <h2 className="md:text-2xl text-xl">Recent Tests</h2>
+            <h2 className="md:text-2xl text-xl">{currentTest ? currentTest.test_name: "Loading..."}</h2>
 
             {/*arrow buttons container*/}
             <div>
@@ -133,17 +121,14 @@ function MockTest() {
               <button onClick={() => navigate("/home")}>
                 {icons.home}
               </button>
-              <button onClick={getMedia}>
-                {icons.exit}
-              </button>
             </div>
            </div>
 
-          <h2 className="md:text-2xl text-xl">0/114</h2>
+          <h2 className="md:text-2xl text-xl">{currentTest ? currentQuestion + "/" + currentTest.total_questions: "Loading..."}</h2>
 
           <div className="flex flex-row gap-6">
             <h2 className="md:text-2xl text-xl">00:00:00</h2>
-            <h2 className="md:text-2xl text-xl">Name</h2>
+            <h2 className="md:text-2xl text-xl">{user?.first_name}</h2>
           </div>
         
         </div>

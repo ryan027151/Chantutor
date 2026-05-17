@@ -1,15 +1,25 @@
-export type UserRole = 'student' | 'admin' | 'parent';
-
-
-export interface AppUser {
-  id: string;
-  email: string | undefined;
-  name: string;
-  role: UserRole;
+export interface User{
+    first_name : string,
+    last_name : string,
+    id: string,
+    role: string
 }
 
-export interface AuthContextType {
-  user: AppUser | null;
-  loading: boolean;
-  logout: () => Promise<void>;
+export interface TestConfiguration {
+  [subject: string]: {
+    count: number;
+    seen_count: number;
+  };
+}
+
+// Matches your Supabase columns exactly
+export interface Test {
+  id: string;
+  user_id: string;
+  test_name: string;       
+  score: number | null;     
+  created_at: string;       
+  duration: number;         
+  configuration: TestConfiguration; 
+  total_questions: number; 
 }
