@@ -48,6 +48,7 @@ function MockTest() {
   const [currentTest, setCurrentTest] = useState<Test | null>(null);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+  const [testReady, setTestReady] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasInitialized = useRef(false);
 
@@ -66,26 +67,31 @@ function MockTest() {
     .filter((m) => isChoiceMedia(m.media_id))
     .forEach((m) => { choiceImages[choiceLetter(m.media_id)] = m.content; });
 
-  // Back button is only shown for passage questions that span multiple questions
+  // Back button is shown for passage questions (active mode) or any question in review mode.
+  // In active mode, isPassageQuestion gates entry into review.
+  // Once reviewing, back stays available so the student can navigate the whole passage.
   const isPassageQuestion = mediaItems.some((m) => isMultiQuestionMedia(m.media_id));
+  const showBackButton = currentQuestion > 1 && (isPassageQuestion || isReadOnly);
 
   // ─── Data fetching ──────────────────────────────────────────────────────────
 
-  const getQuestion = async (test: Test | null, questionIndex: number) => {
-    if (!test) return;
-    if (test.test_name === "Diagnostic") {
+  const getQuestion = async (test: Test | null, questionIndex: number): Promise<boolean> => {
+    if (!test) return false;
+    if (test.test_name === "Diagnostic Test") {
       const { data, error } = await supabase.rpc("get_diagnostic_question", {
         p_test_id: testID,
         p_order_index: questionIndex,
       });
-      if (error) { console.error("Diagnostic question error:", error); return; }
-      setQuestionData(data[0] ?? null);
+      if (error || !data?.[0]) { console.error("Diagnostic question error:", error); return false; }
+      setQuestionData(data[0]);
+      return true;
     } else {
       const { data, error } = await supabase.rpc("get_random_question", {
         p_test_id: testID,
       });
-      if (error) { console.error("Question error:", error); return; }
-      setQuestionData(data[0] ?? null);
+      if (error || !data?.[0]) { console.error("Question error:", error); return false; }
+      setQuestionData(data[0]);
+      return true;
     }
   };
 
@@ -114,19 +120,22 @@ function MockTest() {
   // Loads a previously answered question by order_index (for back/forward review).
   const loadQuestionAtIndex = async (index: number) => {
     if (!user) return;
-    const { data: record } = await supabase
+    const { data: record, error: recordError } = await supabase
       .from("questions")
       .select("id, student_answer")
       .eq("test_id", testID)
       .eq("user_id", user.id)
       .eq("order_index", index)
-      .single();
+      .maybeSingle();
 
-    if (!record) return;
+    if (recordError) { console.error("loadQuestionAtIndex record error:", recordError); return; }
+    if (!record) { console.warn("loadQuestionAtIndex: no record at index", index); return; }
 
-    const { data: qData } = await supabase.rpc("get_question_by_uid", {
+    const { data: qData, error: qError } = await supabase.rpc("get_question_by_uid", {
       p_uid: record.id,
     });
+
+    if (qError) { console.error("loadQuestionAtIndex get_question_by_uid error:", qError); return; }
 
     if (qData?.[0]) {
       setQuestionData(qData[0]);
@@ -155,6 +164,7 @@ function MockTest() {
     if (error) { console.error("Answer not submitted:", error); return; }
 
     if (currentTest && Number(currentTest.total_questions) === Number(currentQuestion)) {
+      localStorage.removeItem(`timerEnd_${testID}`);
       navigate("/home");
       return;
     }
@@ -213,7 +223,8 @@ function MockTest() {
 
       setLatestQuestion(startIndex);
       setCurrentQuestion(startIndex);
-      await getQuestion(test, startIndex);
+      const success = await getQuestion(test, startIndex);
+      if (success) setTestReady(true);
     };
 
     init();
@@ -235,20 +246,47 @@ function MockTest() {
     fetchMedia();
   }, [questionData?.uid]);
 
-  // Start countdown when test loads with duration > 0 (0 = untimed)
+  // Start countdown only after the first question has loaded.
+  // End timestamp is persisted in localStorage so reloading restores the correct time.
   useEffect(() => {
-    if (!currentTest || currentTest.duration === 0) return;
-    setTimeRemaining(currentTest.duration * 60);
-    timerRef.current = setInterval(() => {
-      setTimeRemaining((prev) => (prev !== null && prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [currentTest]);
+    if (!testReady || !currentTest || currentTest.duration === 0) return;
 
-  // Navigate home when timer runs out
+    const storageKey = `timerEnd_${testID}`;
+    const stored = localStorage.getItem(storageKey);
+    let endTime: number;
+
+    if (stored) {
+      endTime = parseInt(stored, 10);
+      const remaining = Math.floor((endTime - Date.now()) / 1000);
+      if (remaining <= 0) {
+        localStorage.removeItem(storageKey);
+        navigate("/home");
+        return;
+      }
+      setTimeRemaining(remaining);
+    } else {
+      endTime = Date.now() + currentTest.duration * 60 * 1000;
+      localStorage.setItem(storageKey, endTime.toString());
+      setTimeRemaining(currentTest.duration * 60);
+    }
+
+    timerRef.current = setInterval(() => {
+      const rem = Math.floor((endTime - Date.now()) / 1000);
+      if (rem <= 0) {
+        setTimeRemaining(0);
+      } else {
+        setTimeRemaining(rem);
+      }
+    }, 1000);
+
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [testReady]);
+
+  // Navigate home when timer hits zero and clean up stored end time
   useEffect(() => {
     if (timeRemaining === 0 && currentTest && currentTest.duration > 0) {
       if (timerRef.current) clearInterval(timerRef.current);
+      localStorage.removeItem(`timerEnd_${testID}`);
       navigate("/home");
     }
   }, [timeRemaining]);
@@ -265,8 +303,8 @@ function MockTest() {
           </h2>
 
           <div className="flex items-center">
-            {/* Back arrow — only shown for multi-question passage questions */}
-            {isPassageQuestion && (
+            {/* Back arrow — shown for passage questions (active) or any question in review */}
+            {showBackButton && (
               <button
                 type="button"
                 className="bg-white border shadow-md px-3 py-1.5 hover:bg-blue-300 rounded-md rounded-r-none"
@@ -277,14 +315,16 @@ function MockTest() {
             )}
             <button
               type="button"
-              className={`bg-white border shadow-md px-3 py-1.5 hover:bg-blue-300 rounded-md ${isPassageQuestion ? "rounded-l-none" : ""}`}
+              className={`bg-white border shadow-md px-3 py-1.5 hover:bg-blue-300 rounded-md ${showBackButton ? "rounded-l-none" : ""}`}
               onClick={handleForward}
             >
               {icons.arrowRight}
             </button>
-            <button type="button" className="ml-2" onClick={() => navigate("/home")}>
-              {icons.home}
-            </button>
+            {currentTest?.test_name !== "Diagnostic Test" && (
+              <button type="button" className="ml-2" onClick={() => navigate("/home")}>
+                {icons.home}
+              </button>
+            )}
           </div>
         </div>
 

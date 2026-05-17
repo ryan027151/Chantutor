@@ -102,13 +102,6 @@ function SignUpPage(){
             <button
                 type="button"
                 className="flex items-center justify-center md:w-40 w-9 px-2 py-0.5 text-center text-xl text-black hover:bg-gray-100 rounded border transition-all"
-                onClick={() => navigate("/")}
-            >
-                Login
-            </button>
-            <button
-                type="button"
-                className="flex items-center justify-center md:w-40 w-9 px-2 py-0.5 text-center text-xl text-black hover:bg-gray-100 rounded border transition-all"
                 onClick={signUp}
             >
                 Sign up

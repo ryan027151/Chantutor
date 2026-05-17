@@ -1,3 +1,5 @@
+import { parseFormattedText } from "../utils/textParser";
+
 interface MCQuestionProps {
   option1: string;
   option2: string;
@@ -54,7 +56,7 @@ function MCQuestion({
                 className="max-h-16 h-auto"
               />
             ) : (
-              <span>{choice.label}</span>
+              <span>{parseFormattedText(choice.label ?? "")}</span>
             )}
           </label>
         ))}

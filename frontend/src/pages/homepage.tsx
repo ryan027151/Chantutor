@@ -17,6 +17,7 @@ function HomePage() {
   const user = useContext(UserContext);
   const [numQuestions, setNumQuestions] = useState(117);
   const [numPracticeQuestions, setNumPracticeQuestions] = useState(false);
+  const [showDiagnosticPrompt, setShowDiagnosticPrompt] = useState(false);
 
   async function getTests() {
     const { data, error } = await supabase
@@ -49,7 +50,7 @@ function HomePage() {
       .from("tests")
       .select("*")
       .eq("user_id", user!.id)
-      .eq("test_name", "Diagnostic")
+      .eq("test_name", "Diagnostic Test")
       .limit(1);
 
     if (error) {
@@ -58,7 +59,7 @@ function HomePage() {
     }
 
     if (!diagnosticTests || diagnosticTests.length === 0) {
-      await createDiagnosticTest();
+      setShowDiagnosticPrompt(true);
     } else {
       const diag = diagnosticTests[0];
       if (diag.score === null) {
@@ -84,7 +85,7 @@ function HomePage() {
       .insert([
         {
           user_id: user!.id,
-          test_name: "Diagnostic",
+          test_name: "Diagnostic Test",
           score: null,
           duration: 180,
           total_questions: countData,
@@ -135,6 +136,31 @@ function HomePage() {
 
   return (
     <div className="flex h-screen bg-gray-200">
+
+      {/* Diagnostic test required overlay */}
+      {showDiagnosticPrompt && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4 flex flex-col gap-4">
+            <h2 className="text-2xl font-bold">Diagnostic Test Required</h2>
+            <p className="text-gray-700">
+              Before accessing Mock Tests, Practice, and Analysis, you must complete the <strong>Diagnostic Test</strong>.
+            </p>
+            <ul className="list-disc list-inside text-gray-700 text-sm space-y-1">
+              <li>114 questions — English section first, then Math</li>
+              <li>Fixed 3-hour time limit</li>
+              <li>Once started, you cannot leave the test</li>
+              <li>All other features unlock after completion</li>
+            </ul>
+            <button
+              type="button"
+              className="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 rounded-lg font-semibold"
+              onClick={createDiagnosticTest}
+            >
+              Start Diagnostic Test
+            </button>
+          </div>
+        </div>
+      )}
 
       <MockTextPopUp appear={mockTestPopUp} setAppear={setMockTestPopUp}>
         <h3 className="md:text-xl text-sm">Enter in test settings:</h3>

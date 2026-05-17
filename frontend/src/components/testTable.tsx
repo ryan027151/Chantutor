@@ -15,6 +15,7 @@ export default function TestTable({ tests }: TestTableProps) {
       ) : (
         tests.map((test) => (
           <TestTableRow
+            key={test.id}
             name={test.test_name}
             date={new Date(test.created_at).toLocaleDateString("en-US")}
             completed={test.score !== null}
