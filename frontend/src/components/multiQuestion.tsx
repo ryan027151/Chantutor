@@ -1,6 +1,14 @@
 import { useState } from "react";
 import { parseFormattedText } from "../utils/textParser";
 
+// Extracts the leading letter from a choice string like "A) text", "E. text", "F text".
+// Falls back to the provided default if no letter prefix is found.
+function extractLetter(text: string | undefined, fallback: string): string {
+  if (!text) return fallback;
+  const m = text.match(/^([A-Ha-h])[).:\s]/);
+  return m ? m[1].toUpperCase() : fallback;
+}
+
 interface MCQuestionProps {
   option1: string;
   option2: string;
@@ -20,14 +28,19 @@ function MCQuestion({
   choiceImages = {},
 }: MCQuestionProps) {
   const [selected, setSelected] = useState(isReadOnly ? previousAnswer : "");
-  const hasImages = Object.keys(choiceImages).length > 0;
 
-  const choices = [
-    { value: hasImages ? "A" : option1, label: option1, image: choiceImages["A"], letter: "A" },
-    { value: hasImages ? "B" : option2, label: option2, image: choiceImages["B"], letter: "B" },
-    { value: hasImages ? "C" : option3, label: option3, image: choiceImages["C"], letter: "C" },
-    { value: hasImages ? "D" : option4, label: option4, image: choiceImages["D"], letter: "D" },
-  ];
+  const rawOptions = [option1, option2, option3, option4];
+  const fallbackLetters = ["A", "B", "C", "D"];
+
+  const choices = rawOptions.map((opt, i) => {
+    const letter = extractLetter(opt, fallbackLetters[i]);
+    return {
+      value: letter,
+      label: opt,
+      image: choiceImages[letter],
+      letter,
+    };
+  });
 
   return (
     <fieldset className="flex flex-col gap-2.5">

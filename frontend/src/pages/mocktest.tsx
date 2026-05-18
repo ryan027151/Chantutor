@@ -9,6 +9,41 @@ import { UserContext } from "../components/userContext.ts";
 import { Test, MediaItem } from "../components/types.ts";
 import { parseFormattedText } from "../utils/textParser.tsx";
 
+// Extracts the leading letter (A–H) from a choice string like "A) text", "E. text", or just "A".
+function choiceLetterOf(s: string): string {
+  const m = s.trim().match(/^([A-Ha-h])[).:\s]?/);
+  return m ? m[1].toUpperCase() : s.trim().toUpperCase();
+}
+
+// Returns true when the student's answer matches the correct answer.
+// MCQ: compares just the letter prefix so "A) text" == "A".
+// Grid-in: normalises fractions and decimals numerically; falls back to trimmed string compare.
+function checkAnswer(student: string, correct: string, type: string): boolean {
+  if (!student.trim() || !correct.trim()) return false;
+
+  if (type === "mcq") {
+    return choiceLetterOf(student) === choiceLetterOf(correct);
+  }
+
+  // Grid-in: convert "3/4" → 0.75, "0.75" → 0.75, "42" → 42
+  const toNum = (raw: string): number | null => {
+    const t = raw.trim();
+    if (t.includes("/")) {
+      const [n, d] = t.split("/").map(Number);
+      return Number.isFinite(n) && Number.isFinite(d) && d !== 0 ? n / d : null;
+    }
+    const n = parseFloat(t);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const sv = toNum(student);
+  const cv = toNum(correct);
+  if (sv !== null && cv !== null) return Math.abs(sv - cv) < 0.0001;
+
+  // Non-numeric grid-in (shouldn't happen normally) — plain string match
+  return student.trim().toLowerCase() === correct.trim().toLowerCase();
+}
+
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -53,6 +88,7 @@ function MockTest() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasInitialized = useRef(false);
   const currentSubjectRef = useRef<string>("");
+  const questionStartTimeRef = useRef<number>(Date.now());
 
   const navigate = useNavigate();
   const user = useContext(UserContext);
@@ -91,6 +127,7 @@ function MockTest() {
         p_order_index: questionIndex,
       });
       if (error || !data?.[0]) { console.error("Diagnostic question error:", error); return null; }
+      questionStartTimeRef.current = Date.now();
       setQuestionData(data[0]);
       return data[0];
     } else {
@@ -98,6 +135,7 @@ function MockTest() {
         p_test_id: testID,
       });
       if (error || !data?.[0]) { console.error("Question error:", error); return null; }
+      questionStartTimeRef.current = Date.now();
       setQuestionData(data[0]);
       return data[0];
     }
@@ -162,12 +200,21 @@ function MockTest() {
   const handleSubmit = async () => {
     if (!user || !questionData) return;
 
+    const is_correct = checkAnswer(
+      chosenAnswer,
+      questionData.answer ?? "",
+      questionData.type ?? "mcq"
+    );
+    const time_spent = Math.round((Date.now() - questionStartTimeRef.current) / 1000);
+
     const { error } = await supabase.from("questions").upsert(
       {
         id: questionData.uid,
         test_id: testID,
         user_id: user.id,
         student_answer: chosenAnswer,
+        is_correct,
+        time_spent,
         order_index: currentQuestion,
       },
       { onConflict: "test_id, user_id, id" }
@@ -363,18 +410,8 @@ function MockTest() {
 
       {/* Header */}
       <div className="bg-white border-b border-slate-100 shadow-sm px-8 py-4 flex items-center justify-between shrink-0 sticky top-0 z-10">
-        {/* Left: back + name + home */}
+        {/* Left: name + home */}
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          {showBackButton && (
-            <button
-              type="button"
-              aria-label="Previous question"
-              className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
-              onClick={handleBack}
-            >
-              {icons.arrowLeft}
-            </button>
-          )}
           <h1 className="text-sm font-bold text-slate-900 truncate">
             {currentTest?.test_name ?? "Loading…"}
           </h1>
@@ -410,66 +447,88 @@ function MockTest() {
         </div>
       </div>
 
-      {/* Question area */}
-      <div className="flex flex-col items-center py-8 px-4 flex-1">
+      {/* Question area — overflow-hidden lets the flex children shrink below natural size when left panel is resized */}
+      <div className="flex items-start justify-center py-8 px-6 flex-1 gap-4 overflow-hidden">
         {questionData ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 w-full max-w-3xl flex flex-col gap-5">
-            {/* Question label */}
-            <div className="flex items-center gap-2.5">
-              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                Question {currentQuestion}
-              </span>
-              {isReadOnly && (
-                <span className="text-xs font-medium bg-amber-50 text-amber-600 border border-amber-200 rounded-full px-2.5 py-0.5">
-                  Review
+          <>
+            {/* Left panel — the only resize handle; drag bottom-right corner to resize both axes */}
+            {displayMedia.length > 0 && (
+              <div className="flex flex-col w-2/5 min-w-56 max-w-3xl h-[58vh] min-h-48 max-h-[calc(100vh-6rem)] resize overflow-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-6 self-start sticky top-20">
+                <MediaDisplay mediaItems={displayMedia} />
+              </div>
+            )}
+
+            {/* Right panel — fills remaining space as left panel is resized */}
+            <div className={`bg-white rounded-2xl shadow-sm border border-slate-100 p-8 flex flex-col gap-5 ${displayMedia.length > 0 ? "flex-1 min-w-72 overflow-hidden" : "w-full max-w-3xl"}`}>
+              {/* Question label */}
+              <div className="flex items-center gap-2.5">
+                <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                  Question {currentQuestion}
                 </span>
-              )}
+                {isReadOnly && (
+                  <span className="text-xs font-medium bg-amber-50 text-amber-600 border border-amber-200 rounded-full px-2.5 py-0.5">
+                    Review
+                  </span>
+                )}
+              </div>
+
+              {/* Question text */}
+              <div className="text-base leading-relaxed text-slate-800">
+                {parseFormattedText(questionData.text ?? "")}
+              </div>
+
+              {/* Answer input — key forces full remount on question change */}
+              <QuestionRenderer
+                key={currentQuestion}
+                chosenAnswer={setChosenAnswer}
+                type={questionData.type as "mcq" | "grid-in"}
+                uid={questionData.uid}
+                options={[
+                  questionData.choice_1,
+                  questionData.choice_2,
+                  questionData.choice_3,
+                  questionData.choice_4,
+                ]}
+                answer={questionData.answer}
+                isReadOnly={isReadOnly}
+                previousAnswer={previousAnswer}
+                choiceImages={choiceImages}
+              />
+
+              {/* Navigation row — back left, submit right */}
+              <div className="flex items-center justify-between pt-1">
+                <div>
+                  {showBackButton && (
+                    <button
+                      type="button"
+                      aria-label="Previous question"
+                      onClick={handleBack}
+                      className="flex items-center gap-1.5 text-slate-500 hover:text-slate-700 px-4 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 text-sm font-medium transition-colors"
+                    >
+                      {icons.arrowLeft}
+                      Back
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  {nullSubmission && (
+                    <p className="text-sm text-rose-600 font-medium animate-bounce">
+                      Select an answer before continuing.
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
+                    onClick={handleForward}
+                  >
+                    {isReadOnly
+                      ? currentQuestion + 1 < latestQuestion ? "Next" : "Resume"
+                      : currentTest && Number(currentQuestion) === Number(currentTest.total_questions) ? "Finish" : "Submit"}
+                  </button>
+                </div>
+              </div>
             </div>
-
-            {/* Passage, graph, table, or equation */}
-            <MediaDisplay mediaItems={displayMedia} />
-
-            {/* Question text */}
-            <div className="text-base leading-relaxed text-slate-800">
-              {parseFormattedText(questionData.text ?? "")}
-            </div>
-
-            {/* Answer input — key forces full remount on question change */}
-            <QuestionRenderer
-              key={currentQuestion}
-              chosenAnswer={setChosenAnswer}
-              type={questionData.type as "mcq" | "grid-in"}
-              uid={questionData.uid}
-              options={[
-                questionData.choice_1,
-                questionData.choice_2,
-                questionData.choice_3,
-                questionData.choice_4,
-              ]}
-              answer={questionData.answer}
-              isReadOnly={isReadOnly}
-              previousAnswer={previousAnswer}
-              choiceImages={choiceImages}
-            />
-
-            {/* Submit / navigation */}
-            <div className="flex justify-end items-center gap-3 pt-1">
-              {nullSubmission && (
-                <p className="text-sm text-rose-600 font-medium animate-bounce">
-                  Select an answer before continuing.
-                </p>
-              )}
-              <button
-                type="button"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
-                onClick={handleForward}
-              >
-                {isReadOnly
-                  ? currentQuestion + 1 < latestQuestion ? "Next" : "Resume"
-                  : currentTest && Number(currentQuestion) === Number(currentTest.total_questions) ? "Finish" : "Submit"}
-              </button>
-            </div>
-          </div>
+          </>
         ) : (
           <p className="text-slate-400 text-sm mt-16">Loading question…</p>
         )}

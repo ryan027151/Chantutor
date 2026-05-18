@@ -1,6 +1,26 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../supabase-client";
 
+type MediaType = "passage" | "graph" | "table" | "equation";
+
+interface MediaItem {
+  mediaId: string;
+  media_type: MediaType;
+  file: File | null;
+  passageText: string;
+  previewUrl: string; // object URL for new uploads, or existing content URL
+  isExisting: boolean;
+}
+
+const MEDIA_TYPE_LABELS: Record<MediaType, string> = {
+  passage: "Passage (text)",
+  graph: "Graph (image)",
+  table: "Table (image)",
+  equation: "Equation (image)",
+};
+
+function isImageType(t: MediaType) { return t !== "passage"; }
+
 interface Question {
   uid: string;
   type: "mcq" | "grid-in";
@@ -118,6 +138,7 @@ export default function AdminQuestionsPanel() {
   const [originalSubCategory, setOriginalSubCategory] = useState<string | null>(null);
   const [isNewTopic, setIsNewTopic] = useState(false);
   const [newTopicName, setNewTopicName] = useState("");
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -172,22 +193,71 @@ export default function AdminQuestionsPanel() {
     setForm(f => ({ ...f, [key]: val }));
   }
 
+  function addMediaItem() {
+    const nextLetter = String.fromCharCode(65 + mediaItems.length);
+    const autoId = form.uid?.trim() ? `${form.uid.trim()}_${nextLetter}` : `_${nextLetter}`;
+    setMediaItems(prev => [...prev, { mediaId: autoId, media_type: "graph", file: null, passageText: "", previewUrl: "", isExisting: false }]);
+  }
+
+  function removeMediaItem(idx: number) {
+    setMediaItems(prev => {
+      if (prev[idx].previewUrl && !prev[idx].isExisting) URL.revokeObjectURL(prev[idx].previewUrl);
+      return prev.filter((_, i) => i !== idx);
+    });
+  }
+
+  function updateMediaItem(idx: number, patch: Partial<MediaItem>) {
+    setMediaItems(prev => prev.map((item, i) => i === idx ? { ...item, ...patch } : item));
+  }
+
+  function handleImageFile(idx: number, file: File | undefined) {
+    if (!file) return;
+    const previewUrl = URL.createObjectURL(file);
+    updateMediaItem(idx, { file, previewUrl, isExisting: false });
+  }
+
   function openAdd() {
     setForm({ ...EMPTY_FORM });
     setOriginalSubCategory(null);
     setIsNewTopic(false);
     setNewTopicName("");
+    setMediaItems([]);
     setSaveError(null);
     setModalMode("add");
   }
 
-  function openEdit(q: Question) {
+  async function openEdit(q: Question) {
     setForm({ ...q });
     setOriginalSubCategory(q.sub_category ?? null);
     setIsNewTopic(false);
     setNewTopicName("");
+    setMediaItems([]);
     setSaveError(null);
     setModalMode("edit");
+
+    // Load existing media from dictionary_of_media
+    const { data } = await supabase
+      .from("dictionary_of_media")
+      .select("media_id, media_type, content, index")
+      .eq("question_id", q.uid)
+      .order("index");
+
+    if (data && data.length > 0) {
+      setMediaItems(data.map((m: { media_id: string; media_type: MediaType; content: string; index: number }) => ({
+        mediaId: m.media_id,
+        media_type: m.media_type ?? "graph",
+        file: null,
+        passageText: m.media_type === "passage" ? (m.content ?? "") : "",
+        previewUrl: m.media_type !== "passage" ? (m.content ?? "") : "",
+        isExisting: true,
+      })));
+    } else if (q.media_refs?.trim()) {
+      // Fallback: parse media_refs string if no DB records found
+      setMediaItems(q.media_refs.split(/[,\s]+/).filter(Boolean).map(id => ({
+        mediaId: id.trim(), media_type: "graph" as MediaType,
+        file: null, passageText: "", previewUrl: "", isExisting: true,
+      })));
+    }
   }
 
   async function save() {
@@ -209,6 +279,8 @@ export default function AdminQuestionsPanel() {
       }
     }
 
+    const mediaRefsStr = mediaItems.map(m => m.mediaId.trim()).filter(Boolean).join(", ") || null;
+
     const payload = {
       uid: form.uid,
       type: form.type ?? "mcq",
@@ -221,7 +293,7 @@ export default function AdminQuestionsPanel() {
       choice_3: form.choice_3 || null,
       choice_4: form.choice_4 || null,
       answer: form.answer,
-      media_refs: form.media_refs || null,
+      media_refs: mediaRefsStr,
     };
 
     const { error: allQErr } = modalMode === "add"
@@ -260,6 +332,51 @@ export default function AdminQuestionsPanel() {
 
     if (modalMode === "add" && !categories.includes(form.sub_category!)) {
       setCategories(prev => [...prev, form.sub_category!].sort());
+    }
+
+    // Upload media to Storage + upsert into dictionary_of_media
+    for (let i = 0; i < mediaItems.length; i++) {
+      const item = mediaItems[i];
+      let content: string | null = null;
+
+      if (isImageType(item.media_type) && item.file) {
+        // Upload image to Storage → images bucket, named by media_id
+        const ext = item.file.name.split(".").pop() ?? "jpg";
+        const filePath = `${item.mediaId}.${ext}`;
+        const { error: uploadErr } = await supabase.storage
+          .from("images")
+          .upload(filePath, item.file, { upsert: true });
+        if (uploadErr) {
+          setSaveError(`Image upload failed for "${item.mediaId}": ${uploadErr.message}. Question was saved.`);
+          setSaving(false);
+          return;
+        }
+        const { data: urlData } = supabase.storage.from("images").getPublicUrl(filePath);
+        content = urlData.publicUrl;
+      } else if (item.media_type === "passage" && !item.isExisting && item.passageText.trim()) {
+        content = item.passageText.trim();
+      } else if (item.isExisting) {
+        // Existing item with no new file/text — still upsert to keep index/question_id in sync
+        content = item.media_type === "passage" ? item.passageText : item.previewUrl;
+      }
+
+      if (content !== null) {
+        const { error: dictErr } = await supabase.from("dictionary_of_media").upsert(
+          {
+            media_id: item.mediaId,
+            question_id: form.uid,
+            media_type: item.media_type,
+            content,
+            index: i,
+          },
+          { onConflict: "media_id" }
+        );
+        if (dictErr) {
+          setSaveError(`Media record failed for "${item.mediaId}": ${dictErr.message}. Question was saved.`);
+          setSaving(false);
+          return;
+        }
+      }
     }
 
     setModalMode(null);
@@ -553,23 +670,132 @@ export default function AdminQuestionsPanel() {
               {/* Correct answer */}
               <div className="flex flex-col gap-1.5">
                 <Label>Correct Answer</Label>
-                <Input
-                  value={form.answer ?? ""}
-                  onChange={v => setField("answer", v)}
-                  placeholder={form.type === "grid-in" ? "e.g. 42, 3/4, or 0.75" : "e.g. A) sentence 1"}
-                  mono
-                />
+                {form.type === "mcq" ? (
+                  <div className="grid grid-cols-4 gap-2">
+                    {(["A", "B", "C", "D"] as const).map((letter, i) => {
+                      const choiceKey = `choice_${i + 1}` as keyof FormData;
+                      const choiceText = (form[choiceKey] as string) ?? "";
+                      const selected = form.answer === letter;
+                      return (
+                        <button
+                          key={letter}
+                          type="button"
+                          onClick={() => setField("answer", letter)}
+                          title={choiceText || `Choice ${letter}`}
+                          className={`flex flex-col items-center gap-1 px-3 py-2.5 rounded-xl border text-sm font-bold transition-all ${
+                            selected
+                              ? "bg-amber-500 border-amber-400 text-zinc-950"
+                              : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-amber-500/40 hover:text-zinc-200"
+                          }`}
+                        >
+                          <span>{letter}</span>
+                          {choiceText && (
+                            <span className={`text-xs font-normal leading-tight text-center line-clamp-2 ${selected ? "text-zinc-800" : "text-zinc-600"}`}>
+                              {choiceText}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <Input
+                    value={form.answer ?? ""}
+                    onChange={v => setField("answer", v)}
+                    placeholder="e.g. 42, 3/4, or 0.75"
+                    mono
+                  />
+                )}
               </div>
 
-              {/* Media refs */}
-              <div className="flex flex-col gap-1.5">
-                <Label>Media References (optional)</Label>
-                <Input
-                  value={form.media_refs ?? ""}
-                  onChange={v => setField("media_refs", v)}
-                  placeholder="e.g. 25A_Q1_A, 25A_Q1_B"
-                  mono
-                />
+              {/* Media */}
+              <div className="flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <Label>Media (optional)</Label>
+                  <button
+                    type="button"
+                    onClick={addMediaItem}
+                    className="text-xs text-amber-400 hover:text-amber-300 font-medium transition-colors"
+                  >
+                    + Add media
+                  </button>
+                </div>
+                {mediaItems.length === 0 ? (
+                  <p className="text-xs text-zinc-700 italic">No media attached.</p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {mediaItems.map((item, idx) => (
+                      <div key={idx} className="border border-zinc-700/60 rounded-xl p-3.5 flex flex-col gap-3 bg-zinc-800/30">
+                        {/* ID + type row */}
+                        <div className="flex gap-2 items-end">
+                          <div className="flex-1 flex flex-col gap-1">
+                            <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">Media ID</span>
+                            <input
+                              type="text"
+                              value={item.mediaId}
+                              onChange={e => updateMediaItem(idx, { mediaId: e.target.value })}
+                              title="Media ID"
+                              placeholder={`${form.uid ?? "UID"}_${String.fromCharCode(65 + idx)}`}
+                              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs font-mono text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 transition-colors"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1 w-36 shrink-0">
+                            <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">Type</span>
+                            <select
+                              value={item.media_type}
+                              onChange={e => updateMediaItem(idx, { media_type: e.target.value as MediaType })}
+                              title="Media type"
+                              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500/60 transition-colors"
+                            >
+                              {(Object.keys(MEDIA_TYPE_LABELS) as MediaType[]).map(t => (
+                                <option key={t} value={t}>{MEDIA_TYPE_LABELS[t]}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeMediaItem(idx)}
+                            className="mb-0.5 w-7 h-7 flex items-center justify-center rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors text-sm shrink-0"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        {/* Content */}
+                        {isImageType(item.media_type) ? (
+                          <div className="flex flex-col gap-2">
+                            {item.previewUrl && (
+                              <img src={item.previewUrl} alt="preview" className="max-h-36 object-contain rounded-lg border border-zinc-700 bg-zinc-900 p-1" />
+                            )}
+                            {item.isExisting && !item.file && (
+                              <p className="text-xs text-zinc-600">Existing image — upload a new file below to replace it.</p>
+                            )}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              title="Upload image"
+                              placeholder="Upload image"
+                              onChange={e => handleImageFile(idx, e.target.files?.[0])}
+                              className="text-xs text-zinc-400 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-zinc-700 file:text-zinc-200 hover:file:bg-zinc-600 cursor-pointer"
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-1">
+                            {item.isExisting && !item.passageText && (
+                              <p className="text-xs text-zinc-600 mb-1">Existing passage — edit or replace text below.</p>
+                            )}
+                            <textarea
+                              value={item.passageText}
+                              onChange={e => updateMediaItem(idx, { passageText: e.target.value, isExisting: false })}
+                              placeholder="Paste or type the full passage text…"
+                              rows={5}
+                              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-amber-500/60 transition-colors resize-y"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Info note */}

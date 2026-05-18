@@ -137,8 +137,8 @@ function ResultsPage() {
 
   const englishCount = test.configuration?.english?.count ?? Math.floor(test.total_questions / 2);
   const mathCount = test.configuration?.math?.count ?? Math.ceil(test.total_questions / 2);
-  const englishQs = questions.filter((q) => q.order_index < englishCount);
-  const mathQs = questions.filter((q) => q.order_index >= englishCount);
+  const englishQs = questions.filter((q) => q.order_index <= englishCount);
+  const mathQs = questions.filter((q) => q.order_index > englishCount);
 
   const totalCorrect = questions.filter((q) => q.is_correct === true).length;
   const engCorrect = englishQs.filter((q) => q.is_correct === true).length;
@@ -261,8 +261,8 @@ function ResultsPage() {
           </div>
           <div className="divide-y divide-slate-50 max-h-112 overflow-y-auto">
             {Array.from({ length: test.total_questions }, (_, i) => {
-              const q = questions.find((qr) => qr.order_index === i);
-              const isEnglish = i < englishCount;
+              const q = questions.find((qr) => qr.order_index === i + 1);
+              const isEnglish = i + 1 <= englishCount;
               const correct = q?.is_correct;
               return (
                 <div
