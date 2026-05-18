@@ -7,15 +7,16 @@ interface TestTableProps {
 
 export default function TestTable({ tests }: TestTableProps) {
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       {!tests ? (
-        <p className="text-gray-500">Loading tests...</p>
+        <p className="text-slate-500 text-sm">Loading tests...</p>
       ) : tests.length === 0 ? (
-        <p className="text-gray-500">No tests found.</p>
+        <p className="text-slate-500 text-sm">No tests yet. Take your first test!</p>
       ) : (
         tests.map((test) => (
           <TestTableRow
             key={test.id}
+            id={test.id}
             name={test.test_name}
             date={new Date(test.created_at).toLocaleDateString("en-US")}
             completed={test.score !== null}

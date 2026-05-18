@@ -1,57 +1,67 @@
-import { useState } from 'react';
-import { icons } from '../assets/icons.tsx'
+import { icons } from '../assets/icons.tsx';
 import SideNavIcons from './sideNavIcons.tsx';
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from '../supabase-client.ts';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCrown } from '@fortawesome/free-solid-svg-icons';
+import { useContext } from 'react';
+import { UserContext } from './userContext.ts';
 
-export default function SideBar({className = ""}){
-    const navigate = useNavigate();
+export default function SideBar() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const user = useContext(UserContext);
+  const isAdmin = user?.role === 'admin';
 
-    //need to replace with actual security checks
-    async function adminCheck(){
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user){
-             const {data, error} = await supabase.from('profiles').select('role').eq('id', user.id)
-             if (data && data[0].role == 'admin') {
-                navigate("/admin")
-             } 
+  async function signOut() {
+    await supabase.auth.signOut();
+    navigate("/");
+  }
 
-             if (error){
-                console.log(error);
-                return;
-             }
-        }
-    }
-    
-    
-    
-
-    return(
-        <div className="flex flex-col justify-between py-4 top-0 h-screen md:w-48 w-12 bg-white">
-            <div className="flex flex-col">
-                {/* Main logo container */}
-                <div className="flex items-center justify-start m-2 gap-3 md:w-40 w-auto px-2 pb-4  border-b">
-                    {icons.logo}
-                    <span>
-                        <p className="text-sm md:inline hidden text-gray-500">Chan Tutoring</p>
-                    </span>
-                </div>
-
-                {/* Main buttons container */}
-                <div>
-                    <SideNavIcons icon={icons.home} label={"Home"} onClick={() => navigate("/home")}></SideNavIcons>
-                    <SideNavIcons icon={icons.practice} label={"Practice"} onClick={() => navigate("/practice")}></SideNavIcons>
-                    <SideNavIcons icon={icons.performance} label={"Performance"} onClick={() => navigate("/home")}></SideNavIcons>
-                    {<SideNavIcons icon={icons.table} label={"Adminstrator"} onClick={adminCheck}></SideNavIcons>}
-
-                </div>
-             </div>
-
-            {/* Sign out container */}
-            <div>
-                <SideNavIcons icon={icons.logout} label={"Sign Out"} onClick={() => navigate("/")}></SideNavIcons>
-            </div>
-
+  return (
+    <div className="flex flex-col justify-between py-4 h-screen md:w-56 w-14 bg-white border-r border-slate-200 shrink-0">
+      <div className="flex flex-col gap-1">
+        {/* Logo */}
+        <div className="flex items-center gap-2.5 px-4 pb-5 mb-2 border-b border-slate-100">
+          <FontAwesomeIcon icon={faCrown} className="text-xl text-amber-400 shrink-0" />
+          <span className="md:inline hidden text-sm font-bold text-slate-800 tracking-tight">Chan Tutoring</span>
         </div>
-    );
+
+        {/* Nav items */}
+        <div className="flex flex-col gap-0.5 px-2">
+          <SideNavIcons
+            icon={icons.home}
+            label="Home"
+            onClick={() => navigate("/home")}
+            active={location.pathname === "/home"}
+          />
+          <SideNavIcons
+            icon={icons.practice}
+            label="Practice"
+            onClick={() => navigate("/practice")}
+            active={location.pathname === "/practice"}
+          />
+          <SideNavIcons
+            icon={icons.performance}
+            label="Performance"
+            onClick={() => navigate("/performance")}
+            active={location.pathname === "/performance"}
+          />
+          {isAdmin && (
+            <SideNavIcons
+              icon={icons.table}
+              label="Admin"
+              onClick={() => navigate("/admin")}
+              active={location.pathname === "/admin"}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Sign out */}
+      <div className="px-2">
+        <SideNavIcons icon={icons.logout} label="Sign Out" onClick={signOut} />
+      </div>
+    </div>
+  );
 }

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { parseFormattedText } from "../utils/textParser";
 
 interface MCQuestionProps {
@@ -8,7 +9,6 @@ interface MCQuestionProps {
   chosenAnswer: (answer: string) => void;
   isReadOnly?: boolean;
   previousAnswer?: string;
-  // keyed by choice letter "A"|"B"|"C"|"D" → image URL (for number line questions)
   choiceImages?: Record<string, string>;
 }
 
@@ -19,49 +19,64 @@ function MCQuestion({
   previousAnswer = "",
   choiceImages = {},
 }: MCQuestionProps) {
+  const [selected, setSelected] = useState(isReadOnly ? previousAnswer : "");
   const hasImages = Object.keys(choiceImages).length > 0;
 
-  // When choice images are present, radio values are "A"/"B"/"C"/"D" so they match
-  // what gets stored in student_answer and compared against the answer field.
-  // For regular MCQ, values are the full choice text.
   const choices = [
-    { value: hasImages ? "A" : option1, label: option1, image: choiceImages["A"] },
-    { value: hasImages ? "B" : option2, label: option2, image: choiceImages["B"] },
-    { value: hasImages ? "C" : option3, label: option3, image: choiceImages["C"] },
-    { value: hasImages ? "D" : option4, label: option4, image: choiceImages["D"] },
+    { value: hasImages ? "A" : option1, label: option1, image: choiceImages["A"], letter: "A" },
+    { value: hasImages ? "B" : option2, label: option2, image: choiceImages["B"], letter: "B" },
+    { value: hasImages ? "C" : option3, label: option3, image: choiceImages["C"], letter: "C" },
+    { value: hasImages ? "D" : option4, label: option4, image: choiceImages["D"], letter: "D" },
   ];
 
   return (
-    <div className="flex flex-col gap-2">
-      <fieldset>
-        <legend className="sr-only">Answer choices</legend>
-        {choices.map((choice) => (
+    <fieldset className="flex flex-col gap-2.5">
+      <legend className="sr-only">Answer choices</legend>
+      {choices.map((choice) => {
+        const isSelected = selected === choice.value;
+        return (
           <label
             key={choice.value}
-            className={`flex flex-row items-start gap-2 py-1 ${isReadOnly ? "cursor-default" : "cursor-pointer"}`}
+            className={`flex items-start gap-3 border rounded-xl p-3.5 transition-colors ${
+              isReadOnly
+                ? "cursor-default"
+                : "cursor-pointer hover:border-blue-300 hover:bg-blue-50/50"
+            } ${isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"}`}
           >
             <input
               type="radio"
               name="options"
               value={choice.value}
-              defaultChecked={isReadOnly && previousAnswer === choice.value}
               disabled={isReadOnly}
-              onChange={(e) => chosenAnswer(e.target.value)}
-              className="mt-1 shrink-0"
+              className="sr-only"
+              onChange={(e) => {
+                if (isReadOnly) return;
+                setSelected(e.target.value);
+                chosenAnswer(e.target.value);
+              }}
             />
-            {choice.image ? (
-              <img
-                src={choice.image}
-                alt={`Choice ${choice.value}`}
-                className="max-h-16 h-auto"
-              />
-            ) : (
-              <span>{parseFormattedText(choice.label ?? "")}</span>
-            )}
+            <span
+              className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border transition-colors mt-0.5 ${
+                isSelected
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "border-slate-300 text-slate-500"
+              }`}
+            >
+              {choice.letter}
+            </span>
+            <div className="flex-1 pt-0.5">
+              {choice.image ? (
+                <img src={choice.image} alt={`Choice ${choice.letter}`} className="max-h-16 h-auto" />
+              ) : (
+                <span className={`text-sm leading-relaxed ${isSelected ? "text-blue-900" : "text-slate-700"}`}>
+                  {parseFormattedText(choice.label ?? "")}
+                </span>
+              )}
+            </div>
           </label>
-        ))}
-      </fieldset>
-    </div>
+        );
+      })}
+    </fieldset>
   );
 }
 

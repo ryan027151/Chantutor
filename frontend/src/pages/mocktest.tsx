@@ -49,8 +49,10 @@ function MockTest() {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [testReady, setTestReady] = useState(false);
+  const [showSectionBreak, setShowSectionBreak] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasInitialized = useRef(false);
+  const currentSubjectRef = useRef<string>("");
 
   const navigate = useNavigate();
   const user = useContext(UserContext);
@@ -61,7 +63,13 @@ function MockTest() {
 
   // Split mediaItems into display media (passage/graph/table/equation)
   // and number-line choice images
-  const displayMedia = mediaItems.filter((m) => !isChoiceMedia(m.media_id));
+  const displayMedia = mediaItems
+    .filter((m) => !isChoiceMedia(m.media_id))
+    .sort((a, b) => {
+      const suffixA = a.media_id.split("_").pop() ?? "";
+      const suffixB = b.media_id.split("_").pop() ?? "";
+      return suffixA.localeCompare(suffixB);
+    });
   const choiceImages: Record<string, string> = {};
   mediaItems
     .filter((m) => isChoiceMedia(m.media_id))
@@ -75,23 +83,23 @@ function MockTest() {
 
   // ─── Data fetching ──────────────────────────────────────────────────────────
 
-  const getQuestion = async (test: Test | null, questionIndex: number): Promise<boolean> => {
-    if (!test) return false;
+  const getQuestion = async (test: Test | null, questionIndex: number): Promise<Record<string, string> | null> => {
+    if (!test) return null;
     if (test.test_name === "Diagnostic Test") {
       const { data, error } = await supabase.rpc("get_diagnostic_question", {
         p_test_id: testID,
         p_order_index: questionIndex,
       });
-      if (error || !data?.[0]) { console.error("Diagnostic question error:", error); return false; }
+      if (error || !data?.[0]) { console.error("Diagnostic question error:", error); return null; }
       setQuestionData(data[0]);
-      return true;
+      return data[0];
     } else {
       const { data, error } = await supabase.rpc("get_random_question", {
         p_test_id: testID,
       });
-      if (error || !data?.[0]) { console.error("Question error:", error); return false; }
+      if (error || !data?.[0]) { console.error("Question error:", error); return null; }
       setQuestionData(data[0]);
-      return true;
+      return data[0];
     }
   };
 
@@ -146,6 +154,10 @@ function MockTest() {
 
   // ─── Action handlers ────────────────────────────────────────────────────────
 
+  const markTestComplete = async () => {
+    await supabase.from("tests").update({ score: 0 }).eq("id", testID).is("score", null);
+  };
+
   // Submit the current answer and advance to the next question.
   const handleSubmit = async () => {
     if (!user || !questionData) return;
@@ -164,8 +176,9 @@ function MockTest() {
     if (error) { console.error("Answer not submitted:", error); return; }
 
     if (currentTest && Number(currentTest.total_questions) === Number(currentQuestion)) {
-      localStorage.removeItem(`timerEnd_${testID}`);
-      navigate("/home");
+      localStorage.removeItem(`timerRemaining_${testID}`);
+      await markTestComplete();
+      navigate(`/results/${testID}`);
       return;
     }
 
@@ -174,7 +187,15 @@ function MockTest() {
     setCurrentQuestion(nextIndex);
     setChosenAnswer("");
     setNullSubmission(false);
-    getQuestion(currentTest, nextIndex);
+    const nextQuestion = await getQuestion(currentTest, nextIndex);
+    if (nextQuestion) {
+      const prevSubject = currentSubjectRef.current;
+      const nextSubject = (nextQuestion.subject ?? "").toLowerCase();
+      currentSubjectRef.current = nextSubject;
+      if (prevSubject === "english" && nextSubject === "math") {
+        setShowSectionBreak(true);
+      }
+    }
   };
 
   // Clicking the right arrow either submits (on active question) or advances review.
@@ -223,8 +244,11 @@ function MockTest() {
 
       setLatestQuestion(startIndex);
       setCurrentQuestion(startIndex);
-      const success = await getQuestion(test, startIndex);
-      if (success) setTestReady(true);
+      const question = await getQuestion(test, startIndex);
+      if (question) {
+        currentSubjectRef.current = (question.subject ?? "").toLowerCase();
+        setTestReady(true);
+      }
     };
 
     init();
@@ -239,7 +263,7 @@ function MockTest() {
         .from("dictionary_of_media")
         .select("*")
         .eq("question_id", questionData.uid)
-        .order("index");
+        .order("media_id");
       setMediaItems((data as MediaItem[]) ?? []);
     };
 
@@ -247,124 +271,168 @@ function MockTest() {
   }, [questionData?.uid]);
 
   // Start countdown only after the first question has loaded.
-  // End timestamp is persisted in localStorage so reloading restores the correct time.
+  // Remaining seconds are saved to localStorage every tick so the timer pauses
+  // when the user closes or reloads the page and resumes exactly where they left off.
   useEffect(() => {
     if (!testReady || !currentTest || currentTest.duration === 0) return;
 
-    const storageKey = `timerEnd_${testID}`;
+    const storageKey = `timerRemaining_${testID}`;
     const stored = localStorage.getItem(storageKey);
-    let endTime: number;
+    let remaining = stored ? parseInt(stored, 10) : currentTest.duration * 60;
 
-    if (stored) {
-      endTime = parseInt(stored, 10);
-      const remaining = Math.floor((endTime - Date.now()) / 1000);
-      if (remaining <= 0) {
-        localStorage.removeItem(storageKey);
-        navigate("/home");
-        return;
-      }
-      setTimeRemaining(remaining);
-    } else {
-      endTime = Date.now() + currentTest.duration * 60 * 1000;
-      localStorage.setItem(storageKey, endTime.toString());
-      setTimeRemaining(currentTest.duration * 60);
+    if (remaining <= 0) {
+      localStorage.removeItem(storageKey);
+      navigate("/home");
+      return;
     }
 
+    setTimeRemaining(remaining);
+
     timerRef.current = setInterval(() => {
-      const rem = Math.floor((endTime - Date.now()) / 1000);
-      if (rem <= 0) {
-        setTimeRemaining(0);
-      } else {
-        setTimeRemaining(rem);
+      remaining -= 1;
+      localStorage.setItem(storageKey, remaining.toString());
+      setTimeRemaining(remaining);
+      if (remaining <= 0) {
+        if (timerRef.current) clearInterval(timerRef.current);
       }
     }, 1000);
 
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [testReady]);
 
-  // Navigate home when timer hits zero and clean up stored end time
+  // Navigate to results when timer hits zero and clean up stored remaining time
   useEffect(() => {
     if (timeRemaining === 0 && currentTest && currentTest.duration > 0) {
       if (timerRef.current) clearInterval(timerRef.current);
-      localStorage.removeItem(`timerEnd_${testID}`);
-      navigate("/home");
+      localStorage.removeItem(`timerRemaining_${testID}`);
+      markTestComplete();
+      navigate(`/results/${testID}`);
     }
   }, [timeRemaining]);
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col w-full h-full">
-      {/* Header */}
-      <div className="flex flex-row w-full px-10 py-3 gap-6 items-center justify-between border-b border-gray-300">
-        <div className="flex flex-row gap-6 items-center">
-          <h2 className="md:text-2xl text-xl">
-            {currentTest ? currentTest.test_name : "Loading..."}
-          </h2>
+    <div className="flex flex-col w-full min-h-screen bg-slate-50">
+      {/* Section transition overlay */}
+      {showSectionBreak && (
+        <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center z-50 p-8">
+          <div className="max-w-lg w-full flex flex-col gap-5">
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h1 className="text-2xl font-bold text-slate-900 mb-1">English Section Complete</h1>
+              <p className="text-slate-500 text-sm">You've finished all English Language Arts questions.</p>
+            </div>
 
-          <div className="flex items-center">
-            {/* Back arrow — shown for passage questions (active) or any question in review */}
-            {showBackButton && (
-              <button
-                type="button"
-                className="bg-white border shadow-md px-3 py-1.5 hover:bg-blue-300 rounded-md rounded-r-none"
-                onClick={handleBack}
-              >
-                {icons.arrowLeft}
-              </button>
-            )}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+              <h2 className="text-base font-bold text-slate-900 mb-1">Starting: Math Section</h2>
+              <p className="text-sm text-slate-500 mb-4">
+                Some questions ask you to grid in your own answer. Use these exact formats:
+              </p>
+              <div className="flex flex-col divide-y divide-slate-100">
+                {[
+                  { type: "Whole number", format: "Just the number", example: "42" },
+                  { type: "Fraction", format: "numerator/denominator", example: "3/4" },
+                  { type: "Mixed number", format: "Convert to improper fraction", example: "7/2" },
+                  { type: "Decimal", format: "Use a decimal point", example: "0.75" },
+                  { type: "Negative", format: "Use a minus sign", example: "-5" },
+                ].map((row) => (
+                  <div key={row.type} className="flex items-center gap-3 py-2.5 text-sm">
+                    <span className="font-medium text-slate-700 w-32 shrink-0">{row.type}</span>
+                    <span className="text-slate-400 flex-1 text-xs">{row.format}</span>
+                    <span className="font-mono text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded text-xs">{row.example}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <button
               type="button"
-              className={`bg-white border shadow-md px-3 py-1.5 hover:bg-blue-300 rounded-md ${showBackButton ? "rounded-l-none" : ""}`}
-              onClick={handleForward}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-semibold transition-colors"
+              onClick={() => setShowSectionBreak(false)}
             >
-              {icons.arrowRight}
+              Begin Math Section
             </button>
-            {currentTest?.test_name !== "Diagnostic Test" && (
-              <button type="button" className="ml-2" onClick={() => navigate("/home")}>
-                {icons.home}
-              </button>
-            )}
           </div>
         </div>
+      )}
 
-        <h2 className="md:text-2xl text-xl">
-          {currentTest ? `${currentQuestion}/${currentTest.total_questions}` : "Loading..."}
-        </h2>
+      {/* Header */}
+      <div className="bg-white border-b border-slate-100 shadow-sm px-8 py-4 flex items-center justify-between shrink-0 sticky top-0 z-10">
+        {/* Left: back + name + home */}
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          {showBackButton && (
+            <button
+              type="button"
+              aria-label="Previous question"
+              className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
+              onClick={handleBack}
+            >
+              {icons.arrowLeft}
+            </button>
+          )}
+          <h1 className="text-sm font-bold text-slate-900 truncate">
+            {currentTest?.test_name ?? "Loading…"}
+          </h1>
+          {currentTest?.test_name !== "Diagnostic Test" && (
+            <button
+              type="button"
+              aria-label="Go home"
+              onClick={() => navigate("/home")}
+              className="text-slate-400 hover:text-slate-600 transition-colors shrink-0 ml-1"
+            >
+              {icons.home}
+            </button>
+          )}
+        </div>
 
-        <div className="flex flex-row gap-6 items-center">
-          <h2 className="md:text-2xl text-xl">
-            {timeRemaining !== null ? formatTime(timeRemaining) : "Untimed"}
-          </h2>
-          <h2 className="md:text-2xl text-xl">{user?.first_name}</h2>
+        {/* Center: question counter */}
+        <div className="flex flex-col items-center shrink-0 px-4">
+          <span className="text-xs font-semibold uppercase tracking-widest text-slate-400 leading-tight">Question</span>
+          <span className="text-sm font-bold text-slate-800 tabular-nums">
+            {currentTest ? `${currentQuestion} / ${currentTest.total_questions}` : "—"}
+          </span>
+        </div>
+
+        {/* Right: timer */}
+        <div className="flex items-center justify-end flex-1">
+          {timeRemaining !== null ? (
+            <span className={`font-mono text-sm font-semibold tabular-nums ${timeRemaining < 300 ? "text-red-500" : "text-slate-700"}`}>
+              {formatTime(timeRemaining)}
+            </span>
+          ) : (
+            <span className="text-xs text-slate-400 font-medium">Untimed</span>
+          )}
         </div>
       </div>
 
       {/* Question area */}
-      <div className="flex flex-col items-center justify-center py-6">
+      <div className="flex flex-col items-center py-8 px-4 flex-1">
         {questionData ? (
-          <div className="flex flex-col border border-gray-300 gap-4 shadow-xl px-6 py-6 md:w-3xl sm:w-xl w-xs">
-
-            <h3 className="md:text-xl text-md font-medium">
-              Question {currentQuestion}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 w-full max-w-3xl flex flex-col gap-5">
+            {/* Question label */}
+            <div className="flex items-center gap-2.5">
+              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                Question {currentQuestion}
+              </span>
               {isReadOnly && (
-                <span className="ml-2 text-sm font-normal text-gray-400">(review — read only)</span>
+                <span className="text-xs font-medium bg-amber-50 text-amber-600 border border-amber-200 rounded-full px-2.5 py-0.5">
+                  Review
+                </span>
               )}
-            </h3>
-
-            {/* Passage, graph, table, or equation — displayed above question text */}
-            <MediaDisplay mediaItems={displayMedia} />
-
-            {/* Question text with bold/underline/italic formatting */}
-            <div className="text-base leading-relaxed">
-              {parseFormattedText(questionData.text ?? "")}
             </div>
 
-            {nullSubmission && (
-              <p className="text-sm text-red-600 font-bold animate-bounce">
-                Select an answer before continuing.
-              </p>
-            )}
+            {/* Passage, graph, table, or equation */}
+            <MediaDisplay mediaItems={displayMedia} />
+
+            {/* Question text */}
+            <div className="text-base leading-relaxed text-slate-800">
+              {parseFormattedText(questionData.text ?? "")}
+            </div>
 
             {/* Answer input — key forces full remount on question change */}
             <QuestionRenderer
@@ -383,9 +451,27 @@ function MockTest() {
               previousAnswer={previousAnswer}
               choiceImages={choiceImages}
             />
+
+            {/* Submit / navigation */}
+            <div className="flex justify-end items-center gap-3 pt-1">
+              {nullSubmission && (
+                <p className="text-sm text-rose-600 font-medium animate-bounce">
+                  Select an answer before continuing.
+                </p>
+              )}
+              <button
+                type="button"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
+                onClick={handleForward}
+              >
+                {isReadOnly
+                  ? currentQuestion + 1 < latestQuestion ? "Next" : "Resume"
+                  : currentTest && Number(currentQuestion) === Number(currentTest.total_questions) ? "Finish" : "Submit"}
+              </button>
+            </div>
           </div>
         ) : (
-          <p className="text-gray-500">Loading question...</p>
+          <p className="text-slate-400 text-sm mt-16">Loading question…</p>
         )}
       </div>
     </div>

@@ -1,15 +1,24 @@
-import { BlockquoteHTMLAttributes, ReactNode } from "react";
+import { ReactNode } from "react";
 import { icons } from "../assets/icons";
 
-export default function MockTextPopUp(props : {appear : boolean, children : ReactNode, setAppear : (appear : boolean) => void}){
-    return (props.appear) ? (
-        <div className="flex items-center justify-center w-full h-full fixed bg-gray-300/70">
-            <div className="md:w-xl md:h-xl w-lg h-lg bg-white relative p-6 flex flex-col gap-2">
-                <button className="absolute right-0 mx-6 hover:text-gray-400" onClick={() => props.setAppear(false)}>
-                    {icons.exit}
-                </button>
-                {props.children}
-            </div>
-        </div>
-    ) : "";
+export default function MockTextPopUp(props: {
+  appear: boolean;
+  children: ReactNode;
+  setAppear: (appear: boolean) => void;
+}) {
+  if (!props.appear) return null;
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col gap-5 p-6 relative">
+        <button
+          type="button"
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100"
+          onClick={() => props.setAppear(false)}
+        >
+          {icons.exit}
+        </button>
+        {props.children}
+      </div>
+    </div>
+  );
 }

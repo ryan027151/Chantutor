@@ -1,40 +1,55 @@
-import { HashRouter as Router, Routes, Route } from 'react-router-dom'
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { ReactNode, useContext } from 'react'
 import LoginPage from './pages/loginpage'
 import HomePage from './pages/homepage'
 import MockTest from './pages/mocktest'
 import SignUpPage from './pages/signUpPage'
 import AdminPage from './pages/adminpage'
+import ResultsPage from './pages/resultsPage'
+import PracticePage from './pages/practicePage'
+import PerformancePage from './pages/performancePage'
 import { UserContext } from './components/userContext'
 import { supabase } from './supabase-client'
 import { useEffect, useState } from 'react'
 import { User } from './components/types'
 
+function ProtectedRoute({ children, adminOnly = false, studentOnly = false }: {
+  children: ReactNode; adminOnly?: boolean; studentOnly?: boolean;
+}) {
+  const user = useContext(UserContext);
+  if (user === undefined) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+  if (user === null) return <Navigate to="/" replace />;
+  if (adminOnly && user.role !== 'admin') return <Navigate to="/home" replace />;
+  if (studentOnly && user.role === 'admin') return <Navigate to="/admin" replace />;
+  return <>{children}</>;
+}
 
 function App() {
-  const [user, setUser] = useState<User | null>(null);
-  
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+
   async function getUser() {
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      console.error("Auth error:", authError);
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !authUser) {
+      setUser(null);
       return;
     }
-
     const { data: profile, error: profileError } = await supabase
-      .from("profiles")         
-      .select("first_name, last_name, role")
-      .eq("id", user.id)
+      .from('profiles')
+      .select('first_name, last_name, role')
+      .eq('id', authUser.id)
       .single();
-
     if (profileError || !profile) {
-      console.error("Profile error:", profileError);
+      setUser(null);
       return;
     }
-
-    // Step 3: Set the full user object
     setUser({
-      id: user.id,
+      id: authUser.id,
       first_name: profile.first_name,
       last_name: profile.last_name,
       role: profile.role,
@@ -43,7 +58,6 @@ function App() {
 
   useEffect(() => {
     getUser();
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
         getUser();
@@ -51,7 +65,6 @@ function App() {
         setUser(null);
       }
     });
-
     return () => subscription.unsubscribe();
   }, []);
 
@@ -59,15 +72,23 @@ function App() {
     <Router>
       <UserContext.Provider value={user}>
         <Routes>
-          <Route path="/" element={<LoginPage></LoginPage>}></Route>
-          <Route path="/signUp" element={<SignUpPage></SignUpPage>}></Route>
-          <Route path="/home" element={<HomePage></HomePage>}></Route>
-          <Route path="/mock/:testID" element={<MockTest></MockTest>}></Route>
-          <Route path="/admin" element={<AdminPage></AdminPage>}></Route>
+          {/* Public routes */}
+          <Route path="/" element={<LoginPage />} />
+          <Route path="/signUp" element={<SignUpPage />} />
+
+          {/* Protected routes — require authentication */}
+          <Route path="/home" element={<ProtectedRoute studentOnly><HomePage /></ProtectedRoute>} />
+          <Route path="/practice" element={<ProtectedRoute studentOnly><PracticePage /></ProtectedRoute>} />
+          <Route path="/performance" element={<ProtectedRoute studentOnly><PerformancePage /></ProtectedRoute>} />
+          <Route path="/mock/:testID" element={<ProtectedRoute studentOnly><MockTest /></ProtectedRoute>} />
+          <Route path="/results/:testID" element={<ProtectedRoute studentOnly><ResultsPage /></ProtectedRoute>} />
+
+          {/* Admin-only route */}
+          <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPage /></ProtectedRoute>} />
         </Routes>
       </UserContext.Provider>
     </Router>
-  )
+  );
 }
 
-export default App
+export default App;
