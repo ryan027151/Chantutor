@@ -11,6 +11,32 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey     = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY")!;
+
+    // ── Authenticate the caller ──────────────────────────────────────────────
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Verify the JWT and get the caller's user object
+    const callerClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user: caller } } = await callerClient.auth.getUser();
+    if (!caller) {
+      return new Response(JSON.stringify({ error: "Invalid or expired token" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { test_id, user_id } = await req.json();
     if (!test_id || !user_id) {
       return new Response(JSON.stringify({ error: "Missing test_id or user_id" }), {
@@ -19,16 +45,37 @@ Deno.serve(async (req) => {
       });
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY")!;
-
+    // Privileged client for DB reads/writes (bypasses RLS only after auth check above)
     const db = createClient(supabaseUrl, serviceKey);
+
+    // Resolve caller role and check authorization
+    const { data: callerProfile } = await db
+      .from("profiles")
+      .select("role")
+      .eq("id", caller.id)
+      .single();
+    const isAdmin = callerProfile?.role === "admin";
+
+    // Check if the caller is a parent linked to this student
+    const { data: parentLink } = await db
+      .from("student_parents")
+      .select("id")
+      .eq("parent_id", caller.id)
+      .eq("student_id", user_id)
+      .maybeSingle();
+    const isLinkedParent = !!parentLink;
+
+    // Allow: admin, linked parent, or the student themselves
+    if (!isAdmin && !isLinkedParent && caller.id !== user_id) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Fetch test metadata and all answered questions in parallel
     const [{ data: testData }, { data: qData }] = await Promise.all([
-      db.from("tests").select("test_name, total_questions, configuration").eq("id", test_id).single(),
-      // Select * so missing columns (e.g. time_spent before migration) don't crash the query
+      db.from("tests").select("*").eq("id", test_id).single(),
       db.from("questions")
         .select("*")
         .eq("test_id", test_id)
@@ -39,6 +86,13 @@ Deno.serve(async (req) => {
     if (!testData || !qData) {
       return new Response(JSON.stringify({ error: "Data not found" }), {
         status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Return cached analysis if it already exists
+    if (testData.ai_analysis) {
+      return new Response(JSON.stringify(testData.ai_analysis), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -67,7 +121,7 @@ Deno.serve(async (req) => {
       const d = detailMap[q.id];
       return {
         question_number: q.order_index,
-        subject: d?.subject ?? (q.order_index <= englishCount ? "english" : "math"),  // fallback when all_questions row missing
+        subject: d?.subject ?? (q.order_index <= englishCount ? "english" : "math"),
         sub_category: d?.sub_category ?? "General",
         student_answer: q.student_answer ?? null,
         correct_answer: d?.answer ?? null,
@@ -209,6 +263,9 @@ Rules:
     } catch {
       throw new Error("Failed to parse Claude response as JSON");
     }
+
+    // Store the analysis so future calls skip Claude entirely
+    await db.from("tests").update({ ai_analysis: analysis }).eq("id", test_id);
 
     return new Response(JSON.stringify(analysis), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

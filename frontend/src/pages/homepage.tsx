@@ -72,9 +72,10 @@ function HomePage() {
 
   async function startMockTest() {
     const totalMinutes = isTimed ? durationHours * 60 + durationMinutes : 0;
+    const testName = numPracticeQuestions ? "Practice" : "Mock Test";
     const { data, error } = await supabase
       .from("tests")
-      .insert([{ user_id: user!.id, score: null, duration: totalMinutes, total_questions: numQuestions }])
+      .insert([{ user_id: user!.id, test_name: testName, score: null, duration: totalMinutes, total_questions: numQuestions }])
       .select()
       .single();
     if (error) { console.error("Insert failed:", error.message); return; }
@@ -254,14 +255,21 @@ function HomePage() {
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Tests Taken</p>
               <p className="text-3xl font-bold text-slate-900">{recentTests?.length ?? "—"}</p>
             </div>
-            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+            <button
+              type="button"
+              onClick={() => diagTest && navigate(`/results/${diagTest.id}`)}
+              className={`bg-white rounded-xl border border-slate-100 shadow-sm p-5 text-left transition-shadow ${diagTest ? "hover:shadow-md cursor-pointer" : "cursor-default"}`}
+            >
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Diagnostic</p>
               {diagTest ? (
-                <p className="text-3xl font-bold text-emerald-600">{diagTest.score}%</p>
+                <div className="flex items-end gap-1">
+                  <p className="text-3xl font-bold text-emerald-600">{diagTest.score}%</p>
+                  <p className="text-xs text-slate-400 mb-1 ml-0.5">View →</p>
+                </div>
               ) : (
                 <p className="text-sm font-medium text-amber-500 mt-2">Pending</p>
               )}
-            </div>
+            </button>
             <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Completed</p>
               <p className="text-3xl font-bold text-slate-900">{completedTests.length}</p>

@@ -4,15 +4,6 @@ import { useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCrown } from "@fortawesome/free-solid-svg-icons";
 
-const STUDENT_CODE = import.meta.env.VITE_STUDENT_CODE as string;
-const ADMIN_CODE = import.meta.env.VITE_ADMIN_CODE as string;
-
-function getRoleFromCode(code: string): string | null {
-  if (code === STUDENT_CODE) return "student";
-  if (code === ADMIN_CODE) return "admin";
-  return null;
-}
-
 function SignUpPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -20,6 +11,7 @@ function SignUpPage() {
   const [fName, setFName] = useState("");
   const [lName, setLName] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   async function signUp() {
@@ -28,21 +20,33 @@ function SignUpPage() {
       setError("All fields are required.");
       return;
     }
-    const role = getRoleFromCode(code);
-    if (!role) {
-      setError("Invalid signup code.");
-      return;
+    setLoading(true);
+    try {
+      // Code validation and account creation happen server-side in the edge function.
+      // Signup codes are never stored in the client bundle.
+      const { data, error: fnError } = await supabase.functions.invoke("create-account", {
+        body: { email, password, firstName: fName, lastName: lName, code },
+      });
+      if (fnError || data?.error) {
+        setError(data?.error ?? "Signup failed. Please try again.");
+        return;
+      }
+      // Account created — sign in immediately
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signInError) {
+        navigate("/");
+        return;
+      }
+      const { data: { user: newUser } } = await supabase.auth.getUser();
+      if (newUser) {
+        const { data: profile } = await supabase.from("profiles").select("role").eq("id", newUser.id).single();
+        navigate(profile?.role === "parent" ? "/parent" : "/home");
+      } else {
+        navigate("/home");
+      }
+    } finally {
+      setLoading(false);
     }
-    const { error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { first_name: fName, last_name: lName, role } },
-    });
-    if (signUpError) {
-      setError(signUpError.message);
-      return;
-    }
-    navigate("/");
   }
 
   return (
@@ -125,11 +129,11 @@ function SignUpPage() {
               />
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-slate-700">Signup code</span>
+              <span className="text-sm font-medium text-slate-700">Access code or student's email</span>
               <input
-                type="password"
+                type="text"
                 onChange={(e) => setCode(e.target.value)}
-                placeholder="Enter your access code"
+                placeholder="Access code or student's email address"
                 className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </label>
@@ -140,9 +144,10 @@ function SignUpPage() {
             )}
             <button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors mt-1"
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors mt-1 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Create Account
+              {loading ? "Creating account…" : "Create Account"}
             </button>
           </form>
           <p className="text-center text-sm text-slate-500">

@@ -20,6 +20,7 @@ export default function TestTable({ tests }: TestTableProps) {
             name={test.test_name}
             date={new Date(test.created_at).toLocaleDateString("en-US")}
             completed={test.score !== null}
+            score={test.score}
           />
         ))
       )}

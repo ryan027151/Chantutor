@@ -24,3 +24,8 @@ dist-ssr
 *.sw?
 
 backend/.env
+
+# Environment — never commit real credentials
+.env
+.env.*
+!.env.example

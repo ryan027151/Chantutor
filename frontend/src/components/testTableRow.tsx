@@ -5,27 +5,34 @@ interface TestTableRowProps {
   name: string;
   date: string;
   completed: boolean;
+  score: number | null;
 }
 
-export default function TestTableRow({ id, name, date, completed }: TestTableRowProps) {
+export default function TestTableRow({ id, name, date, completed, score }: TestTableRowProps) {
   const navigate = useNavigate();
 
   return (
     <div className="flex items-center justify-between bg-white border border-slate-100 rounded-xl px-5 py-4 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex flex-col gap-0.5">
-        <h3 className="text-base font-semibold text-slate-900">{name}</h3>
+        <h3 className="text-base font-semibold text-slate-900">{name || "Untitled"}</h3>
         <p className="text-sm text-slate-500">{date}</p>
       </div>
       <div className="flex items-center gap-3">
-        <span
-          className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-            completed
-              ? "bg-emerald-50 text-emerald-700"
-              : "bg-amber-50 text-amber-700"
-          }`}
-        >
-          {completed ? "Completed" : "In Progress"}
-        </span>
+        {completed && score !== null ? (
+          <span className={`text-xs font-bold px-2.5 py-1 rounded-full tabular-nums ${
+            score >= 70 ? "bg-emerald-50 text-emerald-700" :
+            score >= 50 ? "bg-amber-50 text-amber-700" :
+            "bg-rose-50 text-rose-700"
+          }`}>
+            {score}%
+          </span>
+        ) : (
+          <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
+            completed ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+          }`}>
+            {completed ? "Completed" : "In Progress"}
+          </span>
+        )}
         <button
           type="button"
           onClick={() => navigate(completed ? `/results/${id}` : `/mock/${id}`)}

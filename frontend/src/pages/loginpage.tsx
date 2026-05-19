@@ -20,7 +20,7 @@ function LoginPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-      navigate(profile?.role === "admin" ? "/admin" : "/home");
+      navigate(profile?.role === "admin" ? "/admin" : profile?.role === "parent" ? "/parent" : "/home");
     } else {
       navigate("/home");
     }

@@ -6,6 +6,7 @@ import MockTest from './pages/mocktest'
 import SignUpPage from './pages/signUpPage'
 import AdminPage from './pages/adminpage'
 import ResultsPage from './pages/resultsPage'
+import ParentPage from './pages/parentPage'
 import PracticePage from './pages/practicePage'
 import PerformancePage from './pages/performancePage'
 import { UserContext } from './components/userContext'
@@ -27,6 +28,7 @@ function ProtectedRoute({ children, adminOnly = false, studentOnly = false }: {
   if (user === null) return <Navigate to="/" replace />;
   if (adminOnly && user.role !== 'admin') return <Navigate to="/home" replace />;
   if (studentOnly && user.role === 'admin') return <Navigate to="/admin" replace />;
+  if (studentOnly && user.role === 'parent') return <Navigate to="/parent" replace />;
   return <>{children}</>;
 }
 
@@ -85,6 +87,9 @@ function App() {
 
           {/* Admin-only route */}
           <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPage /></ProtectedRoute>} />
+
+          {/* Parent-only route */}
+          <Route path="/parent" element={<ProtectedRoute><ParentPage /></ProtectedRoute>} />
         </Routes>
       </UserContext.Provider>
     </Router>

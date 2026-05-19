@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabase-client";
+import { computeSHSATScore, scoreLabel, type SHSATScore, type Difficulty, type ScoredQuestion } from "../utils/scoring";
 
-interface QuestionResult { order_index: number; is_correct: boolean | null; }
+interface QuestionResult { id: string; order_index: number; is_correct: boolean | null; }
 interface AIAnalysis { strengths: string[]; improvements: string[]; recommendations: string[]; }
 interface TestInfo {
   test_name: string; created_at: string; total_questions: number;
@@ -42,6 +43,117 @@ function SectionBar({ label, correct, total, colorClass }: { label: string; corr
   );
 }
 
+function SHSATScoreCard({ score }: { score: SHSATScore }) {
+  const [expanded, setExpanded] = useState(false);
+  const label = scoreLabel(score.total);
+  const totalColorClass =
+    label.color === "green" ? "text-emerald-400" :
+    label.color === "amber" ? "text-amber-400" : "text-rose-400";
+  const bannerClass =
+    label.color === "green" ? "bg-emerald-500/5 text-emerald-300 border-emerald-500/20" :
+    label.color === "amber" ? "bg-amber-500/5 text-amber-300 border-amber-500/20" :
+    "bg-rose-500/5 text-rose-300 border-rose-500/20";
+
+  const elaPct  = Math.round(score.elaRatio  * 100);
+  const mathPct = Math.round(score.mathRatio * 100);
+
+  const elaSubcats  = score.subcategories.filter(s => s.subject === "english");
+  const mathSubcats = score.subcategories.filter(s => s.subject === "math");
+
+  function subScoreColor(s: number) {
+    if (s >= 580) return "text-emerald-400";
+    if (s >= 450) return "text-amber-400";
+    return "text-rose-400";
+  }
+
+  function subBarPct(s: number) {
+    return `${Math.round(((s - 200) / 500) * 100)}%`;
+  }
+
+  return (
+    <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-5 flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-bold text-white">Estimated SHSAT Score</span>
+        <span className="text-xs text-zinc-500 bg-zinc-800 px-2.5 py-1 rounded-full border border-zinc-700">
+          Difficulty-weighted
+        </span>
+      </div>
+
+      <div className="flex items-end justify-center gap-2">
+        <span className={`text-5xl font-black tabular-nums ${totalColorClass}`}>{score.total}</span>
+        <span className="text-xl font-bold text-zinc-700 mb-1">/700</span>
+      </div>
+
+      <div className="flex items-center justify-center gap-6">
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-xs text-zinc-500">ELA</span>
+          <span className="text-lg font-bold text-blue-400">{elaPct}%</span>
+          <span className="text-xs text-zinc-600">weighted</span>
+        </div>
+        <div className="w-px h-8 bg-zinc-700" />
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-xs text-zinc-500">Math</span>
+          <span className="text-lg font-bold text-violet-400">{mathPct}%</span>
+          <span className="text-xs text-zinc-600">weighted</span>
+        </div>
+      </div>
+
+      <div className={`text-center text-xs font-medium rounded-lg py-2 px-3 border ${bannerClass}`}>
+        {label.text}
+      </div>
+
+      {/* Subcategory breakdown */}
+      {score.subcategories.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setExpanded(v => !v)}
+            className="flex items-center justify-between w-full text-xs font-semibold text-zinc-500 hover:text-zinc-300 transition-colors pt-1 border-t border-zinc-800"
+          >
+            <span>By subcategory</span>
+            <svg className={`w-4 h-4 transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {expanded && (
+            <div className="flex flex-col gap-4">
+              {[{ label: "English / ELA", list: elaSubcats, accent: "bg-blue-500" },
+                { label: "Math",          list: mathSubcats, accent: "bg-violet-500" }]
+                .filter(g => g.list.length > 0)
+                .map(group => (
+                  <div key={group.label}>
+                    <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">{group.label}</p>
+                    <div className="flex flex-col gap-2.5">
+                      {group.list.map(sub => (
+                        <div key={sub.name} className="flex flex-col gap-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-zinc-400 font-medium">{sub.name}</span>
+                            <span className={`font-bold tabular-nums ${subScoreColor(sub.score)}`}>
+                              {sub.score}
+                              <span className="text-zinc-600 font-normal"> /700</span>
+                              <span className="text-zinc-500 font-normal ml-1.5">({sub.correct}/{sub.total})</span>
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${group.accent}`}
+                              style={{ width: subBarPct(sub.score) }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 const ANALYSIS_COLORS = {
   strengths:       { card: "bg-emerald-500/5 border-emerald-500/20", title: "text-emerald-400", bullet: "text-emerald-500", text: "text-emerald-100" },
   improvements:    { card: "bg-amber-500/5 border-amber-500/20",   title: "text-amber-400",   bullet: "text-amber-500",   text: "text-amber-100"   },
@@ -57,6 +169,7 @@ interface ResultsModalProps {
 export default function ResultsModal({ testID, userID, onClose }: ResultsModalProps) {
   const [test, setTest] = useState<TestInfo | null>(null);
   const [questions, setQuestions] = useState<QuestionResult[]>([]);
+  const [shsatScore, setShsatScore] = useState<SHSATScore | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(true);
   const [aiError, setAiError] = useState(false);
@@ -68,12 +181,41 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
 
       const [{ data: testData }, { data: qData }] = await Promise.all([
         supabase.from("tests").select("test_name, created_at, total_questions, configuration").eq("id", testID).single(),
-        supabase.from("questions").select("order_index, is_correct").eq("test_id", testID).eq("user_id", userID).order("order_index"),
+        supabase.from("questions").select("id, order_index, is_correct").eq("test_id", testID).eq("user_id", userID).order("order_index"),
       ]);
 
       if (testData) setTest(testData as TestInfo);
       if (qData) setQuestions(qData as QuestionResult[]);
       setLoading(false);
+
+      if (testData && qData && qData.length > 0) {
+        const questionIds = (qData as QuestionResult[]).map(q => q.id).filter(Boolean);
+        const englishCnt: number =
+          testData.configuration?.english?.count ?? Math.floor(testData.total_questions / 2);
+
+        const { data: detailData } = await supabase
+          .from("all_questions")
+          .select("uid, difficulty, sub_category, subject")
+          .in("uid", questionIds);
+
+        type Detail = { uid: string; difficulty: string; sub_category: string; subject: string };
+        const detailMap: Record<string, Detail> = Object.fromEntries(
+          (detailData ?? []).map((q: Detail) => [q.uid, q])
+        );
+
+        const scored: ScoredQuestion[] = (qData as QuestionResult[]).map(q => {
+          const d = detailMap[q.id];
+          return {
+            order_index:  q.order_index,
+            is_correct:   q.is_correct,
+            difficulty:   (d?.difficulty as Difficulty) ?? "medium",
+            sub_category: d?.sub_category,
+            subject:      d?.subject,
+          };
+        });
+
+        setShsatScore(computeSHSATScore(scored, englishCnt));
+      }
 
       try {
         const { data: aiData, error: aiErr } = await supabase.functions.invoke("analyze-performance", {
@@ -94,8 +236,8 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
   const totalQ       = test?.total_questions ?? 0;
 
   const totalCorrect = questions.filter(q => q.is_correct === true).length;
-  const engCorrect   = questions.filter(q => q.order_index < englishCount && q.is_correct === true).length;
-  const mathCorrect  = questions.filter(q => q.order_index >= englishCount && q.is_correct === true).length;
+  const engCorrect   = questions.filter(q => q.order_index <= englishCount && q.is_correct === true).length;
+  const mathCorrect  = questions.filter(q => q.order_index > englishCount && q.is_correct === true).length;
 
   const fallback: AIAnalysis = {
     strengths: [
@@ -120,7 +262,6 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
   return (
     <div className="fixed inset-0 bg-black/85 z-50 flex items-start justify-center overflow-y-auto p-6">
       <div className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-2xl my-auto flex flex-col">
-        {/* Header */}
         <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-sm font-bold text-white">{test?.test_name ?? "Results"}</h2>
@@ -146,7 +287,7 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
         ) : (
           <div className="p-6 flex flex-col gap-5 overflow-y-auto">
 
-            {/* Score + bars */}
+            {/* Raw score + section bars */}
             <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-5 flex flex-col gap-5">
               <ScoreCircle correct={totalCorrect} total={totalQ} />
               <div className="flex flex-col gap-3">
@@ -154,6 +295,9 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
                 <SectionBar label="Math"           correct={mathCorrect} total={mathCount}   colorClass="bg-violet-500" />
               </div>
             </div>
+
+            {/* SHSAT Score Estimate */}
+            {shsatScore && <SHSATScoreCard score={shsatScore} />}
 
             {/* AI Coach */}
             <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-5 flex flex-col gap-3">
@@ -213,24 +357,20 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
               <div className="divide-y divide-zinc-800/60 max-h-72 overflow-y-auto">
                 {Array.from({ length: totalQ }, (_, i) => {
                   const q = questions.find(qr => qr.order_index === i + 1);
-                  const isEng = i < englishCount;
+                  const isEng = i + 1 <= englishCount;
                   const correct = q?.is_correct;
                   return (
                     <div key={i} className={`flex items-center gap-3 px-4 py-2.5 border-l-[3px] ${
-                      correct === true ? "border-emerald-500 bg-emerald-500/5"
-                      : correct === false ? "border-red-500 bg-red-500/5"
-                      : "border-zinc-700 bg-zinc-900"
-                    }`}>
+                      correct === true  ? "border-emerald-500 bg-emerald-500/5" :
+                      correct === false ? "border-red-500 bg-red-500/5" :
+                      "border-zinc-700 bg-zinc-900"}`}
+                    >
                       <span className="text-xs font-mono text-zinc-500 w-7 shrink-0">Q{i + 1}</span>
                       <div className="flex-1 flex items-center gap-1.5">
                         {correct === true ? (
-                          <svg className="w-3.5 h-3.5 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                          </svg>
+                          <svg className="w-3.5 h-3.5 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                         ) : correct === false ? (
-                          <svg className="w-3.5 h-3.5 text-red-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
+                          <svg className="w-3.5 h-3.5 text-red-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
                         ) : (
                           <div className="w-3.5 h-3.5 rounded-full border border-zinc-600 shrink-0" />
                         )}

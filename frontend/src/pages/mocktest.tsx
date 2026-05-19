@@ -193,7 +193,17 @@ function MockTest() {
   // ─── Action handlers ────────────────────────────────────────────────────────
 
   const markTestComplete = async () => {
-    await supabase.from("tests").update({ score: 0 }).eq("id", testID).is("score", null);
+    if (!user || !currentTest) return;
+    const { data: qData } = await supabase
+      .from("questions")
+      .select("is_correct")
+      .eq("test_id", testID)
+      .eq("user_id", user.id);
+    const correct = (qData ?? []).filter((q: { is_correct: boolean | null }) => q.is_correct === true).length;
+    const pct = currentTest.total_questions > 0
+      ? Math.round((correct / currentTest.total_questions) * 100)
+      : 0;
+    await supabase.from("tests").update({ score: pct }).eq("id", testID).is("score", null);
   };
 
   // Submit the current answer and advance to the next question.
@@ -352,8 +362,10 @@ function MockTest() {
     if (timeRemaining === 0 && currentTest && currentTest.duration > 0) {
       if (timerRef.current) clearInterval(timerRef.current);
       localStorage.removeItem(`timerRemaining_${testID}`);
-      markTestComplete();
-      navigate(`/results/${testID}`);
+      (async () => {
+        await markTestComplete();
+        navigate(`/results/${testID}`);
+      })();
     }
   }, [timeRemaining]);
 

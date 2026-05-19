@@ -507,7 +507,7 @@ export default function AdminStudentsPanel() {
                             <p className="text-xs font-bold uppercase tracking-widest text-zinc-600 mb-3">Question Breakdown</p>
                             <div className="flex flex-wrap gap-1.5 mb-3">
                               {Array.from({ length: test.total_questions }, (_, i) => {
-                                const q = stats.find(s => s.order_index === i);
+                                const q = stats.find(s => s.order_index === i + 1);
                                 const englishCount = test.configuration?.english?.count ?? Math.floor(test.total_questions / 2);
                                 const isEla = i < englishCount;
                                 return (
