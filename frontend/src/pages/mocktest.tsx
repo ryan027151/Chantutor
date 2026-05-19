@@ -131,13 +131,38 @@ function MockTest() {
       setQuestionData(data[0]);
       return data[0];
     } else {
-      const { data, error } = await supabase.rpc("get_random_question", {
-        p_test_id: testID,
-      });
-      if (error || !data?.[0]) { console.error("Question error:", error); return null; }
+      // Get already-answered UIDs for this test session to avoid repeats
+      const { data: answeredData } = await supabase
+        .from("questions")
+        .select("id")
+        .eq("test_id", testID)
+        .eq("user_id", user?.id ?? "");
+      const answeredIds = new Set<string>((answeredData ?? []).map((q: { id: string }) => q.id));
+
+      // Fetch pool of available UIDs — filtered by topics if set
+      const topics: string[] = (test.configuration as Record<string, unknown> | null)?.practice_topics as string[] ?? [];
+      let uidQuery = supabase.from("all_questions").select("uid");
+      if (topics.length > 0) uidQuery = uidQuery.in("sub_category", topics);
+      const { data: uidPool } = await uidQuery;
+
+      const available = (uidPool ?? [])
+        .map((q: { uid: string }) => q.uid)
+        .filter(uid => !answeredIds.has(uid));
+
+      if (available.length === 0) return null;
+
+      // Pick a random UID, then fetch the full question
+      const uid = available[Math.floor(Math.random() * available.length)];
+      const { data: qData, error } = await supabase
+        .from("all_questions")
+        .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
+        .eq("uid", uid)
+        .single();
+
+      if (error || !qData) { console.error("Question fetch error:", error); return null; }
       questionStartTimeRef.current = Date.now();
-      setQuestionData(data[0]);
-      return data[0];
+      setQuestionData(qData as unknown as Record<string, string>);
+      return qData as unknown as Record<string, string>;
     }
   };
 
@@ -245,6 +270,13 @@ function MockTest() {
     setChosenAnswer("");
     setNullSubmission(false);
     const nextQuestion = await getQuestion(currentTest, nextIndex);
+    if (!nextQuestion) {
+      // Question pool exhausted (e.g. all topics done before total_questions reached)
+      localStorage.removeItem(`timerRemaining_${testID}`);
+      await markTestComplete();
+      navigate(`/results/${testID}`);
+      return;
+    }
     if (nextQuestion) {
       const prevSubject = currentSubjectRef.current;
       const nextSubject = (nextQuestion.subject ?? "").toLowerCase();
@@ -266,6 +298,7 @@ function MockTest() {
         setCurrentQuestion(latestQuestion);
         setQuestionData(activeQuestionData);
         setPreviousAnswer("");
+        questionStartTimeRef.current = Date.now();
       }
     } else {
       if (!chosenAnswer) { setNullSubmission(true); return; }
@@ -311,7 +344,13 @@ function MockTest() {
     init();
   }, [user]);
 
-  // Fetch media whenever the displayed question changes
+  // Clear media immediately when the question index changes so old media never
+  // bleeds into the next question during the async fetch gap.
+  useEffect(() => {
+    setMediaItems([]);
+  }, [currentQuestion]);
+
+  // Fetch media once the new question's uid is known
   useEffect(() => {
     if (!questionData?.uid) { setMediaItems([]); return; }
 
@@ -459,19 +498,19 @@ function MockTest() {
         </div>
       </div>
 
-      {/* Question area — overflow-hidden lets the flex children shrink below natural size when left panel is resized */}
-      <div className="flex items-start justify-center py-8 px-6 flex-1 gap-4 overflow-hidden">
+      {/* Question area — overflow-x-auto so content scrolls rather than squeezes when viewport is narrow */}
+      <div className="flex items-start justify-center py-8 px-6 flex-1 gap-4 overflow-x-auto">
         {questionData ? (
           <>
-            {/* Left panel — the only resize handle; drag bottom-right corner to resize both axes */}
+            {/* Left panel — 45% wide by default, resizable up to 65% of the viewport */}
             {displayMedia.length > 0 && (
-              <div className="flex flex-col w-2/5 min-w-56 max-w-3xl h-[58vh] min-h-48 max-h-[calc(100vh-6rem)] resize overflow-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-6 self-start sticky top-20">
+              <div className="flex flex-col shrink-0 w-[45%] min-w-72 max-w-[65%] h-[calc(100vh-8rem)] min-h-48 resize overflow-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-6 self-start sticky top-20">
                 <MediaDisplay mediaItems={displayMedia} />
               </div>
             )}
 
-            {/* Right panel — fills remaining space as left panel is resized */}
-            <div className={`bg-white rounded-2xl shadow-sm border border-slate-100 p-8 flex flex-col gap-5 ${displayMedia.length > 0 ? "flex-1 min-w-72 overflow-hidden" : "w-full max-w-3xl"}`}>
+            {/* Right panel — always at least 420px so question text never wraps awkwardly */}
+            <div className={`bg-white rounded-2xl shadow-sm border border-slate-100 p-8 flex flex-col gap-5 ${displayMedia.length > 0 ? "flex-1 min-w-105" : "w-full max-w-3xl"}`}>
               {/* Question label */}
               <div className="flex items-center gap-2.5">
                 <span className="text-xs font-bold uppercase tracking-widest text-slate-400">

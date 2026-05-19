@@ -22,6 +22,14 @@ export type Difficulty = "easy" | "medium" | "hard";
 
 export const DIFFICULTY_WEIGHTS: Record<Difficulty, number> = { easy: 1, medium: 1.5, hard: 2 };
 
+// Normalizes any DB casing ("Easy", "MEDIUM", null, etc.) to a valid Difficulty key.
+function normDiff(raw: string | null | undefined): Difficulty {
+  const lower = raw?.toLowerCase?.();
+  if (lower === "easy") return "easy";
+  if (lower === "hard") return "hard";
+  return "medium";
+}
+
 export interface ScoredQuestion {
   order_index: number;
   is_correct: boolean | null;
@@ -60,16 +68,15 @@ export function computeSHSATScore(
 
   for (const q of questions) {
     const cat = q.sub_category ?? "General";
-    // Normalize subject casing — DB may store "English", "Math", "english", "math", or null.
-    // Fall back to order_index boundary so every question is always attributed to a section.
     const subj = q.subject
       ? q.subject.trim().toLowerCase()
       : (q.order_index <= englishCount ? "english" : "math");
+    const w = W[normDiff(q.difficulty)];
     if (!subMap[cat]) subMap[cat] = { earned: 0, max: 0, correct: 0, total: 0, subject: subj };
-    subMap[cat].max += W[q.difficulty];
+    subMap[cat].max += w;
     subMap[cat].total++;
     if (q.is_correct) {
-      subMap[cat].earned += W[q.difficulty];
+      subMap[cat].earned += w;
       subMap[cat].correct++;
     }
   }
@@ -87,17 +94,17 @@ export function computeSHSATScore(
     .sort((a, b) => a.score - b.score); // weakest first
 
   // Global totals (sum over all subcategories = weighted average of sub scores)
-  const totalEarned = questions.reduce((s, q) => s + (q.is_correct ? W[q.difficulty] : 0), 0);
-  const totalMax    = questions.reduce((s, q) => s + W[q.difficulty], 0);
+  const totalEarned = questions.reduce((s, q) => s + (q.is_correct ? W[normDiff(q.difficulty)] : 0), 0);
+  const totalMax    = questions.reduce((s, q) => s + W[normDiff(q.difficulty)], 0);
   const total = totalMax > 0 ? 200 + Math.round(500 * (totalEarned / totalMax)) : 200;
 
   // Section ratios
   const elaQs  = questions.filter(q => q.order_index <= englishCount);
   const mathQs = questions.filter(q => q.order_index > englishCount);
-  const elaEarned  = elaQs.reduce((s, q)  => s + (q.is_correct ? W[q.difficulty] : 0), 0);
-  const elaMax     = elaQs.reduce((s, q)  => s + W[q.difficulty], 0);
-  const mathEarned = mathQs.reduce((s, q) => s + (q.is_correct ? W[q.difficulty] : 0), 0);
-  const mathMax    = mathQs.reduce((s, q) => s + W[q.difficulty], 0);
+  const elaEarned  = elaQs.reduce((s, q)  => s + (q.is_correct ? W[normDiff(q.difficulty)] : 0), 0);
+  const elaMax     = elaQs.reduce((s, q)  => s + W[normDiff(q.difficulty)], 0);
+  const mathEarned = mathQs.reduce((s, q) => s + (q.is_correct ? W[normDiff(q.difficulty)] : 0), 0);
+  const mathMax    = mathQs.reduce((s, q) => s + W[normDiff(q.difficulty)], 0);
 
   return {
     total,

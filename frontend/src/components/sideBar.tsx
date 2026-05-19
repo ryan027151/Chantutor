@@ -36,12 +36,6 @@ export default function SideBar() {
             active={location.pathname === "/home"}
           />
           <SideNavIcons
-            icon={icons.practice}
-            label="Practice"
-            onClick={() => navigate("/practice")}
-            active={location.pathname === "/practice"}
-          />
-          <SideNavIcons
             icon={icons.performance}
             label="Performance"
             onClick={() => navigate("/performance")}

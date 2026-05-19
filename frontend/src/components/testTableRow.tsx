@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 interface TestTableRowProps {
@@ -6,10 +7,13 @@ interface TestTableRowProps {
   date: string;
   completed: boolean;
   score: number | null;
+  onReset?: () => void;
 }
 
-export default function TestTableRow({ id, name, date, completed, score }: TestTableRowProps) {
+export default function TestTableRow({ id, name, date, completed, score, onReset }: TestTableRowProps) {
   const navigate = useNavigate();
+  const [confirmReset, setConfirmReset] = useState(false);
+  const isDiagnostic = name === "Diagnostic Test";
 
   return (
     <div className="flex items-center justify-between bg-white border border-slate-100 rounded-xl px-5 py-4 shadow-sm hover:shadow-md transition-shadow">
@@ -33,6 +37,38 @@ export default function TestTableRow({ id, name, date, completed, score }: TestT
             {completed ? "Completed" : "In Progress"}
           </span>
         )}
+
+        {/* Reset — only for in-progress non-diagnostic tests */}
+        {!completed && !isDiagnostic && onReset && (
+          confirmReset ? (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-slate-500">Reset progress?</span>
+              <button
+                type="button"
+                onClick={() => { onReset(); setConfirmReset(false); }}
+                className="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-500 hover:bg-rose-600 text-white transition-colors"
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmReset(false)}
+                className="px-2 py-1 rounded-lg text-xs text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmReset(true)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-500 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
+            >
+              Reset
+            </button>
+          )
+        )}
+
         <button
           type="button"
           onClick={() => navigate(completed ? `/results/${id}` : `/mock/${id}`)}

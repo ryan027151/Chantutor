@@ -7,7 +7,6 @@ import SignUpPage from './pages/signUpPage'
 import AdminPage from './pages/adminpage'
 import ResultsPage from './pages/resultsPage'
 import ParentPage from './pages/parentPage'
-import PracticePage from './pages/practicePage'
 import PerformancePage from './pages/performancePage'
 import { UserContext } from './components/userContext'
 import { supabase } from './supabase-client'
@@ -80,8 +79,8 @@ function App() {
 
           {/* Protected routes — require authentication */}
           <Route path="/home" element={<ProtectedRoute studentOnly><HomePage /></ProtectedRoute>} />
-          <Route path="/practice" element={<ProtectedRoute studentOnly><PracticePage /></ProtectedRoute>} />
           <Route path="/performance" element={<ProtectedRoute studentOnly><PerformancePage /></ProtectedRoute>} />
+          <Route path="/performance/:studentId" element={<ProtectedRoute><PerformancePage /></ProtectedRoute>} />
           <Route path="/mock/:testID" element={<ProtectedRoute studentOnly><MockTest /></ProtectedRoute>} />
           <Route path="/results/:testID" element={<ProtectedRoute studentOnly><ResultsPage /></ProtectedRoute>} />
 

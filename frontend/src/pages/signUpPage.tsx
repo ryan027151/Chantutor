@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCrown } from "@fortawesome/free-solid-svg-icons";
 
 function SignUpPage() {
+  const [accountType, setAccountType] = useState<"student" | "parent">("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -22,16 +23,13 @@ function SignUpPage() {
     }
     setLoading(true);
     try {
-      // Code validation and account creation happen server-side in the edge function.
-      // Signup codes are never stored in the client bundle.
       const { data, error: fnError } = await supabase.functions.invoke("create-account", {
-        body: { email, password, firstName: fName, lastName: lName, code },
+        body: { email, password, firstName: fName, lastName: lName, code, accountType },
       });
       if (fnError || data?.error) {
         setError(data?.error ?? "Signup failed. Please try again.");
         return;
       }
-      // Account created — sign in immediately
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
       if (signInError) {
         navigate("/");
@@ -90,6 +88,28 @@ function SignUpPage() {
             <p className="text-slate-500 mt-1 text-sm">Fill in your details to get started.</p>
           </div>
           <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); signUp(); }}>
+
+            {/* Account type toggle */}
+            <div>
+              <span className="text-sm font-medium text-slate-700 block mb-1.5">I am a</span>
+              <div className="grid grid-cols-2 gap-2">
+                {(["student", "parent"] as const).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => { setAccountType(type); setCode(""); setError(""); }}
+                    className={`py-2 rounded-lg text-sm font-medium border transition-colors capitalize ${
+                      accountType === type
+                        ? "bg-blue-600 text-white border-blue-600"
+                        : "bg-white text-slate-600 border-slate-300 hover:border-blue-400"
+                    }`}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5">
                 <span className="text-sm font-medium text-slate-700">First name</span>
@@ -129,13 +149,19 @@ function SignUpPage() {
               />
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-slate-700">Access code or student's email</span>
+              <span className="text-sm font-medium text-slate-700">
+                {accountType === "parent" ? "Student's email address" : "Access code"}
+              </span>
               <input
-                type="text"
+                type={accountType === "parent" ? "email" : "password"}
+                value={code}
                 onChange={(e) => setCode(e.target.value)}
-                placeholder="Access code or student's email address"
+                placeholder={accountType === "parent" ? "student@example.com" : "Enter your access code"}
                 className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
+              {accountType === "parent" && (
+                <p className="text-xs text-slate-400">Enter your child's registered email address.</p>
+              )}
             </label>
             {error && (
               <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">

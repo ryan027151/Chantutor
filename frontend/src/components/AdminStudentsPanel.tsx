@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase-client";
 import ResultsModal from "./ResultsModal";
 
@@ -85,6 +86,7 @@ function DarkInput({
 }
 
 export default function AdminStudentsPanel() {
+  const navigate = useNavigate();
   const [students, setStudents] = useState<Student[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -92,6 +94,7 @@ export default function AdminStudentsPanel() {
   const [selected, setSelected] = useState<Student | null>(null);
   const [tests, setTests] = useState<TestRecord[]>([]);
   const [loadingTests, setLoadingTests] = useState(false);
+  const [linkedParents, setLinkedParents] = useState<{ id: string; first_name: string; last_name: string }[]>([]);
 
   const [expandedTest, setExpandedTest] = useState<string | null>(null);
   const [questionStats, setQuestionStats] = useState<Record<string, QuestionStat[]>>({});
@@ -119,7 +122,7 @@ export default function AdminStudentsPanel() {
     const { data } = await supabase
       .from("profiles")
       .select("id, first_name, last_name, role")
-      .in("role", ["student", "parent"])
+      .eq("role", "student")
       .order("first_name");
     setStudents((data as Student[]) ?? []);
     setLoading(false);
@@ -135,13 +138,32 @@ export default function AdminStudentsPanel() {
     setAnalysis({});
     setConfirmDeleteStudent(false);
     setEditingProfile(false);
+    setLinkedParents([]);
     setLoadingTests(true);
-    const { data } = await supabase
-      .from("tests")
-      .select("id, test_name, created_at, score, duration, total_questions, configuration")
-      .eq("user_id", s.id)
-      .order("created_at", { ascending: false });
-    setTests((data as TestRecord[]) ?? []);
+
+    const [{ data: testsData }, { data: parentLinks }] = await Promise.all([
+      supabase
+        .from("tests")
+        .select("id, test_name, created_at, score, duration, total_questions, configuration")
+        .eq("user_id", s.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("student_parents")
+        .select("parent_id")
+        .eq("student_id", s.id),
+    ]);
+
+    setTests((testsData as TestRecord[]) ?? []);
+
+    const parentIds = (parentLinks ?? []).map((l: { parent_id: string }) => l.parent_id);
+    if (parentIds.length > 0) {
+      const { data: parentProfiles } = await supabase
+        .from("profiles")
+        .select("id, first_name, last_name")
+        .in("id", parentIds);
+      setLinkedParents((parentProfiles ?? []) as { id: string; first_name: string; last_name: string }[]);
+    }
+
     setLoadingTests(false);
   }
 
@@ -348,6 +370,16 @@ export default function AdminStudentsPanel() {
                       </svg>
                       Edit Profile
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/performance/${selected.id}`)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-600 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                      View Performance
+                    </button>
                     {!confirmDeleteStudent ? (
                       <button
                         type="button"
@@ -383,6 +415,24 @@ export default function AdminStudentsPanel() {
                 </div>
               </div>
             </div>
+
+            {/* ── Linked parents ── */}
+            {linkedParents.length > 0 && (
+              <div className="bg-zinc-900 rounded-xl border border-zinc-800 px-5 py-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-zinc-600 mb-3">Linked Parents</p>
+                <div className="flex flex-col gap-2">
+                  {linkedParents.map(p => (
+                    <div key={p.id} className="flex items-center gap-3">
+                      <div className="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-400 shrink-0">
+                        {p.first_name[0]}{p.last_name[0]}
+                      </div>
+                      <span className="text-sm text-zinc-200">{p.first_name} {p.last_name}</span>
+                      <span className="ml-auto text-xs text-zinc-600 capitalize">parent</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* ── Test history ── */}
             <div>

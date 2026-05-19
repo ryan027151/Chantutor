@@ -9,13 +9,13 @@ export default function MediaDisplay({ mediaItems }: MediaDisplayProps) {
   if (mediaItems.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-3 h-full min-h-0">
+    <div className="flex flex-col gap-4">
       {mediaItems.map((item) => {
         if (item.media_type === "passage") {
           return (
             <div
               key={item.media_id}
-              className="flex-1 min-h-0 w-full overflow-auto bg-gray-50 border border-gray-200 rounded p-4 text-sm leading-relaxed"
+              className="w-full bg-gray-50 border border-gray-200 rounded p-4 text-sm leading-relaxed"
             >
               {parseFormattedText(item.content)}
             </div>

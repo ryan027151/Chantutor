@@ -18,6 +18,10 @@ function HomePage() {
   const [numQuestions, setNumQuestions] = useState(117);
   const [numPracticeQuestions, setNumPracticeQuestions] = useState(false);
   const [showDiagnosticPrompt, setShowDiagnosticPrompt] = useState(false);
+  const [availableTopics, setAvailableTopics] = useState<string[]>([]);
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  const [filterType, setFilterType] = useState<"all" | "mock" | "practice">("all");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
 
   async function getTests() {
     const { data, error } = await supabase
@@ -73,13 +77,23 @@ function HomePage() {
   async function startMockTest() {
     const totalMinutes = isTimed ? durationHours * 60 + durationMinutes : 0;
     const testName = numPracticeQuestions ? "Practice" : "Mock Test";
+    const configuration = numPracticeQuestions && selectedTopics.length > 0
+      ? { practice_topics: selectedTopics }
+      : null;
     const { data, error } = await supabase
       .from("tests")
-      .insert([{ user_id: user!.id, test_name: testName, score: null, duration: totalMinutes, total_questions: numQuestions }])
+      .insert([{ user_id: user!.id, test_name: testName, score: null, duration: totalMinutes, total_questions: numQuestions, configuration }])
       .select()
       .single();
     if (error) { console.error("Insert failed:", error.message); return; }
     navigate(`/mock/${data.id}`);
+  }
+
+  async function resetTest(testId: string) {
+    if (!user) return;
+    await supabase.from("questions").delete().eq("test_id", testId).eq("user_id", user.id);
+    localStorage.removeItem(`timerRemaining_${testId}`);
+    getTests();
   }
 
   useEffect(() => {
@@ -88,11 +102,34 @@ function HomePage() {
     getTests();
   }, [user]);
 
+  useEffect(() => {
+    if (!numPracticeQuestions) { setSelectedTopics([]); return; }
+    (async () => {
+      const { data } = await supabase.from("all_questions").select("sub_category").not("sub_category", "is", null);
+      const unique = [...new Set((data ?? []).map((q: { sub_category: string }) => q.sub_category).filter(Boolean))].sort() as string[];
+      setAvailableTopics(unique);
+    })();
+  }, [numPracticeQuestions]);
+
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const completedTests = recentTests?.filter((t) => t.score !== null) ?? [];
   const diagTest = recentTests?.find((t) => t.test_name === "Diagnostic Test" && t.score !== null);
   const lastTest = recentTests?.[0];
+
+  const filteredTests = recentTests
+    ? recentTests
+        .filter((t) => {
+          if (filterType === "mock") return t.test_name === "Mock Test" || t.test_name === "Diagnostic Test";
+          if (filterType === "practice") return t.test_name === "Practice";
+          return true;
+        })
+        .slice()
+        .sort((a, b) => {
+          const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+          return sortOrder === "newest" ? -diff : diff;
+        })
+    : null;
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -159,13 +196,47 @@ function HomePage() {
           {/* Custom question count */}
           {numPracticeQuestions && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-slate-700"># of Questions</label>
+              <label htmlFor="practice-q-count" className="text-sm font-medium text-slate-700"># of Questions</label>
               <input
+                id="practice-q-count"
                 type="number"
                 min="1"
+                placeholder="e.g. 20"
                 className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 onChange={(e) => setNumQuestions(parseInt(e.target.value))}
               />
+            </div>
+          )}
+
+          {/* Topic filter — practice mode only */}
+          {numPracticeQuestions && availableTopics.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-slate-700">Topics</span>
+                <div className="flex gap-2 text-xs text-slate-400">
+                  <button type="button" onClick={() => setSelectedTopics(availableTopics)} className="hover:text-blue-600 transition-colors">All</button>
+                  <span>·</span>
+                  <button type="button" onClick={() => setSelectedTopics([])} className="hover:text-blue-600 transition-colors">None</button>
+                </div>
+              </div>
+              <div className="border border-slate-200 rounded-lg overflow-y-auto max-h-40 divide-y divide-slate-50">
+                {availableTopics.map(topic => (
+                  <label key={topic} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={selectedTopics.includes(topic)}
+                      onChange={() => setSelectedTopics(prev =>
+                        prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]
+                      )}
+                      className="accent-blue-600"
+                    />
+                    <span className="text-sm text-slate-700">{topic}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400">
+                {selectedTopics.length === 0 ? "All topics included" : `${selectedTopics.length} topic${selectedTopics.length > 1 ? "s" : ""} selected`}
+              </p>
             </div>
           )}
 
@@ -277,9 +348,40 @@ function HomePage() {
           </div>
 
           {/* Recent tests */}
-          <div>
-            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Recent Tests</h2>
-            <TestTable tests={recentTests} />
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Recent Tests</h2>
+              <div className="flex items-center gap-2">
+                {/* Type filter */}
+                <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-medium">
+                  {(["all", "mock", "practice"] as const).map((f) => (
+                    <button
+                      key={f}
+                      type="button"
+                      onClick={() => setFilterType(f)}
+                      className={`px-3 py-1.5 transition-colors capitalize ${
+                        filterType === f
+                          ? "bg-blue-600 text-white"
+                          : "bg-white text-slate-500 hover:bg-slate-50"
+                      }`}
+                    >
+                      {f === "all" ? "All" : f === "mock" ? "Mock / Diagnostic" : "Practice"}
+                    </button>
+                  ))}
+                </div>
+                {/* Date sort */}
+                <select
+                  title="Sort order"
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value as "newest" | "oldest")}
+                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                </select>
+              </div>
+            </div>
+            <TestTable tests={filteredTests} onReset={resetTest} />
           </div>
         </div>
       </div>
