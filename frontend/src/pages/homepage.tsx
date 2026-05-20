@@ -22,6 +22,7 @@ function HomePage() {
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [filterType, setFilterType] = useState<"all" | "mock" | "practice">("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [resetIds, setResetIds] = useState<Set<string>>(new Set());
 
   async function getTests() {
     const { data, error } = await supabase
@@ -93,6 +94,7 @@ function HomePage() {
     if (!user) return;
     await supabase.from("questions").delete().eq("test_id", testId).eq("user_id", user.id);
     localStorage.removeItem(`timerRemaining_${testId}`);
+    setResetIds(prev => new Set(prev).add(testId));
     getTests();
   }
 
@@ -384,7 +386,7 @@ function HomePage() {
                 </select>
               </div>
             </div>
-            <TestTable tests={filteredTests} onReset={resetTest} />
+            <TestTable tests={filteredTests} onReset={resetTest} resetIds={resetIds} />
           </div>
         </div>
       </div>

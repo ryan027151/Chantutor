@@ -4,9 +4,10 @@ import { Test } from "./types";
 interface TestTableProps {
   tests: Test[] | null;
   onReset?: (testId: string) => void;
+  resetIds?: Set<string>;
 }
 
-export default function TestTable({ tests, onReset }: TestTableProps) {
+export default function TestTable({ tests, onReset, resetIds }: TestTableProps) {
   return (
     <div className="flex flex-col gap-3">
       {!tests ? (
@@ -22,6 +23,7 @@ export default function TestTable({ tests, onReset }: TestTableProps) {
             date={new Date(test.created_at).toLocaleDateString("en-US")}
             completed={test.score !== null}
             score={test.score}
+            wasReset={resetIds?.has(test.id) ?? false}
             onReset={onReset ? () => onReset(test.id) : undefined}
           />
         ))
