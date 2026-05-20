@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabase-client";
 import { computeSHSATScore, scoreLabel, type SHSATScore, type Difficulty, type ScoredQuestion } from "../utils/scoring";
+import { useContext } from "react";
+import { UserContext } from "./userContext";
 
 interface QuestionResult { id: string; order_index: number; is_correct: boolean | null; }
 interface AIAnalysis { strengths: string[]; improvements: string[]; recommendations: string[]; }
@@ -167,6 +169,7 @@ interface ResultsModalProps {
 }
 
 export default function ResultsModal({ testID, userID, onClose }: ResultsModalProps) {
+  const currentUser = useContext(UserContext);
   const [test, setTest] = useState<TestInfo | null>(null);
   const [questions, setQuestions] = useState<QuestionResult[]>([]);
   const [shsatScore, setShsatScore] = useState<SHSATScore | null>(null);
@@ -179,31 +182,65 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
     (async () => {
       setLoading(true);
 
-      const [{ data: testData }, { data: qData }] = await Promise.all([
-        supabase.from("tests").select("test_name, created_at, total_questions, configuration").eq("id", testID).single(),
-        supabase.from("questions").select("id, order_index, is_correct").eq("test_id", testID).eq("user_id", userID).order("order_index"),
-      ]);
+      type Detail = { uid: string; difficulty: string; sub_category: string; subject: string };
+      let resolvedTest: TestInfo | null = null;
+      let resolvedQs: QuestionResult[] = [];
+      let detailMap: Record<string, Detail> = {};
 
-      if (testData) setTest(testData as TestInfo);
-      if (qData) setQuestions(qData as QuestionResult[]);
+      const isViewingOther = currentUser && currentUser.id !== userID;
+
+      if (isViewingOther) {
+        // Admin / parent path: use edge function to bypass RLS
+        const { data: res } = await supabase.functions.invoke("get-student-performance", {
+          body: { student_id: userID },
+        });
+        if (res) {
+          type EdgeQ = { id: string; test_id: string; order_index: number; is_correct: boolean | null; difficulty: string | null; sub_category: string | null; subject: string | null };
+          type EdgeTest = TestInfo & { id: string };
+          const allQs = (res.questions ?? []) as EdgeQ[];
+          const allTests = (res.tests ?? []) as EdgeTest[];
+          resolvedQs = allQs.filter(q => q.test_id === testID).map(q => ({
+            id: q.id, order_index: q.order_index, is_correct: q.is_correct,
+          }));
+          resolvedTest = allTests.find(t => t.id === testID) ?? null;
+          detailMap = Object.fromEntries(
+            allQs.filter(q => q.test_id === testID).map(q => [q.id, {
+              uid: q.id,
+              difficulty: q.difficulty ?? "medium",
+              sub_category: q.sub_category ?? "",
+              subject: q.subject ?? "",
+            }])
+          );
+        }
+      } else {
+        // Student path: direct queries
+        const [{ data: testData }, { data: qData }] = await Promise.all([
+          supabase.from("tests").select("test_name, created_at, total_questions, configuration").eq("id", testID).single(),
+          supabase.from("questions").select("id, order_index, is_correct").eq("test_id", testID).eq("user_id", userID).order("order_index"),
+        ]);
+        resolvedTest = testData as TestInfo | null;
+        resolvedQs = (qData as QuestionResult[]) ?? [];
+
+        if (resolvedQs.length > 0) {
+          const questionIds = resolvedQs.map(q => q.id).filter(Boolean);
+          const { data: detailData } = await supabase
+            .from("all_questions")
+            .select("uid, difficulty, sub_category, subject")
+            .in("uid", questionIds);
+          detailMap = Object.fromEntries(
+            (detailData ?? []).map((q: Detail) => [q.uid, q])
+          );
+        }
+      }
+
+      if (resolvedTest) setTest(resolvedTest);
+      setQuestions(resolvedQs);
       setLoading(false);
 
-      if (testData && qData && qData.length > 0) {
-        const questionIds = (qData as QuestionResult[]).map(q => q.id).filter(Boolean);
+      if (resolvedTest && resolvedQs.length > 0) {
         const englishCnt: number =
-          testData.configuration?.english?.count ?? Math.floor(testData.total_questions / 2);
-
-        const { data: detailData } = await supabase
-          .from("all_questions")
-          .select("uid, difficulty, sub_category, subject")
-          .in("uid", questionIds);
-
-        type Detail = { uid: string; difficulty: string; sub_category: string; subject: string };
-        const detailMap: Record<string, Detail> = Object.fromEntries(
-          (detailData ?? []).map((q: Detail) => [q.uid, q])
-        );
-
-        const scored: ScoredQuestion[] = (qData as QuestionResult[]).map(q => {
+          resolvedTest.configuration?.english?.count ?? Math.floor(resolvedTest.total_questions / 2);
+        const scored: ScoredQuestion[] = resolvedQs.map(q => {
           const d = detailMap[q.id];
           return {
             order_index:  q.order_index,
@@ -213,7 +250,6 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
             subject:      d?.subject,
           };
         });
-
         setShsatScore(computeSHSATScore(scored, englishCnt));
       }
 

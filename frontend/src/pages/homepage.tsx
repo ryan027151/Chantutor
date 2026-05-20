@@ -15,7 +15,7 @@ function HomePage() {
   const [durationHours, setDurationHours] = useState(0);
   const [durationMinutes, setDurationMinutes] = useState(0);
   const user = useContext(UserContext);
-  const [numQuestions, setNumQuestions] = useState(117);
+  const [numQuestions, setNumQuestions] = useState(114);
   const [numPracticeQuestions, setNumPracticeQuestions] = useState(false);
   const [showDiagnosticPrompt, setShowDiagnosticPrompt] = useState(false);
   const [availableTopics, setAvailableTopics] = useState<string[]>([]);
@@ -184,11 +184,11 @@ function HomePage() {
               defaultValue="mock"
               className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               onChange={(e) => {
-                if (e.target.value === "mock") { setNumQuestions(117); setNumPracticeQuestions(false); }
-                else { setNumPracticeQuestions(true); setNumQuestions(0); }
+                if (e.target.value === "mock") { setNumQuestions(114); setNumPracticeQuestions(false); }
+                else { setNumPracticeQuestions(true); setNumQuestions(20); }
               }}
             >
-              <option value="mock">Mock Test (117 questions)</option>
+              <option value="mock">Mock Test (114 questions)</option>
               <option value="practice">Practice</option>
             </select>
           </div>
@@ -201,9 +201,10 @@ function HomePage() {
                 id="practice-q-count"
                 type="number"
                 min="1"
-                placeholder="e.g. 20"
+                value={numQuestions}
+                onFocus={(e) => e.target.select()}
                 className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                onChange={(e) => setNumQuestions(parseInt(e.target.value))}
+                onChange={(e) => setNumQuestions(Math.max(1, parseInt(e.target.value) || 1))}
               />
             </div>
           )}
@@ -247,11 +248,11 @@ function HomePage() {
               type="button"
               aria-label="Toggle timed mode"
               aria-pressed={isTimed ? "true" : "false"}
-              onClick={() => setIsTimed(!isTimed)}
-              className={`relative w-10 h-6 rounded-full transition-colors ${isTimed ? "bg-blue-600" : "bg-slate-200"}`}
+              onClick={() => setIsTimed(t => !t)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isTimed ? "bg-blue-600" : "bg-slate-200"}`}
             >
               <span
-                className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${isTimed ? "translate-x-4" : "translate-x-0.5"}`}
+                className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${isTimed ? "translate-x-5.5" : "translate-x-0.5"}`}
               />
             </button>
           </div>
@@ -267,6 +268,7 @@ function HomePage() {
                   value={durationHours}
                   title="Hours"
                   placeholder="0"
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => setDurationHours(Math.max(0, parseInt(e.target.value) || 0))}
                   className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
@@ -279,6 +281,7 @@ function HomePage() {
                   value={durationMinutes}
                   title="Minutes"
                   placeholder="0"
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => setDurationMinutes(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
                   className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
