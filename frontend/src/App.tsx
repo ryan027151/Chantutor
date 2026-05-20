@@ -1,5 +1,5 @@
-import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { ReactNode, useContext } from 'react'
+import { HashRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { ReactNode, useContext, useEffect } from 'react'
 import LoginPage from './pages/loginpage'
 import HomePage from './pages/homepage'
 import MockTest from './pages/mocktest'
@@ -8,10 +8,26 @@ import AdminPage from './pages/adminpage'
 import ResultsPage from './pages/resultsPage'
 import ParentPage from './pages/parentPage'
 import PerformancePage from './pages/performancePage'
+import ResetPasswordPage from './pages/resetPasswordPage'
 import { UserContext } from './components/userContext'
 import { supabase } from './supabase-client'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { User } from './components/types'
+
+// Listens for Supabase PASSWORD_RECOVERY event and redirects to the reset page.
+// Must live inside <Router> to use useNavigate.
+function AuthChangeHandler() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        navigate('/reset-password');
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+  return null;
+}
 
 function ProtectedRoute({ children, adminOnly = false, studentOnly = false }: {
   children: ReactNode; adminOnly?: boolean; studentOnly?: boolean;
@@ -72,10 +88,12 @@ function App() {
   return (
     <Router>
       <UserContext.Provider value={user}>
+        <AuthChangeHandler />
         <Routes>
           {/* Public routes */}
           <Route path="/" element={<LoginPage />} />
           <Route path="/signUp" element={<SignUpPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
 
           {/* Protected routes — require authentication */}
           <Route path="/home" element={<ProtectedRoute studentOnly><HomePage /></ProtectedRoute>} />

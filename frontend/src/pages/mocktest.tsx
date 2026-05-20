@@ -94,6 +94,7 @@ function MockTest() {
   const hasInitialized = useRef(false);
   const currentSubjectRef = useRef<string>("");
   const questionStartTimeRef = useRef<number>(Date.now());
+  const answeredIdsRef = useRef<Set<string>>(new Set());
 
   const navigate = useNavigate();
   const user = useContext(UserContext);
@@ -137,12 +138,7 @@ function MockTest() {
       return data[0];
     } else {
       // Get already-answered UIDs for this test session to avoid repeats
-      const { data: answeredData } = await supabase
-        .from("questions")
-        .select("id")
-        .eq("test_id", testID)
-        .eq("user_id", user?.id ?? "");
-      const answeredIds = new Set<string>((answeredData ?? []).map((q: { id: string }) => q.id));
+      const answeredIds = answeredIdsRef.current;
 
       // Fetch pool of available UIDs — filtered by topics if set
       const topics: string[] = (test.configuration as Record<string, unknown> | null)?.practice_topics as string[] ?? [];
@@ -191,6 +187,16 @@ function MockTest() {
       .order("order_index", { ascending: false })
       .limit(1);
     return data?.[0]?.order_index ?? 0;
+  };
+
+  const initAnsweredIds = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("questions")
+      .select("id")
+      .eq("test_id", testID)
+      .eq("user_id", user.id);
+    answeredIdsRef.current = new Set((data ?? []).map((q: { id: string }) => q.id));
   };
 
   // Loads a previously answered question by order_index (for back/forward review).
@@ -261,6 +267,8 @@ function MockTest() {
     );
 
     if (error) { console.error("Answer not submitted:", error); return; }
+
+    answeredIdsRef.current.add(questionData.uid);
 
     if (currentTest && Number(currentTest.total_questions) === Number(currentQuestion)) {
       localStorage.removeItem(`timerRemaining_${testID}`);
@@ -354,8 +362,11 @@ function MockTest() {
     hasInitialized.current = true;
 
     const init = async () => {
-      const test = await getCurrenTest();
-      const lastAnswered = await getLastAnsweredIndex();
+      const [test, lastAnswered] = await Promise.all([
+        getCurrenTest(),
+        getLastAnsweredIndex(),
+        initAnsweredIds(),
+      ]);
       const startIndex = lastAnswered + 1;
 
       // If the test was already fully completed, go home
