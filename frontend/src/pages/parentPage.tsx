@@ -6,6 +6,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCrown } from "@fortawesome/free-solid-svg-icons";
 import { computeSHSATScore, scoreLabel, type Difficulty, type ScoredQuestion, type SHSATScore } from "../utils/scoring";
 import QuestionDetailModal from "../components/QuestionDetailModal";
+import { exportResultsPDF } from "../utils/exportResultsPDF";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -87,10 +88,10 @@ function ScoreBadge({ score }: { score: number | null }) {
 // ── Results Modal ─────────────────────────────────────────────────────────────
 
 function ResultsModal({
-  testID, studentID, studentName,
+  testID, studentID, studentName, duration,
   onClose,
 }: {
-  testID: string; studentID: string; studentName: string;
+  testID: string; studentID: string; studentName: string; duration: number;
   onClose: () => void;
 }) {
   const [data, setData]       = useState<TestResults | null>(null);
@@ -166,6 +167,35 @@ function ResultsModal({
   const analysis = ai ?? (aiError ? fallback : null);
   const shsatLabel = shsat ? scoreLabel(shsat.total) : null;
 
+  function handleExportPDF() {
+    exportResultsPDF({
+      testName: test?.test_name ?? "Results",
+      date: test ? formatDate(test.created_at) : "",
+      duration,
+      totalCorrect,
+      totalQuestions: totalQ,
+      englishCorrect: engCorrect,
+      englishTotal: englishCount,
+      mathCorrect,
+      mathTotal: totalQ - englishCount,
+      studentName,
+      shsatScore: shsat && shsatLabel ? {
+        total: shsat.total,
+        elaRatio: shsat.elaRatio,
+        mathRatio: shsat.mathRatio,
+        labelText: shsatLabel.text,
+        labelColor: shsatLabel.color,
+        subcategories: shsat.subcategories,
+      } : undefined,
+      aiAnalysis: analysis ?? undefined,
+      questions: questions.map(q => ({
+        orderIndex: q.order_index,
+        isCorrect: q.is_correct,
+        isEnglish: q.order_index <= englishCount,
+      })),
+    });
+  }
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center overflow-y-auto p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-6 flex flex-col overflow-hidden">
@@ -176,15 +206,30 @@ function ResultsModal({
             <h2 className="text-base font-bold text-slate-900">{test?.test_name ?? "Results"}</h2>
             {test && <p className="text-xs text-slate-400">{formatDate(test.created_at)}</p>}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            {!loading && data && (
+              <button
+                type="button"
+                onClick={handleExportPDF}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Save as PDF
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -451,7 +496,7 @@ function ParentPage() {
   const [loadingTests,   setLoadingTests]   = useState(false);
 
   // Results modal
-  const [viewResult, setViewResult] = useState<{ testID: string; studentID: string; studentName: string } | null>(null);
+  const [viewResult, setViewResult] = useState<{ testID: string; studentID: string; studentName: string; duration: number } | null>(null);
 
   // Add child modal
   const [addModal,       setAddModal]       = useState(false);
@@ -749,6 +794,7 @@ function ParentPage() {
                                   testID: test.id,
                                   studentID: selectedStudent.id,
                                   studentName: `${selectedStudent.first_name} ${selectedStudent.last_name}`,
+                                  duration: test.duration,
                                 })}
                                 className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors"
                               >
@@ -803,6 +849,7 @@ function ParentPage() {
               <button
                 type="button"
                 onClick={() => setAddModal(false)}
+                aria-label="Close"
                 className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -898,6 +945,7 @@ function ParentPage() {
           testID={viewResult.testID}
           studentID={viewResult.studentID}
           studentName={viewResult.studentName}
+          duration={viewResult.duration}
           onClose={() => setViewResult(null)}
         />
       )}

@@ -4,6 +4,7 @@ import { computeSHSATScore, scoreLabel, type SHSATScore, type Difficulty, type S
 import { useContext } from "react";
 import { UserContext } from "./userContext";
 import QuestionDetailModal from "./QuestionDetailModal";
+import { exportResultsPDF } from "../utils/exportResultsPDF";
 
 interface QuestionResult { id: string; order_index: number; is_correct: boolean | null; student_answer: string | null; }
 interface SelectedQuestion { uid: string; studentAnswer: string | null; isCorrect: boolean | null; questionNumber: number; }
@@ -11,6 +12,7 @@ interface AIAnalysis { strengths: string[]; improvements: string[]; recommendati
 interface TestInfo {
   test_name: string; created_at: string; total_questions: number;
   configuration: Record<string, { count: number }> | null;
+  duration?: number;
 }
 
 function ScoreCircle({ correct, total }: { correct: number; total: number }) {
@@ -218,7 +220,7 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
       } else {
         // Student path: direct queries
         const [{ data: testData }, { data: qData }] = await Promise.all([
-          supabase.from("tests").select("test_name, created_at, total_questions, configuration").eq("id", testID).single(),
+          supabase.from("tests").select("test_name, created_at, total_questions, configuration, duration").eq("id", testID).single(),
           supabase.from("questions").select("id, order_index, is_correct, student_answer").eq("test_id", testID).eq("user_id", userID).order("order_index"),
         ]);
         resolvedTest = testData as TestInfo | null;
@@ -298,6 +300,36 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
 
   const analysis = aiAnalysis ?? (aiError ? fallback : null);
 
+  function handleExportPDF() {
+    if (!test) return;
+    const sl = shsatScore ? scoreLabel(shsatScore.total) : null;
+    exportResultsPDF({
+      testName: test.test_name,
+      date: new Date(test.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+      duration: test.duration ?? 0,
+      totalCorrect,
+      totalQuestions: totalQ,
+      englishCorrect: engCorrect,
+      englishTotal: englishCount,
+      mathCorrect,
+      mathTotal: mathCount,
+      shsatScore: shsatScore && sl ? {
+        total: shsatScore.total,
+        elaRatio: shsatScore.elaRatio,
+        mathRatio: shsatScore.mathRatio,
+        labelText: sl.text,
+        labelColor: sl.color,
+        subcategories: shsatScore.subcategories,
+      } : undefined,
+      aiAnalysis: analysis ?? undefined,
+      questions: questions.map(q => ({
+        orderIndex: q.order_index,
+        isCorrect: q.is_correct,
+        isEnglish: q.order_index <= englishCount,
+      })),
+    });
+  }
+
   return (
     <div className="fixed inset-0 bg-black/85 z-50 flex items-start justify-center overflow-y-auto p-6">
       <div className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-2xl my-auto flex flex-col">
@@ -310,13 +342,27 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
               </p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2">
+            {!loading && test && (
+              <button
+                type="button"
+                onClick={handleExportPDF}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-700 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Save as PDF
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {loading ? (

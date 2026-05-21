@@ -8,7 +8,7 @@ interface MediaItem {
   media_type: MediaType;
   file: File | null;
   passageText: string;
-  previewUrl: string; // object URL for new uploads, or existing content URL
+  previewUrl: string;
   isExisting: boolean;
 }
 
@@ -55,12 +55,10 @@ const EMPTY_FORM: FormData = {
   media_refs: "",
 };
 
-// ── Reusable field components ─────────────────────────────────────────────────
-
 function Label({ children }: { children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-sm font-bold uppercase tracking-widest text-slate-500">{children}</span>
+      <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">{children}</span>
     </label>
   );
 }
@@ -79,7 +77,7 @@ function Input({
       placeholder={placeholder}
       disabled={disabled}
       autoFocus={autoFocus}
-      className={`w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${mono ? "font-mono" : ""}`}
+      className={`w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${mono ? "font-mono" : ""}`}
     />
   );
 }
@@ -95,7 +93,7 @@ function Textarea({
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
       rows={rows ?? 5}
-      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors resize-y"
+      className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors resize-y"
     />
   );
 }
@@ -110,14 +108,12 @@ function Select({
       value={value}
       onChange={e => onChange(e.target.value)}
       title={title}
-      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-base text-slate-900 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors"
+      className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors"
     >
       {children}
     </select>
   );
 }
-
-// ── Main component ────────────────────────────────────────────────────────────
 
 export default function AdminQuestionsPanel() {
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -153,7 +149,6 @@ export default function AdminQuestionsPanel() {
     debounceRef.current = setTimeout(() => { setSearch(v); setPage(0); }, 400);
   }
 
-  // Load distinct sub_categories for filter dropdown
   useEffect(() => {
     supabase.from("all_questions").select("sub_category").then(({ data }) => {
       if (!data) return;
@@ -235,7 +230,6 @@ export default function AdminQuestionsPanel() {
     setSaveError(null);
     setModalMode("edit");
 
-    // Load existing media from dictionary_of_media
     const { data } = await supabase
       .from("dictionary_of_media")
       .select("media_id, media_type, content, index")
@@ -252,7 +246,6 @@ export default function AdminQuestionsPanel() {
         isExisting: true,
       })));
     } else if (q.media_refs?.trim()) {
-      // Fallback: parse media_refs string if no DB records found
       setMediaItems(q.media_refs.split(/[,\s]+/).filter(Boolean).map(id => ({
         mediaId: id.trim(), media_type: "graph" as MediaType,
         file: null, passageText: "", previewUrl: "", isExisting: true,
@@ -269,7 +262,6 @@ export default function AdminQuestionsPanel() {
     setSaving(true);
     setSaveError(null);
 
-    // If a brand-new topic table was requested, create it via RPC first
     if (isNewTopic && form.sub_category?.trim()) {
       const { error: rpcErr } = await supabase.rpc("create_topic_table", { table_name: form.sub_category.trim() });
       if (rpcErr) {
@@ -312,18 +304,17 @@ export default function AdminQuestionsPanel() {
     } else {
       const subCategoryChanged = originalSubCategory && originalSubCategory !== form.sub_category;
       if (subCategoryChanged) {
-        // Remove from old topic table, insert into new topic table
         await supabase.from(originalSubCategory!).delete().eq("uid", form.uid!);
         const { error: topicErr } = await supabase.from(form.sub_category!).insert([payload]);
         if (topicErr) {
-          setSaveError(`New topic table "${form.sub_category}" error: ${topicErr.message}. all_questions and old topic table were updated.`);
+          setSaveError(`New topic table "${form.sub_category}" error: ${topicErr.message}.`);
           setSaving(false);
           return;
         }
       } else {
         const { error: topicErr } = await supabase.from(form.sub_category!).update(payload).eq("uid", form.uid!);
         if (topicErr) {
-          setSaveError(`Topic table "${form.sub_category}" error: ${topicErr.message}. all_questions was updated.`);
+          setSaveError(`Topic table "${form.sub_category}" error: ${topicErr.message}.`);
           setSaving(false);
           return;
         }
@@ -334,13 +325,11 @@ export default function AdminQuestionsPanel() {
       setCategories(prev => [...prev, form.sub_category!].sort());
     }
 
-    // Upload media to Storage + upsert into dictionary_of_media
     for (let i = 0; i < mediaItems.length; i++) {
       const item = mediaItems[i];
       let content: string | null = null;
 
       if (isImageType(item.media_type) && item.file) {
-        // Upload image to Storage → images bucket, named by media_id
         const ext = item.file.name.split(".").pop() ?? "jpg";
         const filePath = `${item.mediaId}.${ext}`;
         const { error: uploadErr } = await supabase.storage
@@ -356,19 +345,12 @@ export default function AdminQuestionsPanel() {
       } else if (item.media_type === "passage" && !item.isExisting && item.passageText.trim()) {
         content = item.passageText.trim();
       } else if (item.isExisting) {
-        // Existing item with no new file/text — still upsert to keep index/question_id in sync
         content = item.media_type === "passage" ? item.passageText : item.previewUrl;
       }
 
       if (content !== null) {
         const { error: dictErr } = await supabase.from("dictionary_of_media").upsert(
-          {
-            media_id: item.mediaId,
-            question_id: form.uid,
-            media_type: item.media_type,
-            content,
-            index: i,
-          },
+          { media_id: item.mediaId, question_id: form.uid, media_type: item.media_type, content, index: i },
           { onConflict: "media_id" }
         );
         if (dictErr) {
@@ -401,10 +383,10 @@ export default function AdminQuestionsPanel() {
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
       {/* ── Toolbar ── */}
-      <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-3 flex-wrap shrink-0">
+      <div className="px-6 py-4 border-b border-zinc-200 flex items-center gap-3 flex-wrap shrink-0">
         <div className="shrink-0 mr-2">
-          <h2 className="text-base font-bold text-slate-900">Question Bank</h2>
-          <p className="text-sm text-slate-400">{total} questions</p>
+          <h2 className="text-base font-bold text-zinc-900">Question Bank</h2>
+          <p className="text-sm text-zinc-400">{total} questions</p>
         </div>
 
         <input
@@ -412,82 +394,82 @@ export default function AdminQuestionsPanel() {
           placeholder="Search by UID or question text…"
           value={searchInput}
           onChange={e => handleSearchChange(e.target.value)}
-          className="flex-1 min-w-44 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-base text-slate-700 placeholder-slate-400 focus:outline-none focus:border-amber-500/40 transition-colors"
+          className="flex-1 min-w-44 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-700 placeholder-zinc-400 focus:outline-none focus:border-amber-500/40 transition-colors"
         />
 
         <select title="Filter by subject" value={filterSubject} onChange={e => { setFilterSubject(e.target.value); setPage(0); }}
-          className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-base text-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+          className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
           <option value="">All Subjects</option>
           <option value="english">ELA</option>
           <option value="math">Math</option>
         </select>
 
         <select title="Filter by type" value={filterType} onChange={e => { setFilterType(e.target.value); setPage(0); }}
-          className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-base text-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+          className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
           <option value="">All Types</option>
           <option value="mcq">MCQ</option>
           <option value="grid-in">Grid-in</option>
         </select>
 
         <select title="Filter by topic" value={filterCategory} onChange={e => { setFilterCategory(e.target.value); setPage(0); }}
-          className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-base text-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+          className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
           <option value="">All Topics</option>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
 
         <button type="button" onClick={openAdd}
-          className="ml-auto shrink-0 bg-amber-500 hover:bg-amber-400 text-white font-bold text-base px-4 py-2 rounded-lg transition-colors">
+          className="ml-auto shrink-0 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-base px-4 py-2 rounded-lg transition-colors">
           + Add Question
         </button>
       </div>
 
       {fetchError && (
-        <div className="mx-5 mt-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-base text-red-500 shrink-0">{fetchError}</div>
+        <div className="mx-5 mt-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-base text-red-400 shrink-0">{fetchError}</div>
       )}
 
       {/* ── Table ── */}
       <div className="flex-1 overflow-auto">
         <table className="w-full text-base border-collapse">
           <thead className="sticky top-0 z-10 bg-white">
-            <tr className="border-b border-slate-200">
-              <th className="px-4 py-3 text-left text-sm font-bold text-slate-400 uppercase tracking-widest">UID</th>
-              <th className="px-4 py-3 text-left text-sm font-bold text-slate-400 uppercase tracking-widest">Subject</th>
-              <th className="px-4 py-3 text-left text-sm font-bold text-slate-400 uppercase tracking-widest">Type</th>
-              <th className="px-4 py-3 text-left text-sm font-bold text-slate-400 uppercase tracking-widest">Topic</th>
-              <th className="px-4 py-3 text-left text-sm font-bold text-slate-400 uppercase tracking-widest">Difficulty</th>
-              <th className="px-4 py-3 text-left text-sm font-bold text-slate-400 uppercase tracking-widest w-full">Question</th>
-              <th className="px-4 py-3 text-right text-sm font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Actions</th>
+            <tr className="border-b border-zinc-200">
+              <th className="px-4 py-3 text-left text-sm font-bold text-zinc-400 uppercase tracking-widest">UID</th>
+              <th className="px-4 py-3 text-left text-sm font-bold text-zinc-400 uppercase tracking-widest">Subject</th>
+              <th className="px-4 py-3 text-left text-sm font-bold text-zinc-400 uppercase tracking-widest">Type</th>
+              <th className="px-4 py-3 text-left text-sm font-bold text-zinc-400 uppercase tracking-widest">Topic</th>
+              <th className="px-4 py-3 text-left text-sm font-bold text-zinc-400 uppercase tracking-widest">Difficulty</th>
+              <th className="px-4 py-3 text-left text-sm font-bold text-zinc-400 uppercase tracking-widest w-full">Question</th>
+              <th className="px-4 py-3 text-right text-sm font-bold text-zinc-400 uppercase tracking-widest whitespace-nowrap">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="py-16 text-center text-slate-400 text-base">Loading…</td></tr>
+              <tr><td colSpan={7} className="py-16 text-center text-zinc-400 text-base">Loading…</td></tr>
             ) : questions.length === 0 ? (
-              <tr><td colSpan={7} className="py-16 text-center text-slate-400 text-base">No questions match the current filters.</td></tr>
+              <tr><td colSpan={7} className="py-16 text-center text-zinc-400 text-base">No questions match the current filters.</td></tr>
             ) : questions.map(q => (
-              <tr key={q.uid} className="border-b border-slate-100 hover:bg-slate-50 transition-colors group">
-                <td className="px-4 py-3 font-mono text-sm text-slate-400 whitespace-nowrap align-top">{q.uid}</td>
+              <tr key={q.uid} className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors group">
+                <td className="px-4 py-3 font-mono text-sm text-zinc-500 whitespace-nowrap align-top">{q.uid}</td>
                 <td className="px-4 py-3 align-top">
                   {q.subject
-                    ? <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${q.subject === "english" ? "bg-blue-50 text-blue-600" : "bg-violet-50 text-violet-600"}`}>
+                    ? <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${q.subject === "english" ? "bg-blue-500/10 text-blue-500" : "bg-violet-500/10 text-violet-500"}`}>
                         {q.subject === "english" ? "ELA" : "Math"}
                       </span>
-                    : <span className="text-slate-400 text-sm">—</span>}
+                    : <span className="text-zinc-400 text-sm">—</span>}
                 </td>
                 <td className="px-4 py-3 align-top">
-                  <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${q.type === "mcq" ? "bg-slate-100 text-slate-500" : "bg-amber-50 text-amber-600"}`}>
+                  <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${q.type === "mcq" ? "bg-zinc-100 text-zinc-500" : "bg-amber-500/10 text-amber-500"}`}>
                     {q.type === "mcq" ? "MCQ" : "Grid-in"}
                   </span>
                 </td>
-                <td className="px-4 py-3 font-mono text-sm text-slate-400 whitespace-nowrap align-top">{q.sub_category ?? "—"}</td>
-                <td className="px-4 py-3 text-sm text-slate-400 capitalize align-top">{q.difficulty ?? "—"}</td>
+                <td className="px-4 py-3 font-mono text-sm text-zinc-500 whitespace-nowrap align-top">{q.sub_category ?? "—"}</td>
+                <td className="px-4 py-3 text-sm text-zinc-500 capitalize align-top">{q.difficulty ?? "—"}</td>
                 <td className="px-4 py-3 align-top max-w-lg">
-                  <p className="text-sm text-slate-500 leading-relaxed line-clamp-2">{q.text}</p>
+                  <p className="text-sm text-zinc-500 leading-relaxed line-clamp-2">{q.text}</p>
                 </td>
                 <td className="px-4 py-3 align-top">
                   <div className="flex gap-1.5 justify-end">
                     <button type="button" onClick={() => openEdit(q)}
-                      className="text-sm font-medium text-slate-400 hover:text-amber-600 px-3 py-1.5 rounded-md hover:bg-amber-50 border border-slate-200 hover:border-amber-200 transition-colors whitespace-nowrap">
+                      className="text-sm font-medium text-zinc-500 hover:text-amber-500 px-3 py-1.5 rounded-md hover:bg-amber-500/8 border border-zinc-200 hover:border-amber-500/25 transition-colors whitespace-nowrap">
                       Edit
                     </button>
                     {deleteTarget?.uid === q.uid ? (
@@ -497,13 +479,13 @@ export default function AdminQuestionsPanel() {
                           {deleting ? "…" : "Confirm"}
                         </button>
                         <button type="button" onClick={() => setDeleteTarget(null)}
-                          className="text-sm text-slate-400 hover:text-slate-700 px-2 py-1.5 rounded-md hover:bg-slate-100 transition-colors">
+                          className="text-sm text-zinc-400 hover:text-zinc-700 px-2 py-1.5 rounded-md hover:bg-zinc-100 transition-colors">
                           ✕
                         </button>
                       </div>
                     ) : (
                       <button type="button" onClick={() => setDeleteTarget(q)}
-                        className="text-sm font-medium text-slate-400 hover:text-red-500 px-3 py-1.5 rounded-md hover:bg-red-50 border border-slate-200 hover:border-red-200 transition-colors">
+                        className="text-sm font-medium text-zinc-500 hover:text-red-400 px-3 py-1.5 rounded-md hover:bg-red-500/8 border border-zinc-200 hover:border-red-500/25 transition-colors">
                         Delete
                       </button>
                     )}
@@ -516,18 +498,18 @@ export default function AdminQuestionsPanel() {
       </div>
 
       {/* ── Pagination ── */}
-      <div className="px-6 py-3 border-t border-slate-200 flex items-center justify-between shrink-0">
-        <span className="text-sm text-slate-400">
+      <div className="px-6 py-3 border-t border-zinc-200 flex items-center justify-between shrink-0">
+        <span className="text-sm text-zinc-400">
           {total === 0 ? "No results" : `${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, total)} of ${total}`}
         </span>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-            className="px-3 py-1.5 text-sm rounded-md bg-slate-50 border border-slate-200 text-slate-400 hover:text-slate-700 hover:border-slate-300 disabled:opacity-30 transition-colors">
+            className="px-3 py-1.5 text-sm rounded-md bg-zinc-50 border border-zinc-200 text-zinc-500 hover:text-zinc-800 hover:border-zinc-300 disabled:opacity-30 transition-colors">
             ← Prev
           </button>
-          <span className="text-sm text-slate-400 tabular-nums">{page + 1} / {Math.max(1, totalPages)}</span>
+          <span className="text-sm text-zinc-400 tabular-nums">{page + 1} / {Math.max(1, totalPages)}</span>
           <button type="button" onClick={() => setPage(p => p + 1)} disabled={(page + 1) * PAGE_SIZE >= total}
-            className="px-3 py-1.5 text-sm rounded-md bg-slate-50 border border-slate-200 text-slate-400 hover:text-slate-700 hover:border-slate-300 disabled:opacity-30 transition-colors">
+            className="px-3 py-1.5 text-sm rounded-md bg-zinc-50 border border-zinc-200 text-zinc-500 hover:text-zinc-800 hover:border-zinc-300 disabled:opacity-30 transition-colors">
             Next →
           </button>
         </div>
@@ -535,38 +517,28 @@ export default function AdminQuestionsPanel() {
 
       {/* ── Add / Edit Modal ── */}
       {modalMode && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-white border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between shrink-0">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">
+                <h3 className="text-lg font-bold text-zinc-900">
                   {modalMode === "add" ? "Add New Question" : "Edit Question"}
                 </h3>
                 {modalMode === "edit" && (
-                  <p className="text-sm text-slate-400 font-mono mt-0.5">{form.uid}</p>
+                  <p className="text-sm text-zinc-400 font-mono mt-0.5">{form.uid}</p>
                 )}
               </div>
               <button type="button" onClick={() => setModalMode(null)}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-base">
+                className="w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors text-base">
                 ✕
               </button>
             </div>
 
-            {/* Scrollable body */}
             <div className="overflow-y-auto flex-1 p-6 flex flex-col gap-5">
-              {/* Row 1: UID / Subject / Type */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <Label>UID</Label>
-                  <Input
-                    value={form.uid ?? ""}
-                    onChange={v => setField("uid", v)}
-                    placeholder="e.g. 25A_Q1"
-                    disabled={modalMode === "edit"}
-                    mono
-                    autoFocus={modalMode === "add"}
-                  />
+                  <Input value={form.uid ?? ""} onChange={v => setField("uid", v)} placeholder="e.g. 25A_Q1" disabled={modalMode === "edit"} mono autoFocus={modalMode === "add"} />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label>Subject</Label>
@@ -585,39 +557,26 @@ export default function AdminQuestionsPanel() {
                 </div>
               </div>
 
-              {/* Row 2: Topic / Difficulty */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
                     <Label>Topic Table</Label>
                     {!isNewTopic ? (
-                      <button
-                        type="button"
-                        onClick={() => { setIsNewTopic(true); setField("sub_category", ""); setNewTopicName(""); }}
-                        className="text-sm text-amber-500 hover:text-amber-600 font-medium transition-colors"
-                      >
+                      <button type="button" onClick={() => { setIsNewTopic(true); setField("sub_category", ""); setNewTopicName(""); }}
+                        className="text-sm text-amber-500 hover:text-amber-400 font-medium transition-colors">
                         + New topic
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => { setIsNewTopic(false); setNewTopicName(""); setField("sub_category", ""); }}
-                        className="text-sm text-slate-400 hover:text-slate-600 font-medium transition-colors"
-                      >
+                      <button type="button" onClick={() => { setIsNewTopic(false); setNewTopicName(""); setField("sub_category", ""); }}
+                        className="text-sm text-zinc-400 hover:text-zinc-600 font-medium transition-colors">
                         ← Pick existing
                       </button>
                     )}
                   </div>
                   {isNewTopic ? (
                     <div className="flex flex-col gap-1">
-                      <Input
-                        value={newTopicName}
-                        onChange={v => { setNewTopicName(v); setField("sub_category", v.trim().toLowerCase().replace(/\s+/g, "_")); }}
-                        placeholder="e.g. idioms (creates new table)"
-                        mono
-                        autoFocus
-                      />
-                      <p className="text-sm text-slate-400">Creates a new Postgres table with this name.</p>
+                      <Input value={newTopicName} onChange={v => { setNewTopicName(v); setField("sub_category", v.trim().toLowerCase().replace(/\s+/g, "_")); }} placeholder="e.g. idioms (creates new table)" mono autoFocus />
+                      <p className="text-sm text-zinc-400">Creates a new Postgres table with this name.</p>
                     </div>
                   ) : (
                     <Select value={form.sub_category ?? ""} onChange={v => setField("sub_category", v)} title="Topic table">
@@ -637,37 +596,25 @@ export default function AdminQuestionsPanel() {
                 </div>
               </div>
 
-              {/* Question text */}
               <div className="flex flex-col gap-1.5">
                 <Label>Question Text</Label>
-                <Textarea
-                  value={form.text ?? ""}
-                  onChange={v => setField("text", v)}
-                  placeholder="Type the full question text here…"
-                  rows={6}
-                />
+                <Textarea value={form.text ?? ""} onChange={v => setField("text", v)} placeholder="Type the full question text here…" rows={6} />
               </div>
 
-              {/* Answer choices — MCQ only */}
               {form.type === "mcq" && (
                 <div className="flex flex-col gap-2.5">
                   <Label>Answer Choices</Label>
                   <div className="grid grid-cols-2 gap-3">
                     {(["choice_1", "choice_2", "choice_3", "choice_4"] as const).map((key, i) => (
                       <div key={key} className="flex gap-2 items-center">
-                        <span className="text-sm font-bold text-slate-400 w-5 shrink-0">{String.fromCharCode(65 + i)}</span>
-                        <Input
-                          value={(form[key] as string) ?? ""}
-                          onChange={v => setField(key, v)}
-                          placeholder={`Choice ${String.fromCharCode(65 + i)}`}
-                        />
+                        <span className="text-sm font-bold text-zinc-400 w-5 shrink-0">{String.fromCharCode(65 + i)}</span>
+                        <Input value={(form[key] as string) ?? ""} onChange={v => setField(key, v)} placeholder={`Choice ${String.fromCharCode(65 + i)}`} />
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Correct answer */}
               <div className="flex flex-col gap-1.5">
                 <Label>Correct Answer</Label>
                 {form.type === "mcq" ? (
@@ -677,20 +624,14 @@ export default function AdminQuestionsPanel() {
                       const choiceText = (form[choiceKey] as string) ?? "";
                       const selected = form.answer === letter;
                       return (
-                        <button
-                          key={letter}
-                          type="button"
-                          onClick={() => setField("answer", letter)}
-                          title={choiceText || `Choice ${letter}`}
+                        <button key={letter} type="button" onClick={() => setField("answer", letter)} title={choiceText || `Choice ${letter}`}
                           className={`flex flex-col items-center gap-1 px-3 py-2.5 rounded-xl border text-base font-bold transition-all ${
-                            selected
-                              ? "bg-amber-500 border-amber-400 text-white"
-                              : "bg-slate-50 border-slate-200 text-slate-400 hover:border-amber-300 hover:text-slate-700"
+                            selected ? "bg-amber-500 border-amber-400 text-zinc-950" : "bg-zinc-50 border-zinc-200 text-zinc-400 hover:border-amber-500/40 hover:text-zinc-700"
                           }`}
                         >
                           <span>{letter}</span>
                           {choiceText && (
-                            <span className={`text-sm font-normal leading-tight text-center line-clamp-2 ${selected ? "text-amber-100" : "text-slate-400"}`}>
+                            <span className={`text-sm font-normal leading-tight text-center line-clamp-2 ${selected ? "text-zinc-800" : "text-zinc-400"}`}>
                               {choiceText}
                             </span>
                           )}
@@ -699,96 +640,66 @@ export default function AdminQuestionsPanel() {
                     })}
                   </div>
                 ) : (
-                  <Input
-                    value={form.answer ?? ""}
-                    onChange={v => setField("answer", v)}
-                    placeholder="e.g. 42, 3/4, or 0.75"
-                    mono
-                  />
+                  <Input value={form.answer ?? ""} onChange={v => setField("answer", v)} placeholder="e.g. 42, 3/4, or 0.75" mono />
                 )}
               </div>
 
-              {/* Media */}
               <div className="flex flex-col gap-2.5">
                 <div className="flex items-center justify-between">
                   <Label>Media (optional)</Label>
-                  <button
-                    type="button"
-                    onClick={addMediaItem}
-                    className="text-sm text-amber-500 hover:text-amber-600 font-medium transition-colors"
-                  >
+                  <button type="button" onClick={addMediaItem} className="text-sm text-amber-500 hover:text-amber-400 font-medium transition-colors">
                     + Add media
                   </button>
                 </div>
                 {mediaItems.length === 0 ? (
-                  <p className="text-sm text-slate-400 italic">No media attached.</p>
+                  <p className="text-sm text-zinc-400 italic">No media attached.</p>
                 ) : (
                   <div className="flex flex-col gap-3">
                     {mediaItems.map((item, idx) => (
-                      <div key={idx} className="border border-slate-200 rounded-xl p-3.5 flex flex-col gap-3 bg-slate-50">
-                        {/* ID + type row */}
+                      <div key={idx} className="border border-zinc-200 rounded-xl p-3.5 flex flex-col gap-3 bg-zinc-50">
                         <div className="flex gap-2 items-end">
                           <div className="flex-1 flex flex-col gap-1">
-                            <span className="text-sm font-bold uppercase tracking-widest text-slate-500">Media ID</span>
-                            <input
-                              type="text"
-                              value={item.mediaId}
-                              onChange={e => updateMediaItem(idx, { mediaId: e.target.value })}
-                              title="Media ID"
+                            <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">Media ID</span>
+                            <input type="text" value={item.mediaId} onChange={e => updateMediaItem(idx, { mediaId: e.target.value })} title="Media ID"
                               placeholder={`${form.uid ?? "UID"}_${String.fromCharCode(65 + idx)}`}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm font-mono text-slate-700 placeholder-slate-400 focus:outline-none focus:border-amber-500/60 transition-colors"
+                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-1.5 text-sm font-mono text-zinc-700 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 transition-colors"
                             />
                           </div>
                           <div className="flex flex-col gap-1 w-36 shrink-0">
-                            <span className="text-sm font-bold uppercase tracking-widest text-slate-500">Type</span>
-                            <select
-                              value={item.media_type}
-                              onChange={e => updateMediaItem(idx, { media_type: e.target.value as MediaType })}
-                              title="Media type"
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-700 focus:outline-none focus:border-amber-500/60 transition-colors"
-                            >
+                            <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">Type</span>
+                            <select value={item.media_type} onChange={e => updateMediaItem(idx, { media_type: e.target.value as MediaType })} title="Media type"
+                              className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1.5 text-sm text-zinc-700 focus:outline-none focus:border-amber-500/60 transition-colors">
                               {(Object.keys(MEDIA_TYPE_LABELS) as MediaType[]).map(t => (
                                 <option key={t} value={t}>{MEDIA_TYPE_LABELS[t]}</option>
                               ))}
                             </select>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => removeMediaItem(idx)}
-                            className="mb-0.5 w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors text-sm shrink-0"
-                          >
+                          <button type="button" onClick={() => removeMediaItem(idx)}
+                            className="mb-0.5 w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors text-sm shrink-0">
                             ✕
                           </button>
                         </div>
-                        {/* Content */}
                         {isImageType(item.media_type) ? (
                           <div className="flex flex-col gap-2">
                             {item.previewUrl && (
-                              <img src={item.previewUrl} alt="preview" className="max-h-36 object-contain rounded-lg border border-slate-200 bg-slate-50 p-1" />
+                              <img src={item.previewUrl} alt="preview" className="max-h-36 object-contain rounded-lg border border-zinc-200 bg-zinc-50 p-1" />
                             )}
                             {item.isExisting && !item.file && (
-                              <p className="text-sm text-slate-400">Existing image — upload a new file below to replace it.</p>
+                              <p className="text-sm text-zinc-400">Existing image — upload a new file below to replace it.</p>
                             )}
-                            <input
-                              type="file"
-                              accept="image/*"
-                              title="Upload image"
-                              placeholder="Upload image"
+                            <input type="file" accept="image/*" title="Upload image" placeholder="Upload image"
                               onChange={e => handleImageFile(idx, e.target.files?.[0])}
-                              className="text-sm text-slate-500 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer"
+                              className="text-sm text-zinc-500 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-zinc-100 file:text-zinc-700 hover:file:bg-zinc-200 cursor-pointer"
                             />
                           </div>
                         ) : (
                           <div className="flex flex-col gap-1">
                             {item.isExisting && !item.passageText && (
-                              <p className="text-sm text-slate-400 mb-1">Existing passage — edit or replace text below.</p>
+                              <p className="text-sm text-zinc-400 mb-1">Existing passage — edit or replace text below.</p>
                             )}
-                            <textarea
-                              value={item.passageText}
-                              onChange={e => updateMediaItem(idx, { passageText: e.target.value, isExisting: false })}
-                              placeholder="Paste or type the full passage text…"
-                              rows={5}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-amber-500/60 transition-colors resize-y"
+                            <textarea value={item.passageText} onChange={e => updateMediaItem(idx, { passageText: e.target.value, isExisting: false })}
+                              placeholder="Paste or type the full passage text…" rows={5}
+                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm text-zinc-700 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 transition-colors resize-y"
                             />
                           </div>
                         )}
@@ -798,25 +709,23 @@ export default function AdminQuestionsPanel() {
                 )}
               </div>
 
-              {/* Info note */}
-              <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                Saves to <span className="text-slate-700 font-mono">all_questions</span> and topic table{" "}
-                <span className="text-amber-600 font-mono">{form.sub_category || "<sub_category>"}</span>.
+              <p className="text-sm text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2">
+                Saves to <span className="text-zinc-700 font-mono">all_questions</span> and topic table{" "}
+                <span className="text-amber-500/80 font-mono">{form.sub_category || "<sub_category>"}</span>.
               </p>
 
               {saveError && (
-                <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{saveError}</p>
+                <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{saveError}</p>
               )}
             </div>
 
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between shrink-0">
+            <div className="px-6 py-4 border-t border-zinc-200 flex items-center justify-between shrink-0">
               <button type="button" onClick={() => setModalMode(null)}
-                className="px-4 py-2 rounded-lg text-base text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+                className="px-4 py-2 rounded-lg text-base text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors">
                 Cancel
               </button>
               <button type="button" onClick={save} disabled={saving}
-                className="px-6 py-2 rounded-lg text-base font-bold bg-amber-500 hover:bg-amber-400 text-white transition-colors disabled:opacity-50">
+                className="px-6 py-2 rounded-lg text-base font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors disabled:opacity-50">
                 {saving ? "Saving…" : modalMode === "add" ? "Add Question" : "Save Changes"}
               </button>
             </div>

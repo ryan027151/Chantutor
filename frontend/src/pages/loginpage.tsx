@@ -8,6 +8,7 @@ function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSent, setForgotSent] = useState(false);
@@ -26,17 +27,29 @@ function LoginPage() {
 
   async function signIn() {
     setError("");
-    const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
-    if (authError) {
-      setError("Invalid email or password.");
-      return;
-    }
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-      navigate(profile?.role === "admin" ? "/admin" : profile?.role === "parent" ? "/parent" : "/home");
-    } else {
-      navigate("/home");
+    setLoading(true);
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+      if (authError) {
+        const isNetwork = authError.message.toLowerCase().includes("fetch") ||
+                          authError.message.toLowerCase().includes("network") ||
+                          (authError as { status?: number }).status === 0;
+        setError(isNetwork
+          ? "Connection failed. Check your internet connection and try again."
+          : "Invalid email or password.");
+        return;
+      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+        navigate(profile?.role === "admin" ? "/admin" : profile?.role === "parent" ? "/parent" : "/home");
+      } else {
+        navigate("/home");
+      }
+    } catch {
+      setError("Connection failed. Check your internet connection and try again.");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -179,9 +192,10 @@ function LoginPage() {
                 )}
                 <button
                   type="submit"
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors"
+                  disabled={loading}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-60"
                 >
-                  Sign In
+                  {loading ? "Signing in…" : "Sign In"}
                 </button>
               </form>
               <p className="text-center text-sm text-slate-500">

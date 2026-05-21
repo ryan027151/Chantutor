@@ -5,6 +5,7 @@ import { UserContext } from "../components/userContext";
 import { Test } from "../components/types";
 import { computeSHSATScore, scoreLabel, type SHSATScore, type Difficulty, type ScoredQuestion } from "../utils/scoring";
 import QuestionDetailModal from "../components/QuestionDetailModal";
+import { exportResultsPDF } from "../utils/exportResultsPDF";
 
 interface QuestionResult {
   id: string;
@@ -310,6 +311,36 @@ function ResultsPage() {
 
   const analysis = aiAnalysis ?? (aiError ? fallbackAnalysis : null);
 
+  function handleExportPDF() {
+    if (!test) return;
+    const sl = shsatScore ? scoreLabel(shsatScore.total) : null;
+    exportResultsPDF({
+      testName: test.test_name,
+      date: new Date(test.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+      duration: test.duration,
+      totalCorrect,
+      totalQuestions: test.total_questions,
+      englishCorrect: engCorrect,
+      englishTotal: englishCount,
+      mathCorrect,
+      mathTotal: mathCount,
+      shsatScore: shsatScore && sl ? {
+        total: shsatScore.total,
+        elaRatio: shsatScore.elaRatio,
+        mathRatio: shsatScore.mathRatio,
+        labelText: sl.text,
+        labelColor: sl.color,
+        subcategories: shsatScore.subcategories,
+      } : undefined,
+      aiAnalysis: analysis ?? undefined,
+      questions: questions.map(q => ({
+        orderIndex: q.order_index,
+        isCorrect: q.is_correct,
+        isEnglish: q.order_index <= englishCount,
+      })),
+    });
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="bg-white border-b border-slate-100 shadow-sm px-6 py-4 flex items-center gap-3 sticky top-0 z-10">
@@ -329,6 +360,16 @@ function ResultsPage() {
             {new Date(test.created_at).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
           </p>
         </div>
+        <button
+          type="button"
+          onClick={handleExportPDF}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Save as PDF
+        </button>
       </div>
 
       <div className="max-w-2xl mx-auto px-5 py-8 flex flex-col gap-5">
