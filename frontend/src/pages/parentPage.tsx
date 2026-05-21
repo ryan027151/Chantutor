@@ -5,6 +5,7 @@ import { UserContext } from "../components/userContext";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCrown } from "@fortawesome/free-solid-svg-icons";
 import { computeSHSATScore, scoreLabel, type Difficulty, type ScoredQuestion, type SHSATScore } from "../utils/scoring";
+import QuestionDetailModal from "../components/QuestionDetailModal";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,9 +25,17 @@ interface QuestionResult {
   id: string;
   order_index: number;
   is_correct: boolean | null;
+  student_answer: string | null;
   difficulty: string;
   sub_category: string | null;
   subject: string | null;
+}
+
+interface SelectedQuestion {
+  uid: string;
+  studentAnswer: string | null;
+  isCorrect: boolean | null;
+  questionNumber: number;
 }
 
 interface TestResults {
@@ -91,6 +100,7 @@ function ResultsModal({
   const [aiError, setAiError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
+  const [selectedQ, setSelectedQ] = useState<SelectedQuestion | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -362,12 +372,14 @@ function ResultsModal({
                   const q = questions.find(qr => qr.order_index === i + 1);
                   const isEng = i + 1 <= englishCount;
                   const correct = q?.is_correct;
-                  return (
-                    <div key={i} className={`flex items-center gap-3 px-5 py-3 border-l-[3px] ${
-                      correct === true  ? "bg-emerald-50/60 border-emerald-400" :
-                      correct === false ? "bg-rose-50/60 border-rose-400" :
-                      "bg-slate-50/60 border-slate-200"
-                    }`}>
+                  const clickable = !!q;
+                  const rowCls = `w-full text-left flex items-center gap-3 px-5 py-3 border-l-[3px] ${
+                    correct === true  ? "bg-emerald-50/60 border-emerald-400" :
+                    correct === false ? "bg-rose-50/60 border-rose-400" :
+                    "bg-slate-50/60 border-slate-200"
+                  } ${clickable ? "cursor-pointer hover:brightness-95" : ""}`;
+                  const inner = (
+                    <>
                       <span className="text-xs font-mono font-semibold text-slate-400 w-8 shrink-0">Q{i + 1}</span>
                       <div className="flex-1 flex items-center gap-1.5">
                         {correct === true ? (
@@ -384,7 +396,24 @@ function ResultsModal({
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${isEng ? "bg-blue-50 text-blue-600" : "bg-violet-50 text-violet-600"}`}>
                         {isEng ? "ELA" : "Math"}
                       </span>
-                    </div>
+                      {clickable && (
+                        <svg className="w-3.5 h-3.5 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      )}
+                    </>
+                  );
+                  return clickable ? (
+                    <button
+                      key={i}
+                      type="button"
+                      className={rowCls}
+                      onClick={() => setSelectedQ({ uid: q.id, studentAnswer: q.student_answer, isCorrect: q.is_correct, questionNumber: i + 1 })}
+                    >
+                      {inner}
+                    </button>
+                  ) : (
+                    <div key={i} className={rowCls}>{inner}</div>
                   );
                 })}
               </div>
@@ -393,6 +422,18 @@ function ResultsModal({
           </div>
         )}
       </div>
+
+      {selectedQ && (
+        <QuestionDetailModal
+          questionUid={selectedQ.uid}
+          studentAnswer={selectedQ.studentAnswer}
+          isCorrect={selectedQ.isCorrect}
+          questionNumber={selectedQ.questionNumber}
+          testId={testID}
+          testName={test?.test_name}
+          onClose={() => setSelectedQ(null)}
+        />
+      )}
     </div>
   );
 }

@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
       // Fetch answered questions
       const { data: qData } = await db
         .from("questions")
-        .select("id, order_index, is_correct")
+        .select("id, order_index, is_correct, student_answer")
         .eq("test_id", test_id)
         .eq("user_id", student_id)
         .order("order_index");
@@ -141,14 +141,15 @@ Deno.serve(async (req) => {
 
       const detailMap: Record<string, QDetail> = Object.fromEntries(details.map(d => [d.uid, d]));
 
-      type AnsweredQ = { id: string; order_index: number; is_correct: boolean | null };
+      type AnsweredQ = { id: string; order_index: number; is_correct: boolean | null; student_answer: string | null };
       const questions = (qData as AnsweredQ[] ?? []).map(q => ({
-        id:           q.id,
-        order_index:  q.order_index,
-        is_correct:   q.is_correct,
-        difficulty:   detailMap[q.id]?.difficulty   ?? "medium",
-        sub_category: detailMap[q.id]?.sub_category ?? null,
-        subject:      detailMap[q.id]?.subject       ?? null,
+        id:             q.id,
+        order_index:    q.order_index,
+        is_correct:     q.is_correct,
+        student_answer: q.student_answer ?? null,
+        difficulty:     detailMap[q.id]?.difficulty   ?? "medium",
+        sub_category:   detailMap[q.id]?.sub_category ?? null,
+        subject:        detailMap[q.id]?.subject       ?? null,
       }));
 
       return ok({ test, questions });

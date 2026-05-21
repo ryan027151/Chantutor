@@ -62,7 +62,7 @@ Deno.serve(async (req) => {
     // Fetch questions and tests in parallel
     const [{ data: rawQs }, { data: tests }] = await Promise.all([
       db.from("questions")
-        .select("id, test_id, order_index, is_correct, time_spent")
+        .select("id, test_id, order_index, is_correct, time_spent, student_answer")
         .eq("user_id", student_id)
         .not("is_correct", "is", null),
       db.from("tests")
@@ -92,6 +92,7 @@ Deno.serve(async (req) => {
       order_index: q.order_index,
       is_correct: q.is_correct,
       time_spent: q.time_spent ?? null,
+      student_answer: q.student_answer ?? null,
       ...(metaMap.get(q.id) ?? { sub_category: null, subject: null, difficulty: null }),
     }));
 

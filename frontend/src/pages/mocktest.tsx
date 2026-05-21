@@ -282,7 +282,22 @@ function MockTest() {
     setCurrentQuestion(nextIndex);
     setChosenAnswer("");
     setNullSubmission(false);
-    const nextQuestion = await getQuestion(currentTest, nextIndex);
+    let nextQuestion = await getQuestion(currentTest, nextIndex);
+
+    // For Diagnostic tests, a missing question in the bank should not end the test —
+    // scan forward to find the next available question.
+    if (!nextQuestion && currentTest.test_name === "Diagnostic Test" && nextIndex < Number(currentTest.total_questions)) {
+      let skipIdx = nextIndex + 1;
+      while (skipIdx <= Number(currentTest.total_questions) && !nextQuestion) {
+        nextQuestion = await getQuestion(currentTest, skipIdx);
+        if (!nextQuestion) skipIdx++;
+      }
+      if (nextQuestion) {
+        setLatestQuestion(skipIdx);
+        setCurrentQuestion(skipIdx);
+      }
+    }
+
     if (!nextQuestion) {
       // Question pool exhausted (e.g. all topics done before total_questions reached)
       localStorage.removeItem(`timerRemaining_${testID}`);
@@ -290,13 +305,12 @@ function MockTest() {
       navigate(`/results/${testID}`);
       return;
     }
-    if (nextQuestion) {
-      const prevSubject = currentSubjectRef.current;
-      const nextSubject = (nextQuestion.subject ?? "").toLowerCase();
-      currentSubjectRef.current = nextSubject;
-      if (prevSubject === "english" && nextSubject === "math") {
-        setShowSectionBreak(true);
-      }
+
+    const prevSubject = currentSubjectRef.current;
+    const nextSubject = (nextQuestion.subject ?? "").toLowerCase();
+    currentSubjectRef.current = nextSubject;
+    if (prevSubject === "english" && nextSubject === "math") {
+      setShowSectionBreak(true);
     }
   };
 
@@ -377,7 +391,21 @@ function MockTest() {
 
       setLatestQuestion(startIndex);
       setCurrentQuestion(startIndex);
-      const question = await getQuestion(test, startIndex);
+      let question = await getQuestion(test, startIndex);
+
+      // Diagnostic: if a question slot is missing, find the next available one.
+      if (!question && test?.test_name === "Diagnostic Test" && startIndex < Number(test.total_questions)) {
+        let skipIdx = startIndex + 1;
+        while (skipIdx <= Number(test.total_questions) && !question) {
+          question = await getQuestion(test, skipIdx);
+          if (!question) skipIdx++;
+        }
+        if (question) {
+          setLatestQuestion(skipIdx);
+          setCurrentQuestion(skipIdx);
+        }
+      }
+
       if (question) {
         currentSubjectRef.current = (question.subject ?? "").toLowerCase();
         setTestReady(true);

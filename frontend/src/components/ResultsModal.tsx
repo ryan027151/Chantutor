@@ -3,8 +3,10 @@ import { supabase } from "../supabase-client";
 import { computeSHSATScore, scoreLabel, type SHSATScore, type Difficulty, type ScoredQuestion } from "../utils/scoring";
 import { useContext } from "react";
 import { UserContext } from "./userContext";
+import QuestionDetailModal from "./QuestionDetailModal";
 
-interface QuestionResult { id: string; order_index: number; is_correct: boolean | null; }
+interface QuestionResult { id: string; order_index: number; is_correct: boolean | null; student_answer: string | null; }
+interface SelectedQuestion { uid: string; studentAnswer: string | null; isCorrect: boolean | null; questionNumber: number; }
 interface AIAnalysis { strengths: string[]; improvements: string[]; recommendations: string[]; }
 interface TestInfo {
   test_name: string; created_at: string; total_questions: number;
@@ -177,6 +179,7 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
   const [aiLoading, setAiLoading] = useState(true);
   const [aiError, setAiError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selectedQ, setSelectedQ] = useState<SelectedQuestion | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -200,7 +203,7 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
           const allQs = (res.questions ?? []) as EdgeQ[];
           const allTests = (res.tests ?? []) as EdgeTest[];
           resolvedQs = allQs.filter(q => q.test_id === testID).map(q => ({
-            id: q.id, order_index: q.order_index, is_correct: q.is_correct,
+            id: q.id, order_index: q.order_index, is_correct: q.is_correct, student_answer: q.student_answer ?? null,
           }));
           resolvedTest = allTests.find(t => t.id === testID) ?? null;
           detailMap = Object.fromEntries(
@@ -216,7 +219,7 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
         // Student path: direct queries
         const [{ data: testData }, { data: qData }] = await Promise.all([
           supabase.from("tests").select("test_name, created_at, total_questions, configuration").eq("id", testID).single(),
-          supabase.from("questions").select("id, order_index, is_correct").eq("test_id", testID).eq("user_id", userID).order("order_index"),
+          supabase.from("questions").select("id, order_index, is_correct, student_answer").eq("test_id", testID).eq("user_id", userID).order("order_index"),
         ]);
         resolvedTest = testData as TestInfo | null;
         resolvedQs = (qData as QuestionResult[]) ?? [];
@@ -395,12 +398,14 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
                   const q = questions.find(qr => qr.order_index === i + 1);
                   const isEng = i + 1 <= englishCount;
                   const correct = q?.is_correct;
-                  return (
-                    <div key={i} className={`flex items-center gap-3 px-4 py-2.5 border-l-[3px] ${
-                      correct === true  ? "border-emerald-500 bg-emerald-500/5" :
-                      correct === false ? "border-red-500 bg-red-500/5" :
-                      "border-zinc-700 bg-zinc-900"}`}
-                    >
+                  const clickable = !!q;
+                  const rowCls = `w-full text-left flex items-center gap-3 px-4 py-2.5 border-l-[3px] ${
+                    correct === true  ? "border-emerald-500 bg-emerald-500/5" :
+                    correct === false ? "border-red-500 bg-red-500/5" :
+                    "border-zinc-700 bg-zinc-900"
+                  } ${clickable ? "cursor-pointer hover:brightness-110" : ""}`;
+                  const inner = (
+                    <>
                       <span className="text-xs font-mono text-zinc-500 w-7 shrink-0">Q{i + 1}</span>
                       <div className="flex-1 flex items-center gap-1.5">
                         {correct === true ? (
@@ -417,7 +422,24 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
                       <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${isEng ? "bg-blue-500/10 text-blue-400" : "bg-violet-500/10 text-violet-400"}`}>
                         {isEng ? "ELA" : "Math"}
                       </span>
-                    </div>
+                      {clickable && (
+                        <svg className="w-3 h-3 text-zinc-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      )}
+                    </>
+                  );
+                  return clickable ? (
+                    <button
+                      key={i}
+                      type="button"
+                      className={rowCls}
+                      onClick={() => setSelectedQ({ uid: q.id, studentAnswer: q.student_answer, isCorrect: q.is_correct, questionNumber: i + 1 })}
+                    >
+                      {inner}
+                    </button>
+                  ) : (
+                    <div key={i} className={rowCls}>{inner}</div>
                   );
                 })}
               </div>
@@ -426,6 +448,18 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
           </div>
         )}
       </div>
+
+      {selectedQ && (
+        <QuestionDetailModal
+          questionUid={selectedQ.uid}
+          studentAnswer={selectedQ.studentAnswer}
+          isCorrect={selectedQ.isCorrect}
+          questionNumber={selectedQ.questionNumber}
+          testId={testID}
+          testName={test?.test_name}
+          onClose={() => setSelectedQ(null)}
+        />
+      )}
     </div>
   );
 }
