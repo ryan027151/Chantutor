@@ -29,13 +29,13 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const studentCode = Deno.env.get("STUDENT_CODE");
     const adminCode   = Deno.env.get("ADMIN_CODE");
 
     const db = createClient(supabaseUrl, serviceKey);
 
     let role: string | null = null;
     let linkedStudentId: string | null = null;
+    let signupTokenId: string | null = null;
 
     if (accountType === "parent") {
       // ── Parent path: code is the student's email ──────────────────────────
@@ -72,18 +72,30 @@ Deno.serve(async (req) => {
       linkedStudentId = studentAuthUser.id;
 
     } else {
-      // ── Student / admin path: code is an access code ──────────────────────
+      // ── Admin path: unchanged static code ─────────────────────────────────
       const trimmedCode = code.trim();
-      if (trimmedCode === studentCode?.trim()) {
-        role = "student";
-      } else if (adminCode && trimmedCode === adminCode.trim()) {
+      if (adminCode && trimmedCode === adminCode.trim()) {
         role = "admin";
       } else {
-        return fail(400, "Invalid access code. Please check with the tutoring center.");
+        // ── Student path: validate against signup_tokens table ───────────────
+        const { data: tokenRow } = await db
+          .from("signup_tokens")
+          .select("id")
+          .eq("token", trimmedCode)
+          .is("used_at", null)
+          .gt("expires_at", new Date().toISOString())
+          .maybeSingle();
+
+        if (!tokenRow) {
+          return fail(400, "Invalid or expired access code. Please request a new code from the tutoring center.");
+        }
+
+        role = "student";
+        signupTokenId = tokenRow.id;
       }
     }
 
-    // Create the auth user
+    // ── Create the auth user ─────────────────────────────────────────────────
     const { data: newUserData, error: createErr } = await db.auth.admin.createUser({
       email: email.trim().toLowerCase(),
       password,
@@ -95,7 +107,7 @@ Deno.serve(async (req) => {
       return fail(400, createErr.message);
     }
 
-    // Link parent → student
+    // ── Link parent → student ────────────────────────────────────────────────
     if (role === "parent" && linkedStudentId && newUserData.user) {
       const { error: linkErr } = await db
         .from("student_parents")
@@ -104,6 +116,19 @@ Deno.serve(async (req) => {
         await db.auth.admin.deleteUser(newUserData.user.id);
         throw linkErr;
       }
+    }
+
+    // ── Consume signup token ─────────────────────────────────────────────────
+    if (role === "student" && signupTokenId && newUserData.user) {
+      await db
+        .from("signup_tokens")
+        .update({
+          used_at: new Date().toISOString(),
+          used_by: newUserData.user.id,
+          used_by_email: email.trim().toLowerCase(),
+        })
+        .eq("id", signupTokenId)
+        .is("used_at", null); // guard against the theoretical race condition
     }
 
     return ok({ success: true });

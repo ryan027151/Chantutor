@@ -1,3 +1,6 @@
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
+
 export interface PDFSubcategory {
   name: string;
   score: number;
@@ -9,7 +12,7 @@ export interface PDFSubcategory {
 export interface PDFExportData {
   testName: string;
   date: string;
-  duration: number;       // minutes; 0 = untimed
+  duration: number;
   totalCorrect: number;
   totalQuestions: number;
   englishCorrect: number;
@@ -40,7 +43,11 @@ function formatDuration(min: number): string {
   return h > 0 ? `${h}h ${m > 0 ? `${m}m` : ""}`.trim() : `${m}m`;
 }
 
-function pct(correct: number, total: number): string {
+function pctNum(correct: number, total: number): number {
+  return total > 0 ? Math.round((correct / total) * 100) : 0;
+}
+
+function pctStr(correct: number, total: number): string {
   return total > 0 ? `${Math.round((correct / total) * 100)}%` : "—";
 }
 
@@ -62,7 +69,8 @@ function buildSubcatRows(subs: PDFSubcategory[], subject: string, accent: string
     <div style="margin-bottom:8px;">
       <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
         <span style="color:#374151;">${sub.name}</span>
-        <span style="color:${scoreColor(sub.score)};font-weight:700;">${sub.score}<span style="color:#9ca3af;font-weight:400;"> /700</span>
+        <span style="color:${scoreColor(sub.score)};font-weight:700;">${sub.score}
+          <span style="color:#9ca3af;font-weight:400;"> /700</span>
           <span style="color:#6b7280;font-weight:400;font-size:11px;"> (${sub.correct}/${sub.total})</span>
         </span>
       </div>
@@ -77,38 +85,53 @@ function buildSubcatRows(subs: PDFSubcategory[], subject: string, accent: string
     </div>`;
 }
 
-export function exportResultsPDF(data: PDFExportData): void {
-  const overallPct = data.totalQuestions > 0
-    ? Math.round((data.totalCorrect / data.totalQuestions) * 100)
-    : 0;
+// SVG arc instead of conic-gradient — html2canvas renders SVG reliably
+function buildScoreCircle(pct: number, color: string): string {
+  const r = 38;
+  const cx = 50;
+  const cy = 50;
+  const circumference = 2 * Math.PI * r;
+  const dash = (pct / 100) * circumference;
+  return `
+    <svg width="100" height="100" viewBox="0 0 100 100" style="flex-shrink:0;">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#e5e7eb" stroke-width="12"/>
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="12"
+        stroke-dasharray="${dash.toFixed(2)} ${circumference.toFixed(2)}"
+        stroke-linecap="round"
+        transform="rotate(-90 ${cx} ${cy})"/>
+      <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
+        font-size="19" font-weight="800" fill="#111827"
+        font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">${pct}%</text>
+      <text x="${cx}" y="${cy + 16}" text-anchor="middle"
+        font-size="9" fill="#9ca3af"
+        font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">score</text>
+    </svg>`;
+}
 
-  const engPct  = data.englishTotal > 0 ? Math.round((data.englishCorrect / data.englishTotal) * 100) : 0;
-  const mathPct = data.mathTotal   > 0 ? Math.round((data.mathCorrect   / data.mathTotal)   * 100) : 0;
-
+function buildHTML(data: PDFExportData): string {
+  const overallPct  = pctNum(data.totalCorrect, data.totalQuestions);
   const circleColor = overallPct >= 70 ? "#10b981" : overallPct >= 50 ? "#f59e0b" : "#ef4444";
 
-  // SHSAT block
+  // ── SHSAT block ────────────────────────────────────────────────────────────
   let shsatBlock = "";
   if (data.shsatScore) {
     const s = data.shsatScore;
-    const totalColor = s.labelColor === "green" ? "#059669" : s.labelColor === "amber" ? "#d97706" : "#dc2626";
-    const bannerBg   = s.labelColor === "green" ? "#ecfdf5" : s.labelColor === "amber" ? "#fffbeb" : "#fef2f2";
+    const totalColor   = s.labelColor === "green" ? "#059669" : s.labelColor === "amber" ? "#d97706" : "#dc2626";
+    const bannerBg     = s.labelColor === "green" ? "#ecfdf5" : s.labelColor === "amber" ? "#fffbeb" : "#fef2f2";
     const bannerBorder = s.labelColor === "green" ? "#a7f3d0" : s.labelColor === "amber" ? "#fde68a" : "#fecaca";
     const bannerText   = s.labelColor === "green" ? "#065f46" : s.labelColor === "amber" ? "#92400e" : "#991b1b";
-
-    const subcatHTML = [
+    const subcatHTML   = [
       buildSubcatRows(s.subcategories, "english", "#3b82f6"),
       buildSubcatRows(s.subcategories, "math",    "#8b5cf6"),
     ].join("");
-
     shsatBlock = `
-      <div style="border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:16px;page-break-inside:avoid;">
+      <div style="border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:16px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <span style="font-size:14px;font-weight:700;color:#111827;">Estimated SHSAT Score</span>
           <span style="font-size:11px;color:#6b7280;background:#f9fafb;border:1px solid #e5e7eb;padding:3px 10px;border-radius:12px;">Difficulty-weighted</span>
         </div>
         <div style="text-align:center;margin-bottom:12px;">
-          <span style="font-size:52px;font-weight:900;color:${totalColor};font-variant-numeric:tabular-nums;">${s.total}</span>
+          <span style="font-size:52px;font-weight:900;color:${totalColor};">${s.total}</span>
           <span style="font-size:22px;font-weight:700;color:#d1d5db;"> /700</span>
         </div>
         <div style="display:flex;justify-content:center;gap:32px;margin-bottom:12px;">
@@ -124,14 +147,14 @@ export function exportResultsPDF(data: PDFExportData): void {
             <div style="font-size:10px;color:#d1d5db;">weighted</div>
           </div>
         </div>
-        <div style="text-align:center;background:${bannerBg};border:1px solid ${bannerBorder};color:${bannerText};font-size:12px;font-weight:600;border-radius:8px;padding:8px 12px;margin-bottom:${subcatHTML ? "16px" : "0"};">
+        <div style="text-align:center;background:${bannerBg};border:1px solid ${bannerBorder};color:${bannerText};font-size:12px;font-weight:600;border-radius:8px;padding:8px 12px;${subcatHTML ? "margin-bottom:16px;" : ""}">
           ${s.labelText}
         </div>
         ${subcatHTML ? `<div style="border-top:1px solid #f3f4f6;padding-top:16px;">${subcatHTML}</div>` : ""}
       </div>`;
   }
 
-  // AI analysis block
+  // ── AI analysis block ──────────────────────────────────────────────────────
   let aiBlock = "";
   if (data.aiAnalysis) {
     const a = data.aiAnalysis;
@@ -143,10 +166,10 @@ export function exportResultsPDF(data: PDFExportData): void {
         </ul>
       </div>`;
     aiBlock = `
-      <div style="border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:16px;page-break-inside:avoid;">
+      <div style="border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:16px;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
           <div style="width:28px;height:28px;border-radius:50%;background:#2563eb;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-            <span style="color:white;font-size:14px;">⚡</span>
+            <span style="color:white;font-size:14px;line-height:1;">&#9889;</span>
           </div>
           <span style="font-size:14px;font-weight:700;color:#111827;">AI Coach</span>
         </div>
@@ -156,7 +179,7 @@ export function exportResultsPDF(data: PDFExportData): void {
       </div>`;
   }
 
-  // Question grid
+  // ── Question grid ──────────────────────────────────────────────────────────
   const correct   = data.questions.filter(q => q.isCorrect === true).length;
   const incorrect = data.questions.filter(q => q.isCorrect === false).length;
   const skipped   = data.totalQuestions - data.questions.length;
@@ -167,138 +190,135 @@ export function exportResultsPDF(data: PDFExportData): void {
     let bg = "#f3f4f6"; let color = "#9ca3af"; let border = "#e5e7eb";
     if (c === true)  { bg = "#d1fae5"; color = "#059669"; border = "#6ee7b7"; }
     if (c === false) { bg = "#fee2e2"; color = "#dc2626"; border = "#fca5a5"; }
-    return `<div title="Q${i + 1}" style="width:24px;height:24px;border-radius:4px;background:${bg};border:1px solid ${border};color:${color};font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;">${i + 1}</div>`;
+    return `<div style="width:24px;height:24px;border-radius:4px;background:${bg};border:1px solid ${border};color:${color};font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;">${i + 1}</div>`;
   }).join("");
 
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<title>${data.testName} — Results</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #111827; background: #fff; padding: 32px 40px; font-size: 13px; }
-  @page { size: A4; margin: 20mm 15mm; }
-  @media print {
-    body { padding: 0; }
-    .no-print { display: none !important; }
-  }
-</style>
-</head>
-<body>
-
-<!-- Page header -->
-<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #f3f4f6;">
-  <div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-      <span style="font-size:18px;">👑</span>
-      <span style="font-size:16px;font-weight:800;color:#111827;">Chan Tutoring</span>
-    </div>
-    <h1 style="font-size:22px;font-weight:800;color:#111827;margin-bottom:4px;">${data.testName}</h1>
-    ${data.studentName ? `<p style="font-size:13px;color:#6b7280;">${data.studentName}</p>` : ""}
-    <p style="font-size:12px;color:#9ca3af;">${data.date}</p>
-  </div>
-  <div style="text-align:right;">
-    <div style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">Duration</div>
-    <div style="font-size:16px;font-weight:700;color:#374151;">${formatDuration(data.duration)}</div>
-  </div>
-</div>
-
-<!-- Score hero -->
-<div style="border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:16px;page-break-inside:avoid;">
-  <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
-    <!-- Circle -->
-    <div style="position:relative;width:100px;height:100px;border-radius:50%;flex-shrink:0;
-      background: conic-gradient(${circleColor} ${overallPct}%, #e5e7eb ${overallPct}%);">
-      <div style="position:absolute;inset:10px;background:white;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-        <span style="font-size:22px;font-weight:800;color:#111827;">${overallPct}%</span>
-        <span style="font-size:10px;color:#9ca3af;">score</span>
-      </div>
-    </div>
-    <!-- Bars -->
-    <div style="flex:1;min-width:180px;display:flex;flex-direction:column;gap:10px;">
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #f3f4f6;">
       <div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
-          <span style="font-weight:600;color:#374151;">English / ELA</span>
-          <span style="color:#6b7280;">${data.englishCorrect} / ${data.englishTotal} · ${pct(data.englishCorrect, data.englishTotal)}</span>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <span style="font-size:16px;font-weight:800;color:#111827;">&#128081; Chan Tutoring</span>
         </div>
-        <div style="height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;">
-          <div style="height:100%;width:${pct(data.englishCorrect, data.englishTotal)};background:#3b82f6;border-radius:5px;"></div>
-        </div>
+        <h1 style="font-size:22px;font-weight:800;color:#111827;margin-bottom:4px;">${data.testName}</h1>
+        ${data.studentName ? `<p style="font-size:13px;color:#6b7280;">${data.studentName}</p>` : ""}
+        <p style="font-size:12px;color:#9ca3af;">${data.date}</p>
       </div>
-      <div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
-          <span style="font-weight:600;color:#374151;">Math</span>
-          <span style="color:#6b7280;">${data.mathCorrect} / ${data.mathTotal} · ${pct(data.mathCorrect, data.mathTotal)}</span>
+      <div style="text-align:right;">
+        <div style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">Duration</div>
+        <div style="font-size:16px;font-weight:700;color:#374151;">${formatDuration(data.duration)}</div>
+      </div>
+    </div>
+
+    <div style="border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:16px;">
+      <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+        ${buildScoreCircle(overallPct, circleColor)}
+        <div style="flex:1;min-width:180px;display:flex;flex-direction:column;gap:10px;">
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+              <span style="font-weight:600;color:#374151;">English / ELA</span>
+              <span style="color:#6b7280;">${data.englishCorrect} / ${data.englishTotal} &middot; ${pctStr(data.englishCorrect, data.englishTotal)}</span>
+            </div>
+            <div style="height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;">
+              <div style="height:100%;width:${pctNum(data.englishCorrect, data.englishTotal)}%;background:#3b82f6;border-radius:5px;"></div>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+              <span style="font-weight:600;color:#374151;">Math</span>
+              <span style="color:#6b7280;">${data.mathCorrect} / ${data.mathTotal} &middot; ${pctStr(data.mathCorrect, data.mathTotal)}</span>
+            </div>
+            <div style="height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;">
+              <div style="height:100%;width:${pctNum(data.mathCorrect, data.mathTotal)}%;background:#8b5cf6;border-radius:5px;"></div>
+            </div>
+          </div>
         </div>
-        <div style="height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;">
-          <div style="height:100%;width:${pct(data.mathCorrect, data.mathTotal)};background:#8b5cf6;border-radius:5px;"></div>
+        <div style="display:flex;gap:20px;flex-shrink:0;">
+          <div style="text-align:center;">
+            <div style="font-size:26px;font-weight:800;color:#111827;">${data.totalCorrect}</div>
+            <div style="font-size:11px;color:#9ca3af;">correct</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="font-size:26px;font-weight:800;color:#dc2626;">${data.totalQuestions - data.totalCorrect}</div>
+            <div style="font-size:11px;color:#9ca3af;">incorrect</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="font-size:26px;font-weight:800;color:#9ca3af;">${skipped}</div>
+            <div style="font-size:11px;color:#9ca3af;">skipped</div>
+          </div>
         </div>
       </div>
     </div>
-    <!-- Summary numbers -->
-    <div style="display:flex;gap:20px;flex-shrink:0;">
-      <div style="text-align:center;">
-        <div style="font-size:26px;font-weight:800;color:#111827;">${data.totalCorrect}</div>
-        <div style="font-size:11px;color:#9ca3af;">correct</div>
+
+    ${shsatBlock}
+    ${aiBlock}
+
+    <div style="border:1px solid #e5e7eb;border-radius:12px;padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <span style="font-size:14px;font-weight:700;color:#111827;">Question Breakdown</span>
+        <div style="display:flex;gap:12px;font-size:11px;color:#6b7280;">
+          <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;"></span>${correct} correct</span>
+          <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;"></span>${incorrect} incorrect</span>
+          <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:#d1d5db;display:inline-block;"></span>${skipped} skipped</span>
+        </div>
       </div>
-      <div style="text-align:center;">
-        <div style="font-size:26px;font-weight:800;color:#dc2626;">${data.totalQuestions - data.totalCorrect}</div>
-        <div style="font-size:11px;color:#9ca3af;">incorrect</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span style="font-size:11px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:0.05em;">ELA (Q1&ndash;Q${data.englishTotal})</span>
+        <div style="flex:1;height:1px;background:#dbeafe;"></div>
+        <span style="font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:0.05em;">Math (Q${data.englishTotal + 1}&ndash;Q${data.totalQuestions})</span>
       </div>
-      <div style="text-align:center;">
-        <div style="font-size:26px;font-weight:800;color:#9ca3af;">${data.totalQuestions - data.questions.length}</div>
-        <div style="font-size:11px;color:#9ca3af;">skipped</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;">
+        ${qCells}
       </div>
     </div>
-  </div>
-</div>
 
-${shsatBlock}
+    <div style="margin-top:24px;padding-top:12px;border-top:1px solid #f3f4f6;display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;">
+      <span>Chan Tutoring &middot; SHSAT Preparation</span>
+      <span>Generated ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span>
+    </div>`;
+}
 
-${aiBlock}
+export async function exportResultsPDF(data: PDFExportData): Promise<void> {
+  const container = document.createElement("div");
+  container.style.cssText = [
+    "position:fixed",
+    "left:-9999px",
+    "top:0",
+    "width:794px",
+    "background:white",
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    "font-size:13px",
+    "color:#111827",
+    "padding:32px 40px",
+    "box-sizing:border-box",
+  ].join(";");
+  container.innerHTML = buildHTML(data);
+  document.body.appendChild(container);
 
-<!-- Question breakdown -->
-<div style="border:1px solid #e5e7eb;border-radius:12px;padding:20px;page-break-inside:avoid;">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-    <span style="font-size:14px;font-weight:700;color:#111827;">Question Breakdown</span>
-    <div style="display:flex;gap:12px;font-size:11px;color:#6b7280;">
-      <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;"></span>${correct} correct</span>
-      <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;"></span>${incorrect} incorrect</span>
-      <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:#d1d5db;display:inline-block;"></span>${skipped} skipped</span>
-    </div>
-  </div>
-  <!-- ELA section label -->
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-    <span style="font-size:11px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:0.05em;">ELA (Q1–Q${data.englishTotal})</span>
-    <div style="flex:1;height:1px;background:#dbeafe;"></div>
-    <span style="font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:0.05em;">Math (Q${data.englishTotal + 1}–Q${data.totalQuestions})</span>
-  </div>
-  <div style="display:flex;flex-wrap:wrap;gap:5px;">
-    ${qCells}
-  </div>
-</div>
+  try {
+    const canvas = await html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: "#ffffff",
+      windowWidth: 794,
+    });
 
-<!-- Footer -->
-<div style="margin-top:24px;padding-top:12px;border-top:1px solid #f3f4f6;display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;">
-  <span>Chan Tutoring · SHSAT Preparation</span>
-  <span>Generated ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span>
-</div>
+    const pdf         = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageWidth   = pdf.internal.pageSize.getWidth();
+    const pageHeight  = pdf.internal.pageSize.getHeight();
+    const imgData     = canvas.toDataURL("image/jpeg", 0.92);
+    const imgHeightMm = (canvas.height * pageWidth) / canvas.width;
 
-<script>
-  window.onload = function() { window.print(); };
-</script>
-</body>
-</html>`;
+    let y = 0;
+    while (y < imgHeightMm) {
+      if (y > 0) pdf.addPage();
+      pdf.addImage(imgData, "JPEG", 0, -y, pageWidth, imgHeightMm);
+      y += pageHeight;
+    }
 
-  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-  const url  = URL.createObjectURL(blob);
-  const w    = window.open(url, "_blank");
-  if (!w) {
-    URL.revokeObjectURL(url);
-    alert("Pop-ups are blocked. Please allow pop-ups for this site, then try again.");
-    return;
+    const safeName = data.testName.replace(/[^a-zA-Z0-9_\- ]/g, "").trim() || "results";
+    pdf.save(`${safeName} - Results.pdf`);
+  } finally {
+    document.body.removeChild(container);
   }
-  // Revoke the object URL after the page has had time to load
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

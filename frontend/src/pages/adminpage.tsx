@@ -7,8 +7,9 @@ import { faCrown } from "@fortawesome/free-solid-svg-icons";
 import AdminStudentsPanel from "../components/AdminStudentsPanel";
 import AdminQuestionsPanel from "../components/AdminQuestionsPanel";
 import AdminReportsPanel from "../components/AdminReportsPanel";
+import AdminTokensPanel from "../components/AdminTokensPanel";
 
-type Tab = "students" | "questions" | "reports";
+type Tab = "students" | "questions" | "reports" | "tokens";
 
 const ICON_USERS = (
   <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -25,6 +26,12 @@ const ICON_BOOK = (
 const ICON_FLAG = (
   <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-9.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+  </svg>
+);
+
+const ICON_KEY = (
+  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
   </svg>
 );
 
@@ -84,6 +91,7 @@ export default function AdminPage() {
           <NavItem label="Students" active={tab === "students"} onClick={() => setTab("students")} icon={ICON_USERS} />
           <NavItem label="Question Bank" active={tab === "questions"} onClick={() => setTab("questions")} icon={ICON_BOOK} />
           <NavItem label="Reports" active={tab === "reports"} onClick={() => setTab("reports")} icon={ICON_FLAG} />
+          <NavItem label="Tokens" active={tab === "tokens"} onClick={() => setTab("tokens")} icon={ICON_KEY} />
         </nav>
 
         {/* User card + sign out */}
@@ -109,6 +117,7 @@ export default function AdminPage() {
         {tab === "students" && <AdminStudentsPanel />}
         {tab === "questions" && <AdminQuestionsPanel />}
         {tab === "reports" && <AdminReportsPanel />}
+        {tab === "tokens" && <AdminTokensPanel />}
       </main>
     </div>
   );
