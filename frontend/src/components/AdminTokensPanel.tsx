@@ -64,12 +64,13 @@ function makeToken(): string {
 export default function AdminTokensPanel() {
   const user = useContext(UserContext);
 
-  const [tokens, setTokens]         = useState<TokenRow[]>([]);
-  const [loading, setLoading]        = useState(true);
-  const [generating, setGenerating]  = useState(false);
-  const [copiedId, setCopiedId]      = useState<string | null>(null);
-  const [filter, setFilter]          = useState<"all" | TokenStatus>("all");
-  const [, setTick]                  = useState(0); // forces re-render for countdowns
+  const [tokens, setTokens]           = useState<TokenRow[]>([]);
+  const [loading, setLoading]          = useState(true);
+  const [generating, setGenerating]    = useState(false);
+  const [copiedId, setCopiedId]        = useState<string | null>(null);
+  const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
+  const [filter, setFilter]            = useState<"all" | TokenStatus>("all");
+  const [, setTick]                    = useState(0); // forces re-render for countdowns
 
   // ── Fetch tokens ─────────────────────────────────────────────────────────
   const fetchTokens = useCallback(async () => {
@@ -112,6 +113,22 @@ export default function AdminTokensPanel() {
     await navigator.clipboard.writeText(token);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  }
+
+  // ── Deactivate token ──────────────────────────────────────────────────────
+  async function handleDeactivate(id: string) {
+    if (!confirm("Deactivate this token? It cannot be re-activated.")) return;
+    setDeactivatingId(id);
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("signup_tokens")
+      .update({ expires_at: now })
+      .eq("id", id)
+      .is("used_at", null);
+    if (!error) {
+      setTokens(prev => prev.map(t => t.id === id ? { ...t, expires_at: now } : t));
+    }
+    setDeactivatingId(null);
   }
 
   // ── Derived data ──────────────────────────────────────────────────────────
@@ -185,7 +202,7 @@ export default function AdminTokensPanel() {
             <p className="text-base font-medium text-zinc-500">No tokens found</p>
             <p className="text-sm text-zinc-400">
               {filter === "all"
-                ? "Hit "Generate Token" to create the first one"
+                ? `Hit "Generate Token" to create the first one`
                 : `No ${STATUS_LABEL[filter as TokenStatus].toLowerCase()} tokens`}
             </p>
           </div>
@@ -218,22 +235,42 @@ export default function AdminTokensPanel() {
                           {row.token}
                         </span>
                         {status === "valid" && (
-                          <button
-                            type="button"
-                            onClick={() => copyToken(row.id, row.token)}
-                            title="Copy to clipboard"
-                            className="text-zinc-400 hover:text-zinc-700 transition-colors"
-                          >
-                            {copiedId === row.id ? (
-                              <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                              </svg>
-                            ) : (
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                              </svg>
-                            )}
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => copyToken(row.id, row.token)}
+                              title="Copy to clipboard"
+                              className="text-zinc-400 hover:text-zinc-700 transition-colors"
+                            >
+                              {copiedId === row.id ? (
+                                <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                </svg>
+                              ) : (
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeactivate(row.id)}
+                              disabled={deactivatingId === row.id}
+                              title="Deactivate token"
+                              className="text-zinc-400 hover:text-red-500 transition-colors disabled:opacity-40"
+                            >
+                              {deactivatingId === row.id ? (
+                                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                                </svg>
+                              ) : (
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                </svg>
+                              )}
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>

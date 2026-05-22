@@ -78,13 +78,18 @@ Deno.serve(async (req) => {
         role = "admin";
       } else {
         // ── Student path: validate against signup_tokens table ───────────────
-        const { data: tokenRow } = await db
+        const { data: tokenRow, error: tokenErr } = await db
           .from("signup_tokens")
           .select("id")
-          .eq("token", trimmedCode)
+          .eq("token", trimmedCode.toUpperCase())
           .is("used_at", null)
           .gt("expires_at", new Date().toISOString())
           .maybeSingle();
+
+        if (tokenErr) {
+          console.error("Token lookup error:", JSON.stringify(tokenErr));
+          return fail(500, "Error validating access code. Please try again.");
+        }
 
         if (!tokenRow) {
           return fail(400, "Invalid or expired access code. Please request a new code from the tutoring center.");
