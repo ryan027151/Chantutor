@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase-client";
 import { UserContext } from "../components/userContext";
 import { Test } from "../components/types";
-import { computeSHSATScore, scoreLabel, type SHSATScore, type Difficulty, type ScoredQuestion } from "../utils/scoring";
+import { computeSHSATScore, scoreLabel, isRevisingEditing, type SHSATScore, type Difficulty, type ScoredQuestion } from "../utils/scoring";
 import QuestionDetailModal from "../components/QuestionDetailModal";
 import { exportResultsPDF } from "../utils/exportResultsPDF";
 
@@ -12,6 +12,16 @@ interface QuestionResult {
   order_index: number;
   is_correct: boolean | null;
   student_answer: string | null;
+  sub_category: string | null;
+}
+
+function fmtSub(raw: string): string {
+  return raw
+    .replace(/_/g, " ")
+    .replace(/^Organization-/, "Org: ")
+    .replace(/^Style-/, "Style: ")
+    .replace(/\bEq\b\.?/g, "Eq.")
+    .replace(/\band\b/g, "&");
 }
 
 interface SelectedQuestion {
@@ -100,11 +110,13 @@ function SHSATScoreCard({ score }: { score: SHSATScore }) {
     label.color === "amber" ? "bg-amber-50 text-amber-700 border-amber-100" :
     "bg-rose-50 text-rose-700 border-rose-100";
 
-  const elaPct  = Math.round(score.elaRatio  * 100);
-  const mathPct = Math.round(score.mathRatio * 100);
+  const revisingPct = Math.round(score.revisingRatio * 100);
+  const readingPct  = Math.round(score.readingRatio  * 100);
+  const mathPct     = Math.round(score.mathRatio     * 100);
 
-  const elaSubcats  = score.subcategories.filter(s => s.subject === "english");
-  const mathSubcats = score.subcategories.filter(s => s.subject === "math");
+  const revisingSubcats = score.subcategories.filter(s => s.subject === "english" && isRevisingEditing(s.name));
+  const readingSubcats  = score.subcategories.filter(s => s.subject === "english" && !isRevisingEditing(s.name));
+  const mathSubcats     = score.subcategories.filter(s => s.subject === "math");
 
   function subScoreColor(s: number) {
     if (s >= 580) return "text-emerald-600";
@@ -132,10 +144,16 @@ function SHSATScoreCard({ score }: { score: SHSATScore }) {
       </div>
 
       {/* Section ratios */}
-      <div className="flex items-center justify-center gap-6">
+      <div className="flex items-center justify-center gap-4">
         <div className="flex flex-col items-center gap-0.5">
-          <span className="text-xs font-medium text-slate-400">ELA</span>
-          <span className="text-xl font-bold text-blue-600">{elaPct}%</span>
+          <span className="text-xs font-medium text-slate-400">Rev/Edit</span>
+          <span className="text-xl font-bold text-blue-600">{revisingPct}%</span>
+          <span className="text-xs text-slate-300">weighted</span>
+        </div>
+        <div className="w-px h-10 bg-slate-200" />
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-xs font-medium text-slate-400">Reading</span>
+          <span className="text-xl font-bold text-sky-600">{readingPct}%</span>
           <span className="text-xs text-slate-300">weighted</span>
         </div>
         <div className="w-px h-10 bg-slate-200" />
@@ -169,14 +187,15 @@ function SHSATScoreCard({ score }: { score: SHSATScore }) {
 
           {expanded && (
             <div className="flex flex-col gap-4">
-              {[{ label: "English / ELA", list: elaSubcats, accent: "bg-blue-500" },
-                { label: "Math",          list: mathSubcats, accent: "bg-violet-500" }]
+              {[{ label: "Revising / Editing",    list: revisingSubcats, accent: "bg-blue-500"   },
+                { label: "Reading Comprehension", list: readingSubcats,  accent: "bg-sky-500"    },
+                { label: "Math",                  list: mathSubcats,     accent: "bg-violet-500" }]
                 .filter(g => g.list.length > 0)
                 .map(group => (
                   <div key={group.label}>
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">{group.label}</p>
                     <div className="flex flex-col gap-2.5">
-                      {group.list.map(sub => (
+                      {group.list.map((sub: { name: string; score: number; correct: number; total: number }) => (
                         <div key={sub.name} className="flex flex-col gap-1">
                           <div className="flex items-center justify-between text-xs">
                             <span className="text-slate-600 font-medium">{sub.name}</span>
@@ -231,7 +250,6 @@ function ResultsPage() {
         .eq("test_id", testID)
         .eq("user_id", user.id)
         .order("order_index", { ascending: true });
-      if (qData) setQuestions(qData as QuestionResult[]);
 
       if (testData && qData && qData.length > 0) {
         const questionIds = (qData as QuestionResult[]).map(q => q.id).filter(Boolean);
@@ -248,6 +266,10 @@ function ResultsPage() {
           (detailData ?? []).map((q: Detail) => [q.uid, q])
         );
 
+        setQuestions((qData as QuestionResult[]).map(q => ({
+          ...q, sub_category: detailMap[q.id]?.sub_category ?? null,
+        })));
+
         const scored: ScoredQuestion[] = (qData as QuestionResult[]).map(q => {
           const d = detailMap[q.id];
           return {
@@ -260,6 +282,8 @@ function ResultsPage() {
         });
 
         setShsatScore(computeSHSATScore(scored, englishCnt));
+      } else if (qData) {
+        setQuestions((qData as QuestionResult[]).map(q => ({ ...q, sub_category: null })));
       }
 
       try {
@@ -292,14 +316,20 @@ function ResultsPage() {
   const engCorrect   = englishQs.filter(q => q.is_correct === true).length;
   const mathCorrect  = mathQs.filter(q => q.is_correct === true).length;
 
+  // Split ELA into Revising/Editing and Reading Comprehension
+  const revisingQs      = englishQs.filter(q => isRevisingEditing(q.sub_category));
+  const readingQs       = englishQs.filter(q => !isRevisingEditing(q.sub_category));
+  const revisingCorrect = revisingQs.filter(q => q.is_correct === true).length;
+  const readingCorrect  = readingQs.filter(q => q.is_correct === true).length;
+
   const fallbackAnalysis: AIAnalysis = {
     strengths: [
-      engCorrect >= englishQs.length * 0.7 ? "Strong English/ELA performance" : "Consistent effort across all questions",
+      engCorrect >= englishQs.length * 0.7 ? "Strong English performance overall" : "Consistent effort across all questions",
       mathCorrect >= mathQs.length * 0.7 ? "Solid math fundamentals" : "Good attempt on challenging content",
       `Completed ${questions.length} of ${test.total_questions} questions`,
     ],
     improvements: [
-      engCorrect < englishQs.length * 0.7 ? "Focus on reading comprehension and grammar" : "Push for higher ELA accuracy",
+      revisingCorrect < revisingQs.length * 0.7 ? "Focus on grammar and Revising/Editing questions" : "Push for higher Reading Comprehension accuracy",
       mathCorrect < mathQs.length * 0.7 ? "Review core math concepts and grid-in format" : "Target harder math problem types",
       "Revisit any questions answered incorrectly to spot patterns",
     ],
@@ -330,6 +360,8 @@ function ResultsPage() {
         total: shsatScore.total,
         elaRatio: shsatScore.elaRatio,
         mathRatio: shsatScore.mathRatio,
+        revisingRatio: shsatScore.revisingRatio,
+        readingRatio: shsatScore.readingRatio,
         labelText: sl.text,
         labelColor: sl.color,
         subcategories: shsatScore.subcategories,
@@ -387,8 +419,9 @@ function ResultsPage() {
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 flex flex-col items-center gap-7">
           <ScoreCircle correct={totalCorrect} total={test.total_questions} />
           <div className="w-full flex flex-col gap-4">
-            <SectionBar label="English / ELA" correct={engCorrect} total={englishCount} colorClass="bg-blue-500" />
-            <SectionBar label="Math"          correct={mathCorrect} total={mathCount}   colorClass="bg-violet-500" />
+            <SectionBar label="Revising/Editing"      correct={revisingCorrect} total={revisingQs.length} colorClass="bg-blue-500" />
+            <SectionBar label="Reading Comprehension" correct={readingCorrect}  total={readingQs.length}  colorClass="bg-sky-500"  />
+            <SectionBar label="Math"                  correct={mathCorrect}     total={mathCount}         colorClass="bg-violet-500" />
           </div>
         </div>
 
@@ -460,9 +493,18 @@ function ResultsPage() {
                       {correct === true ? "Correct" : correct === false ? "Incorrect" : "Skipped"}
                     </span>
                   </div>
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${isEnglish ? "bg-blue-50 text-blue-600" : "bg-violet-50 text-violet-600"}`}>
-                    {isEnglish ? "ELA" : "Math"}
-                  </span>
+                  {isEnglish ? (
+                    isRevisingEditing(q?.sub_category)
+                      ? <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-blue-50 text-blue-600">Rev/Edit</span>
+                      : <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-sky-50 text-sky-600">Reading</span>
+                  ) : (
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-violet-50 text-violet-600">Math</span>
+                  )}
+                  {q?.sub_category && (
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-slate-100 text-slate-500">
+                      {fmtSub(q.sub_category)}
+                    </span>
+                  )}
                   {clickable && (
                     <svg className="w-3.5 h-3.5 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

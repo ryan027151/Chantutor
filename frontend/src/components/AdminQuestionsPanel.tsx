@@ -400,7 +400,7 @@ export default function AdminQuestionsPanel() {
         <select title="Filter by subject" value={filterSubject} onChange={e => { setFilterSubject(e.target.value); setPage(0); }}
           className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
           <option value="">All Subjects</option>
-          <option value="english">ELA</option>
+          <option value="english">English</option>
           <option value="math">Math</option>
         </select>
 
@@ -452,7 +452,7 @@ export default function AdminQuestionsPanel() {
                 <td className="px-4 py-3 align-top">
                   {q.subject
                     ? <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${q.subject === "english" ? "bg-blue-500/10 text-blue-500" : "bg-violet-500/10 text-violet-500"}`}>
-                        {q.subject === "english" ? "ELA" : "Math"}
+                        {q.subject === "english" ? "English" : "Math"}
                       </span>
                     : <span className="text-zinc-400 text-sm">—</span>}
                 </td>
@@ -544,7 +544,7 @@ export default function AdminQuestionsPanel() {
                   <Label>Subject</Label>
                   <Select value={form.subject ?? ""} onChange={v => setField("subject", v)} title="Subject">
                     <option value="">—</option>
-                    <option value="english">English / ELA</option>
+                    <option value="english">English</option>
                     <option value="math">Math</option>
                   </Select>
                 </div>

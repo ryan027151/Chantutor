@@ -1,12 +1,21 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabase-client";
-import { computeSHSATScore, scoreLabel, type SHSATScore, type Difficulty, type ScoredQuestion } from "../utils/scoring";
+import { computeSHSATScore, scoreLabel, isRevisingEditing, type SHSATScore, type Difficulty, type ScoredQuestion } from "../utils/scoring";
 import { useContext } from "react";
 import { UserContext } from "./userContext";
 import QuestionDetailModal from "./QuestionDetailModal";
 import { exportResultsPDF } from "../utils/exportResultsPDF";
 
-interface QuestionResult { id: string; order_index: number; is_correct: boolean | null; student_answer: string | null; }
+interface QuestionResult { id: string; order_index: number; is_correct: boolean | null; student_answer: string | null; sub_category: string | null; }
+
+function fmtSub(raw: string): string {
+  return raw
+    .replace(/_/g, " ")
+    .replace(/^Organization-/, "Org: ")
+    .replace(/^Style-/, "Style: ")
+    .replace(/\bEq\b\.?/g, "Eq.")
+    .replace(/\band\b/g, "&");
+}
 interface SelectedQuestion { uid: string; studentAnswer: string | null; isCorrect: boolean | null; questionNumber: number; }
 interface AIAnalysis { strengths: string[]; improvements: string[]; recommendations: string[]; }
 interface TestInfo {
@@ -60,11 +69,13 @@ function SHSATScoreCard({ score }: { score: SHSATScore }) {
     label.color === "amber" ? "bg-amber-500/5 text-amber-300 border-amber-500/20" :
     "bg-rose-500/5 text-rose-300 border-rose-500/20";
 
-  const elaPct  = Math.round(score.elaRatio  * 100);
-  const mathPct = Math.round(score.mathRatio * 100);
+  const revisingPct = Math.round(score.revisingRatio * 100);
+  const readingPct  = Math.round(score.readingRatio  * 100);
+  const mathPct     = Math.round(score.mathRatio     * 100);
 
-  const elaSubcats  = score.subcategories.filter(s => s.subject === "english");
-  const mathSubcats = score.subcategories.filter(s => s.subject === "math");
+  const revisingSubcats = score.subcategories.filter(s => s.subject === "english" && isRevisingEditing(s.name));
+  const readingSubcats  = score.subcategories.filter(s => s.subject === "english" && !isRevisingEditing(s.name));
+  const mathSubcats     = score.subcategories.filter(s => s.subject === "math");
 
   function subScoreColor(s: number) {
     if (s >= 580) return "text-emerald-400";
@@ -90,10 +101,16 @@ function SHSATScoreCard({ score }: { score: SHSATScore }) {
         <span className="text-xl font-bold text-zinc-700 mb-1">/700</span>
       </div>
 
-      <div className="flex items-center justify-center gap-6">
+      <div className="flex items-center justify-center gap-3">
         <div className="flex flex-col items-center gap-0.5">
-          <span className="text-xs text-zinc-500">ELA</span>
-          <span className="text-lg font-bold text-blue-400">{elaPct}%</span>
+          <span className="text-xs text-zinc-500">Rev/Edit</span>
+          <span className="text-lg font-bold text-blue-400">{revisingPct}%</span>
+          <span className="text-xs text-zinc-600">weighted</span>
+        </div>
+        <div className="w-px h-8 bg-zinc-700" />
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-xs text-zinc-500">Reading</span>
+          <span className="text-lg font-bold text-sky-400">{readingPct}%</span>
           <span className="text-xs text-zinc-600">weighted</span>
         </div>
         <div className="w-px h-8 bg-zinc-700" />
@@ -124,8 +141,9 @@ function SHSATScoreCard({ score }: { score: SHSATScore }) {
 
           {expanded && (
             <div className="flex flex-col gap-4">
-              {[{ label: "English / ELA", list: elaSubcats, accent: "bg-blue-500" },
-                { label: "Math",          list: mathSubcats, accent: "bg-violet-500" }]
+              {[{ label: "Revising / Editing",    list: revisingSubcats, accent: "bg-blue-500"   },
+                { label: "Reading Comprehension", list: readingSubcats,  accent: "bg-sky-500"    },
+                { label: "Math",                  list: mathSubcats,     accent: "bg-violet-500" }]
                 .filter(g => g.list.length > 0)
                 .map(group => (
                   <div key={group.label}>
@@ -207,6 +225,7 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
           const allTests = (res.tests ?? []) as EdgeTest[];
           resolvedQs = allQs.filter(q => q.test_id === testID).map(q => ({
             id: q.id, order_index: q.order_index, is_correct: q.is_correct, student_answer: q.student_answer ?? null,
+            sub_category: q.sub_category ?? null,
           }));
           resolvedTest = allTests.find(t => t.id === testID) ?? null;
           detailMap = Object.fromEntries(
@@ -225,7 +244,7 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
           supabase.from("questions").select("id, order_index, is_correct, student_answer").eq("test_id", testID).eq("user_id", userID).order("order_index"),
         ]);
         resolvedTest = testData as TestInfo | null;
-        resolvedQs = (qData as QuestionResult[]) ?? [];
+        resolvedQs = (qData as QuestionResult[]).map(q => ({ ...q, sub_category: null })) ?? [];
 
         if (resolvedQs.length > 0) {
           const questionIds = resolvedQs.map(q => q.id).filter(Boolean);
@@ -236,6 +255,9 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
           detailMap = Object.fromEntries(
             (detailData ?? []).map((q: Detail) => [q.uid, q])
           );
+          resolvedQs = resolvedQs.map(q => ({
+            ...q, sub_category: detailMap[q.id]?.sub_category ?? null,
+          }));
         }
       }
 
@@ -283,12 +305,12 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
 
   const fallback: AIAnalysis = {
     strengths: [
-      engCorrect >= englishCount * 0.7 ? "Strong ELA performance" : "Consistent effort across sections",
+      engCorrect >= englishCount * 0.7 ? "Strong English performance overall" : "Consistent effort across sections",
       mathCorrect >= mathCount * 0.7 ? "Solid math fundamentals" : "Good attempt on challenging content",
       `Completed ${questions.length} of ${totalQ} questions`,
     ],
     improvements: [
-      engCorrect < englishCount * 0.7 ? "Focus on reading comprehension" : "Push for higher ELA accuracy",
+      engCorrect < englishCount * 0.7 ? "Focus on Revising/Editing and Reading Comprehension" : "Push for higher English accuracy",
       mathCorrect < mathCount * 0.7 ? "Review core math concepts" : "Target harder math problems",
       "Revisit incorrectly answered questions",
     ],
@@ -319,6 +341,8 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
         total: shsatScore.total,
         elaRatio: shsatScore.elaRatio,
         mathRatio: shsatScore.mathRatio,
+        revisingRatio: shsatScore.revisingRatio,
+        readingRatio: shsatScore.readingRatio,
         labelText: sl.text,
         labelColor: sl.color,
         subcategories: shsatScore.subcategories,
@@ -386,8 +410,20 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
             <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-5 flex flex-col gap-5">
               <ScoreCircle correct={totalCorrect} total={totalQ} />
               <div className="flex flex-col gap-3">
-                <SectionBar label="English / ELA" correct={engCorrect} total={englishCount} colorClass="bg-blue-500" />
-                <SectionBar label="Math"           correct={mathCorrect} total={mathCount}   colorClass="bg-violet-500" />
+                {(() => {
+                  const engQs     = questions.filter(q => q.order_index <= englishCount);
+                  const revQs     = engQs.filter(q => isRevisingEditing(q.sub_category));
+                  const rcQs      = engQs.filter(q => !isRevisingEditing(q.sub_category));
+                  const revCorr   = revQs.filter(q => q.is_correct === true).length;
+                  const rcCorr    = rcQs.filter(q => q.is_correct === true).length;
+                  return (
+                    <>
+                      <SectionBar label="Revising/Editing"      correct={revCorr}   total={revQs.length} colorClass="bg-blue-500" />
+                      <SectionBar label="Reading Comprehension" correct={rcCorr}    total={rcQs.length}  colorClass="bg-sky-500"  />
+                      <SectionBar label="Math"                  correct={mathCorrect} total={mathCount}  colorClass="bg-violet-500" />
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
@@ -475,9 +511,18 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
                           {correct === true ? "Correct" : correct === false ? "Incorrect" : "Skipped"}
                         </span>
                       </div>
-                      <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${isEng ? "bg-blue-500/10 text-blue-400" : "bg-violet-500/10 text-violet-400"}`}>
-                        {isEng ? "ELA" : "Math"}
-                      </span>
+                      {isEng ? (
+                        isRevisingEditing(q?.sub_category)
+                          ? <span className="text-xs px-2 py-0.5 rounded-full shrink-0 bg-blue-500/10 text-blue-400">Rev/Edit</span>
+                          : <span className="text-xs px-2 py-0.5 rounded-full shrink-0 bg-sky-500/10 text-sky-400">Reading</span>
+                      ) : (
+                        <span className="text-xs px-2 py-0.5 rounded-full shrink-0 bg-violet-500/10 text-violet-400">Math</span>
+                      )}
+                      {q?.sub_category && (
+                        <span className="text-xs px-2 py-0.5 rounded-full shrink-0 bg-zinc-800 text-zinc-400">
+                          {fmtSub(q.sub_category)}
+                        </span>
+                      )}
                       {clickable && (
                         <svg className="w-3 h-3 text-zinc-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

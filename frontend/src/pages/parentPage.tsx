@@ -4,7 +4,7 @@ import { supabase } from "../supabase-client";
 import { UserContext } from "../components/userContext";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCrown } from "@fortawesome/free-solid-svg-icons";
-import { computeSHSATScore, scoreLabel, type Difficulty, type ScoredQuestion, type SHSATScore } from "../utils/scoring";
+import { computeSHSATScore, scoreLabel, isRevisingEditing, type Difficulty, type ScoredQuestion, type SHSATScore } from "../utils/scoring";
 import QuestionDetailModal from "../components/QuestionDetailModal";
 import { exportResultsPDF } from "../utils/exportResultsPDF";
 
@@ -85,6 +85,207 @@ function ScoreBadge({ score }: { score: number | null }) {
   return <span className={`text-xs font-bold px-2.5 py-1 rounded-full tabular-nums ${color}`}>{score}%</span>;
 }
 
+// ── Language translations ─────────────────────────────────────────────────────
+
+type Lang = "en" | "zh-TW";
+
+interface LangStrings {
+  saveAsPDF: string; pdfGenerating: string;
+  rawScore: string; correct: (n: number, m: number) => string;
+  ela: string; math: string;
+  revisingEditing: string; readingComprehension: string;
+  estimatedScore: string; diffWeighted: string; bySubcategory: string;
+  aiCoach: string; analyzing: string; poweredByClaude: string; autoSummary: string; aiNote: string | null;
+  strengths: string; improvements: string; recommendations: string;
+  questionReview: string;
+  correctCount: (n: number) => string; incorrectCount: (n: number) => string;
+  correctLabel: string; incorrectLabel: string; skippedLabel: string;
+  unableToLoad: string;
+  translateScore: (text: string) => string;
+  translateSubcategory: (raw: string) => string;
+  fallbackStrengths: (engGood: boolean, mathGood: boolean, done: number, total: number) => string[];
+  fallbackImprovements: (engGood: boolean, mathGood: boolean) => string[];
+  fallbackRecs: () => string[];
+}
+
+const SCORE_BAND_TW: Record<string, string> = {
+  "Top-school competitive range":                   "頂尖學校競爭水準",
+  "Competitive range for specialized schools":      "特色學校競爭水準",
+  "Approaching competitive — keep going!":          "接近競爭水準，繼續加油！",
+  "Keep practicing — you're building real skills!": "持續練習，你正在穩步提升！",
+};
+
+// Keys cover both underscore DB format and space/symbol display format.
+const SUBCAT_TW: Record<string, string> = {
+  // ── English / ELA ──────────────────────────────────────────────────────────
+  Authors_Perspective:               "作者的觀點立場",
+  "Author's Perspective":            "作者的觀點立場",
+  Authors_Point_of_View:             "作者的敘述視角",
+  "Author's Point of View":          "作者的敘述視角",
+  Authors_Purpose:                   "作者的寫作目的",
+  "Author's Purpose":                "作者的寫作目的",
+  "Author's Purpose & Tone":         "作者目的與語氣",
+  Authors_Purpose_and_Tone:          "作者目的與語氣",
+  Central_Idea:                      "中心思想",
+  "Central Idea":                    "中心思想",
+  Comma_Usage:                       "逗號用法",
+  "Comma Usage":                     "逗號用法",
+  Figurative_Language:               "修辭手法",
+  "Figurative Language":             "修辭手法",
+  Inference:                         "推理",
+  Inference_and_Implied_Ideas:       "推理與隱含含義",
+  "Inference and Implied Ideas":     "推理與隱含含義",
+  Main_Idea:                         "段落主旨",
+  "Main Idea":                       "段落主旨",
+  "Organization-Concluding_Sentence":"段落組織：結尾句",
+  "Organization-Logical_Placement":  "段落組織：邏輯排列",
+  "Organization-Paragraph_Unity":    "段落組織：段落統一",
+  "Organization-Topic_Sentence":     "段落組織：主題句",
+  "Organization-Transitions":        "段落組織：過渡語",
+  Plot_Development:                  "情節發展",
+  "Plot Development":                "情節發展",
+  Poetic_Technique:                  "詩歌技巧",
+  "Poetic Technique":                "詩歌技巧",
+  Point_of_View:                     "敘述視角",
+  "Point of View":                   "敘述視角",
+  Pronoun_Agreement:                 "代詞一致性",
+  "Pronoun Agreement":               "代詞一致性",
+  Punctuation:                       "標點符號",
+  Sentence_Combining:                "句子合併",
+  "Sentence Combining":              "句子合併",
+  Sentence_Structure:                "句子結構",
+  "Sentence Structure":              "句子結構",
+  Setting:                           "場景與背景",
+  "Style-Word_Choice":               "寫作風格：用詞選擇",
+  "Subject-Verb_Agreement":          "主謂一致性",
+  "Subject Verb Agreement":          "主謂一致性",
+  Summarization:                     "文章概括",
+  Supporting_Details:                "支持性細節",
+  "Supporting Details":              "支持性細節",
+  Text_Feature:                      "文本特徵",
+  "Text Feature":                    "文本特徵",
+  Text_Organization:                 "文章組織",
+  "Text Organization":               "文章組織",
+  Text_Structure:                    "文章結構",
+  "Text Structure":                  "文章結構",
+  Textual_Evidence:                  "文本依據",
+  "Textual Evidence":                "文本依據",
+  Textual_Evidence_and_Reasoning:    "文本依據與推理",
+  "Textual Evidence and Reasoning":  "文本依據與推理",
+  Theme:                             "文章主題",
+  Tone:                              "文章語氣",
+  "Usage_&_Grammar":                 "語言用法與語法",
+  "Usage & Grammar":                 "語言用法與語法",
+  Verb_Tense:                        "動詞時態",
+  "Verb Tense":                      "動詞時態",
+  Vocabulary_in_Context:             "語境詞彙",
+  "Vocabulary in Context":           "語境詞彙",
+  Word_Choice:                       "詞語選擇",
+  "Word Choice":                     "詞語選擇",
+  // ── Math ───────────────────────────────────────────────────────────────────
+  Algebra_and_Equations:             "代數與方程式",
+  "Algebra and Equations":           "代數與方程式",
+  "Algebra & Equations":             "代數與方程式",
+  Algebraic_Expressions:             "代數式",
+  "Algebraic Expressions":           "代數式",
+  Arithmetic:                        "基礎算術",
+  Fraction_Word_Problems:            "分數應用題",
+  "Fraction Word Problems":          "分數應用題",
+  Geometry:                          "幾何",
+  Inequalities:                      "不等式",
+  "Linear_Eq._Formula":              "線性方程式",
+  "Linear Eq. Formula":              "線性方程式",
+  Percentage:                        "百分比",
+  Probability:                       "機率",
+  "Rate-Unit_Rate":                  "速率／單位速率",
+  "Rate / Unit Rate":                "速率／單位速率",
+  "Rate/Unit Rate":                  "速率／單位速率",
+  Ratios_and_Proportions:            "比例關係",
+  "Ratios and Proportions":          "比例關係",
+  "Ratios & Proportions":            "比例關係",
+  Sequence:                          "數列規律",
+  Stats_and_Data_Analysis:           "統計與資料分析",
+  "Stats and Data Analysis":         "統計與資料分析",
+  "Stats & Data Analysis":           "統計與資料分析",
+  Statistics:                        "統計",
+  // ── Fallback ───────────────────────────────────────────────────────────────
+  General:                           "綜合",
+  Uncategorized:                     "未分類",
+};
+
+function fmtSubEN(raw: string): string {
+  return raw
+    .replace(/_/g, " ")
+    .replace(/^Organization-/, "Org: ")
+    .replace(/^Style-/, "Style: ")
+    .replace(/\bEq\b\.?/g, "Eq.")
+    .replace(/\band\b/g, "&");
+}
+
+const T: Record<Lang, LangStrings> = {
+  en: {
+    saveAsPDF: "Save as PDF", pdfGenerating: "Generating…",
+    rawScore: "raw score", correct: (n, m) => `${n} / ${m} correct`,
+    ela: "English / ELA", math: "Math",
+    revisingEditing: "Revising/Editing", readingComprehension: "Reading Comprehension",
+    estimatedScore: "Estimated SHSAT Score", diffWeighted: "Difficulty-weighted", bySubcategory: "By subcategory",
+    aiCoach: "AI Coach", analyzing: "Analyzing…", poweredByClaude: "Powered by Claude", autoSummary: "Auto summary", aiNote: null,
+    strengths: "Strengths", improvements: "Areas to Improve", recommendations: "Study Recommendations",
+    questionReview: "Question Review",
+    correctCount: (n) => `${n} correct`, incorrectCount: (n) => `${n} incorrect`,
+    correctLabel: "Correct", incorrectLabel: "Incorrect", skippedLabel: "Skipped",
+    unableToLoad: "Unable to load results.",
+    translateScore: (text) => text,
+    translateSubcategory: fmtSubEN,
+    fallbackStrengths: (engGood, mathGood, done, total) => [
+      engGood ? "Strong English performance overall" : "Consistent effort across sections",
+      mathGood ? "Solid math fundamentals" : "Good attempt on challenging content",
+      `Completed ${done} of ${total} questions`,
+    ],
+    fallbackImprovements: (engGood, mathGood) => [
+      engGood ? "Push for higher English accuracy" : "Focus on Revising/Editing and Reading Comprehension",
+      mathGood ? "Target harder math problems" : "Review core math concepts",
+      "Revisit incorrectly answered questions",
+    ],
+    fallbackRecs: () => [
+      "Practice with timed sessions to build test endurance",
+      "Review explanations for all incorrect answers",
+      "Spend extra study time on the lower-scoring section",
+    ],
+  },
+  "zh-TW": {
+    saveAsPDF: "儲存為 PDF", pdfGenerating: "生成中…",
+    rawScore: "原始分數", correct: (n, m) => `${n} / ${m} 題答對`,
+    ela: "英語 / 語文", math: "數學",
+    revisingEditing: "修訂與編輯", readingComprehension: "閱讀理解",
+    estimatedScore: "SHSAT 預估分數", diffWeighted: "難度加權", bySubcategory: "按子類別查看",
+    aiCoach: "AI 學習教練", analyzing: "分析中…", poweredByClaude: "由 Claude 提供支持", autoSummary: "自動摘要",
+    aiNote: "（AI 分析僅提供英文版本）",
+    strengths: "優勢", improvements: "待提升方向", recommendations: "學習建議",
+    questionReview: "題目回顧",
+    correctCount: (n) => `${n} 題正確`, incorrectCount: (n) => `${n} 題錯誤`,
+    correctLabel: "正確", incorrectLabel: "錯誤", skippedLabel: "未作答",
+    unableToLoad: "無法載入成績。",
+    translateScore: (text) => SCORE_BAND_TW[text] ?? text,
+    translateSubcategory: (raw) => SUBCAT_TW[raw] ?? fmtSubEN(raw),
+    fallbackStrengths: (engGood, mathGood, done, total) => [
+      engGood ? "語文表現整體良好" : "各科目均表現努力",
+      mathGood ? "數學基礎紮實" : "挑戰性題目表現積極",
+      `已完成 ${done} / ${total} 道題`,
+    ],
+    fallbackImprovements: (engGood, mathGood) => [
+      engGood ? "追求更高的語文正確率" : "加強閱讀理解和語法練習",
+      mathGood ? "挑戰更難的數學題目" : "複習核心數學知識",
+      "重新審視答錯的題目",
+    ],
+    fallbackRecs: () => [
+      "練習限時作答，培養考試耐力",
+      "仔細閱讀所有錯題的解析",
+      "將更多學習時間集中在分數較低的科目上",
+    ],
+  },
+};
+
 // ── Results Modal ─────────────────────────────────────────────────────────────
 
 function ResultsModal({
@@ -103,6 +304,7 @@ function ResultsModal({
   const [pdfLoading, setPdfLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [selectedQ, setSelectedQ] = useState<SelectedQuestion | null>(null);
+  const [lang, setLang] = useState<Lang>("en");
 
   useEffect(() => {
     (async () => {
@@ -138,6 +340,8 @@ function ResultsModal({
     })();
   }, [testID, studentID]);
 
+  const t = T[lang];
+
   const test = data?.test;
   const questions = data?.questions ?? [];
   const englishCount = test?.configuration?.english?.count ?? Math.floor((test?.total_questions ?? 0) / 2);
@@ -148,22 +352,12 @@ function ResultsModal({
   const pct          = totalQ > 0 ? Math.round((totalCorrect / totalQ) * 100) : 0;
   const pctColor     = pct >= 70 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444";
 
+  const engGood  = engCorrect >= englishCount * 0.7;
+  const mathGood = mathCorrect >= (totalQ - englishCount) * 0.7;
   const fallback: AIAnalysis = {
-    strengths: [
-      engCorrect >= englishCount * 0.7 ? "Strong ELA performance overall" : "Consistent effort across sections",
-      mathCorrect >= (totalQ - englishCount) * 0.7 ? "Solid math fundamentals" : "Good attempt on challenging content",
-      `Completed ${questions.length} of ${totalQ} questions`,
-    ],
-    improvements: [
-      engCorrect < englishCount * 0.7 ? "Focus on reading comprehension and grammar" : "Push for higher ELA accuracy",
-      mathCorrect < (totalQ - englishCount) * 0.7 ? "Review core math concepts" : "Target harder math problems",
-      "Revisit incorrectly answered questions",
-    ],
-    recommendations: [
-      "Practice with timed sessions to build test endurance",
-      "Review explanations for all incorrect answers",
-      "Spend extra study time on the lower-scoring section",
-    ],
+    strengths:       t.fallbackStrengths(engGood, mathGood, questions.length, totalQ),
+    improvements:    t.fallbackImprovements(engGood, mathGood),
+    recommendations: t.fallbackRecs(),
   };
   const analysis = ai ?? (aiError ? fallback : null);
   const shsatLabel = shsat ? scoreLabel(shsat.total) : null;
@@ -185,6 +379,8 @@ function ResultsModal({
         total: shsat.total,
         elaRatio: shsat.elaRatio,
         mathRatio: shsat.mathRatio,
+        revisingRatio: shsat.revisingRatio,
+        readingRatio: shsat.readingRatio,
         labelText: shsatLabel.text,
         labelColor: shsatLabel.color,
         subcategories: shsat.subcategories,
@@ -204,6 +400,22 @@ function ResultsModal({
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
           <div>
+            <div className="flex items-center gap-1 mb-2">
+              {(["en", "zh-TW"] as const).map(l => (
+                <button
+                  key={l}
+                  type="button"
+                  onClick={() => setLang(l)}
+                  className={`text-xs font-semibold px-2 py-0.5 rounded-md transition-colors border ${
+                    lang === l
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600"
+                  }`}
+                >
+                  {l === "en" ? "EN" : "繁體"}
+                </button>
+              ))}
+            </div>
             <p className="text-xs text-slate-400 font-medium">{studentName}</p>
             <h2 className="text-base font-bold text-slate-900">{test?.test_name ?? "Results"}</h2>
             {test && <p className="text-xs text-slate-400">{formatDate(test.created_at)}</p>}
@@ -226,7 +438,7 @@ function ResultsModal({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 )}
-                {pdfLoading ? "Generating…" : "Save as PDF"}
+                {pdfLoading ? t.pdfGenerating : t.saveAsPDF}
               </button>
             )}
             <button
@@ -247,7 +459,7 @@ function ResultsModal({
             <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : !data ? (
-          <div className="py-16 text-center text-slate-400 text-sm">Unable to load results.</div>
+          <div className="py-16 text-center text-slate-400 text-sm">{t.unableToLoad}</div>
         ) : (
           <div className="p-6 flex flex-col gap-5 overflow-y-auto">
 
@@ -260,39 +472,50 @@ function ResultsModal({
                 >
                   <div className="absolute inset-3 bg-slate-50 rounded-full flex flex-col items-center justify-center gap-0.5">
                     <span className="text-3xl font-black text-slate-900">{pct}%</span>
-                    <span className="text-xs text-slate-400">raw score</span>
+                    <span className="text-xs text-slate-400">{t.rawScore}</span>
                   </div>
                 </div>
-                <p className="text-sm text-slate-500">{totalCorrect} / {totalQ} correct</p>
+                <p className="text-sm text-slate-500">{t.correct(totalCorrect, totalQ)}</p>
               </div>
               {/* Section bars */}
-              <div className="w-full flex flex-col gap-2.5">
-                {[
-                  { label: "English / ELA", correct: engCorrect, total: englishCount, color: "bg-blue-500" },
-                  { label: "Math", correct: mathCorrect, total: totalQ - englishCount, color: "bg-violet-500" },
-                ].map(s => {
-                  const p = s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
-                  return (
-                    <div key={s.label} className="flex flex-col gap-1">
-                      <div className="flex justify-between text-xs">
-                        <span className="font-medium text-slate-600">{s.label}</span>
-                        <span className="text-slate-400">{s.correct}/{s.total} · {p}%</span>
-                      </div>
-                      <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${s.color}`} style={{ width: `${p}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              {(() => {
+                const engQs   = questions.filter(q => q.order_index <= englishCount);
+                const revQs   = engQs.filter(q => isRevisingEditing(q.sub_category));
+                const rcQs    = engQs.filter(q => !isRevisingEditing(q.sub_category));
+                const revCorr = revQs.filter(q => q.is_correct === true).length;
+                const rcCorr  = rcQs.filter(q => q.is_correct === true).length;
+                const bars = [
+                  { label: t.revisingEditing,      correct: revCorr,    total: revQs.length,          color: "bg-blue-500"   },
+                  { label: t.readingComprehension,  correct: rcCorr,     total: rcQs.length,           color: "bg-sky-500"    },
+                  { label: t.math,                  correct: mathCorrect, total: totalQ - englishCount, color: "bg-violet-500" },
+                ];
+                return (
+                  <div className="w-full flex flex-col gap-2.5">
+                    {bars.map(s => {
+                      const p = s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
+                      return (
+                        <div key={s.label} className="flex flex-col gap-1">
+                          <div className="flex justify-between text-xs">
+                            <span className="font-medium text-slate-600">{s.label}</span>
+                            <span className="text-slate-400">{s.correct}/{s.total} · {p}%</span>
+                          </div>
+                          <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${s.color}`} style={{ width: `${p}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* SHSAT Estimate */}
             {shsat && shsatLabel && (
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-slate-900 text-sm">Estimated SHSAT Score</h3>
-                  <span className="text-xs text-slate-400 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-full">Difficulty-weighted</span>
+                  <h3 className="font-bold text-slate-900 text-sm">{t.estimatedScore}</h3>
+                  <span className="text-xs text-slate-400 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-full">{t.diffWeighted}</span>
                 </div>
                 <div className="flex items-end justify-center gap-1.5">
                   <span className={`text-5xl font-black tabular-nums ${shsatLabel.color === "green" ? "text-emerald-600" : shsatLabel.color === "amber" ? "text-amber-500" : "text-rose-500"}`}>
@@ -300,22 +523,27 @@ function ResultsModal({
                   </span>
                   <span className="text-xl font-bold text-slate-300 mb-1">/700</span>
                 </div>
-                <div className="flex justify-center gap-6">
+                <div className="flex justify-center gap-3">
                   <div className="flex flex-col items-center gap-0.5">
-                    <span className="text-xs text-slate-400">ELA</span>
-                    <span className="text-lg font-bold text-blue-600">{Math.round(shsat.elaRatio * 100)}%</span>
+                    <span className="text-xs text-slate-400">{t.revisingEditing}</span>
+                    <span className="text-base font-bold text-blue-600">{Math.round(shsat.revisingRatio * 100)}%</span>
                   </div>
                   <div className="w-px h-8 bg-slate-200" />
                   <div className="flex flex-col items-center gap-0.5">
-                    <span className="text-xs text-slate-400">Math</span>
-                    <span className="text-lg font-bold text-violet-600">{Math.round(shsat.mathRatio * 100)}%</span>
+                    <span className="text-xs text-slate-400">{t.readingComprehension}</span>
+                    <span className="text-base font-bold text-sky-600">{Math.round(shsat.readingRatio * 100)}%</span>
+                  </div>
+                  <div className="w-px h-8 bg-slate-200" />
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span className="text-xs text-slate-400">{t.math}</span>
+                    <span className="text-base font-bold text-violet-600">{Math.round(shsat.mathRatio * 100)}%</span>
                   </div>
                 </div>
                 <div className={`text-center text-xs font-medium rounded-xl py-2 px-3 border ${
                   shsatLabel.color === "green" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
                   shsatLabel.color === "amber" ? "bg-amber-50 text-amber-700 border-amber-100" :
                   "bg-rose-50 text-rose-700 border-rose-100"
-                }`}>{shsatLabel.text}</div>
+                }`}>{t.translateScore(shsatLabel.text)}</div>
 
                 {/* Subcategory toggle */}
                 {shsat.subcategories.length > 0 && (
@@ -325,7 +553,7 @@ function ResultsModal({
                       onClick={() => setExpanded(v => !v)}
                       className="flex items-center justify-between w-full text-xs font-semibold text-slate-400 hover:text-slate-600 transition-colors border-t border-slate-100 pt-2"
                     >
-                      <span>By subcategory</span>
+                      <span>{t.bySubcategory}</span>
                       <svg className={`w-4 h-4 transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
@@ -333,8 +561,9 @@ function ResultsModal({
                     {expanded && (
                       <div className="flex flex-col gap-4">
                         {[
-                          { label: "English / ELA", list: shsat.subcategories.filter(s => s.subject === "english"), accent: "bg-blue-500" },
-                          { label: "Math",           list: shsat.subcategories.filter(s => s.subject === "math"),    accent: "bg-violet-500" },
+                          { label: t.revisingEditing,     list: shsat.subcategories.filter(s => s.subject === "english" && isRevisingEditing(s.name)),  accent: "bg-blue-500"   },
+                          { label: t.readingComprehension, list: shsat.subcategories.filter(s => s.subject === "english" && !isRevisingEditing(s.name)), accent: "bg-sky-500"    },
+                          { label: t.math,                list: shsat.subcategories.filter(s => s.subject === "math"),                                   accent: "bg-violet-500" },
                         ].filter(g => g.list.length > 0).map(group => (
                           <div key={group.label}>
                             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">{group.label}</p>
@@ -345,7 +574,7 @@ function ResultsModal({
                                 return (
                                   <div key={sub.name} className="flex flex-col gap-1">
                                     <div className="flex items-center justify-between text-xs">
-                                      <span className="text-slate-600">{sub.name}</span>
+                                      <span className="text-slate-600">{t.translateSubcategory(sub.name)}</span>
                                       <span className={`font-bold tabular-nums ${color}`}>
                                         {sc}<span className="text-slate-300 font-normal"> /700</span>
                                         <span className="text-slate-400 font-normal ml-1">({sub.correct}/{sub.total})</span>
@@ -375,15 +604,18 @@ function ResultsModal({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </div>
-                <h3 className="font-bold text-slate-900">AI Coach</h3>
+                <h3 className="font-bold text-slate-900">{t.aiCoach}</h3>
                 <span className={`ml-auto text-xs rounded-full px-2.5 py-0.5 font-medium border ${
                   aiLoading ? "text-slate-400 border-slate-200" :
                   !aiError  ? "text-blue-600 border-blue-200 bg-blue-50" :
                   "text-amber-600 border-amber-200 bg-amber-50"
                 }`}>
-                  {aiLoading ? "Analyzing…" : !aiError ? "Powered by Claude" : "Auto summary"}
+                  {aiLoading ? t.analyzing : !aiError ? t.poweredByClaude : t.autoSummary}
                 </span>
               </div>
+              {t.aiNote && !aiLoading && ai && (
+                <p className="text-xs text-slate-400 italic">{t.aiNote}</p>
+              )}
               {aiLoading ? (
                 <div className="flex flex-col gap-3 animate-pulse">
                   <div className="h-4 bg-slate-100 rounded-full w-4/5" />
@@ -393,9 +625,9 @@ function ResultsModal({
               ) : analysis && (
                 <div className="flex flex-col gap-3">
                   {([
-                    { key: "strengths" as const,       title: "Strengths",              border: "border-emerald-400", bg: "bg-emerald-50", text: "text-emerald-800", bullet: "text-emerald-500" },
-                    { key: "improvements" as const,    title: "Areas to Improve",       border: "border-amber-400",   bg: "bg-amber-50",   text: "text-amber-800",   bullet: "text-amber-500"   },
-                    { key: "recommendations" as const, title: "Study Recommendations",  border: "border-blue-400",    bg: "bg-blue-50",    text: "text-blue-800",    bullet: "text-blue-500"    },
+                    { key: "strengths"       as const, title: t.strengths,       border: "border-emerald-400", bg: "bg-emerald-50", text: "text-emerald-800", bullet: "text-emerald-500" },
+                    { key: "improvements"    as const, title: t.improvements,    border: "border-amber-400",   bg: "bg-amber-50",   text: "text-amber-800",   bullet: "text-amber-500"   },
+                    { key: "recommendations" as const, title: t.recommendations, border: "border-blue-400",    bg: "bg-blue-50",    text: "text-blue-800",    bullet: "text-blue-500"    },
                   ]).map(({ key, title, border, bg, text, bullet }) => (
                     <div key={key} className={`border-l-4 rounded-r-xl p-4 ${border} ${bg}`}>
                       <p className={`text-xs font-bold uppercase tracking-wider mb-2.5 ${text}`}>{title}</p>
@@ -416,10 +648,10 @@ function ResultsModal({
             {/* Question review */}
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                <h3 className="font-bold text-slate-900">Question Review</h3>
+                <h3 className="font-bold text-slate-900">{t.questionReview}</h3>
                 <div className="flex gap-3 text-xs font-medium text-slate-400">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />{totalCorrect} correct</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400 inline-block" />{questions.filter(q => q.is_correct === false).length} incorrect</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />{t.correctCount(totalCorrect)}</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400 inline-block" />{t.incorrectCount(questions.filter(q => q.is_correct === false).length)}</span>
                 </div>
               </div>
               <div className="divide-y divide-slate-50 max-h-72 overflow-y-auto">
@@ -445,12 +677,21 @@ function ResultsModal({
                           <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-300 shrink-0" />
                         )}
                         <span className={`text-xs font-medium ${correct === true ? "text-emerald-700" : correct === false ? "text-rose-600" : "text-slate-400"}`}>
-                          {correct === true ? "Correct" : correct === false ? "Incorrect" : "Skipped"}
+                          {correct === true ? t.correctLabel : correct === false ? t.incorrectLabel : t.skippedLabel}
                         </span>
                       </div>
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${isEng ? "bg-blue-50 text-blue-600" : "bg-violet-50 text-violet-600"}`}>
-                        {isEng ? "ELA" : "Math"}
-                      </span>
+                      {isEng ? (
+                        isRevisingEditing(q?.sub_category)
+                          ? <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-blue-50 text-blue-600">{t.revisingEditing}</span>
+                          : <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-sky-50 text-sky-600">{t.readingComprehension}</span>
+                      ) : (
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-violet-50 text-violet-600">{t.math}</span>
+                      )}
+                      {q?.sub_category && (
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-slate-100 text-slate-500">
+                          {t.translateSubcategory(q.sub_category)}
+                        </span>
+                      )}
                       {clickable && (
                         <svg className="w-3.5 h-3.5 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

@@ -9,6 +9,18 @@ export interface PDFSubcategory {
   subject: string;
 }
 
+function isRevEdit(sub: string): boolean {
+  const RE = new Set([
+    "sentence structure", "sentence combining", "subject verb agreement",
+    "pronoun agreement", "verb tense", "comma usage", "punctuation",
+    "usage & grammar", "style word choice", "word choice",
+    "organization concluding sentence", "organization logical placement",
+    "organization paragraph unity", "organization topic sentence",
+    "organization transitions", "text organization",
+  ]);
+  return RE.has(sub.toLowerCase().replace(/[_-]/g, " ").trim());
+}
+
 export interface PDFExportData {
   testName: string;
   date: string;
@@ -23,6 +35,8 @@ export interface PDFExportData {
     total: number;
     elaRatio: number;
     mathRatio: number;
+    revisingRatio?: number;
+    readingRatio?: number;
     labelText: string;
     labelColor: "green" | "amber" | "red";
     subcategories: PDFSubcategory[];
@@ -61,10 +75,8 @@ function subBarWidth(score: number): string {
   return `${Math.round(((score - 200) / 500) * 100)}%`;
 }
 
-function buildSubcatRows(subs: PDFSubcategory[], subject: string, accent: string): string {
-  const filtered = subs.filter(s => s.subject === subject);
+function buildSubcatSection(filtered: PDFSubcategory[], label: string, accent: string): string {
   if (!filtered.length) return "";
-  const label = subject === "english" ? "English / ELA" : "Math";
   const rows = filtered.map(sub => `
     <div style="margin-bottom:8px;">
       <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
@@ -120,9 +132,13 @@ function buildHTML(data: PDFExportData): string {
     const bannerBg     = s.labelColor === "green" ? "#ecfdf5" : s.labelColor === "amber" ? "#fffbeb" : "#fef2f2";
     const bannerBorder = s.labelColor === "green" ? "#a7f3d0" : s.labelColor === "amber" ? "#fde68a" : "#fecaca";
     const bannerText   = s.labelColor === "green" ? "#065f46" : s.labelColor === "amber" ? "#92400e" : "#991b1b";
-    const subcatHTML   = [
-      buildSubcatRows(s.subcategories, "english", "#3b82f6"),
-      buildSubcatRows(s.subcategories, "math",    "#8b5cf6"),
+    const revSubs  = s.subcategories.filter(sub => sub.subject === "english" && isRevEdit(sub.name));
+    const rcSubs   = s.subcategories.filter(sub => sub.subject === "english" && !isRevEdit(sub.name));
+    const mathSubs = s.subcategories.filter(sub => sub.subject === "math");
+    const subcatHTML = [
+      buildSubcatSection(revSubs,  "Revising / Editing",    "#3b82f6"),
+      buildSubcatSection(rcSubs,   "Reading Comprehension", "#0ea5e9"),
+      buildSubcatSection(mathSubs, "Math",                  "#8b5cf6"),
     ].join("");
     shsatBlock = `
       <div style="border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:16px;">
@@ -134,16 +150,22 @@ function buildHTML(data: PDFExportData): string {
           <span style="font-size:52px;font-weight:900;color:${totalColor};">${s.total}</span>
           <span style="font-size:22px;font-weight:700;color:#d1d5db;"> /700</span>
         </div>
-        <div style="display:flex;justify-content:center;gap:32px;margin-bottom:12px;">
+        <div style="display:flex;justify-content:center;gap:20px;margin-bottom:12px;">
           <div style="text-align:center;">
-            <div style="font-size:11px;color:#9ca3af;">ELA</div>
-            <div style="font-size:18px;font-weight:700;color:#2563eb;">${Math.round(s.elaRatio * 100)}%</div>
+            <div style="font-size:11px;color:#9ca3af;">Rev/Edit</div>
+            <div style="font-size:16px;font-weight:700;color:#2563eb;">${Math.round((s.revisingRatio ?? s.elaRatio) * 100)}%</div>
+            <div style="font-size:10px;color:#d1d5db;">weighted</div>
+          </div>
+          <div style="width:1px;background:#e5e7eb;"></div>
+          <div style="text-align:center;">
+            <div style="font-size:11px;color:#9ca3af;">Reading</div>
+            <div style="font-size:16px;font-weight:700;color:#0284c7;">${Math.round((s.readingRatio ?? s.elaRatio) * 100)}%</div>
             <div style="font-size:10px;color:#d1d5db;">weighted</div>
           </div>
           <div style="width:1px;background:#e5e7eb;"></div>
           <div style="text-align:center;">
             <div style="font-size:11px;color:#9ca3af;">Math</div>
-            <div style="font-size:18px;font-weight:700;color:#7c3aed;">${Math.round(s.mathRatio * 100)}%</div>
+            <div style="font-size:16px;font-weight:700;color:#7c3aed;">${Math.round(s.mathRatio * 100)}%</div>
             <div style="font-size:10px;color:#d1d5db;">weighted</div>
           </div>
         </div>
@@ -215,7 +237,7 @@ function buildHTML(data: PDFExportData): string {
         <div style="flex:1;min-width:180px;display:flex;flex-direction:column;gap:10px;">
           <div>
             <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
-              <span style="font-weight:600;color:#374151;">English / ELA</span>
+              <span style="font-weight:600;color:#374151;">English (combined)</span>
               <span style="color:#6b7280;">${data.englishCorrect} / ${data.englishTotal} &middot; ${pctStr(data.englishCorrect, data.englishTotal)}</span>
             </div>
             <div style="height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;">
@@ -262,7 +284,7 @@ function buildHTML(data: PDFExportData): string {
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-        <span style="font-size:11px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:0.05em;">ELA (Q1&ndash;Q${data.englishTotal})</span>
+        <span style="font-size:11px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:0.05em;">English (Q1&ndash;Q${data.englishTotal})</span>
         <div style="flex:1;height:1px;background:#dbeafe;"></div>
         <span style="font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:0.05em;">Math (Q${data.englishTotal + 1}&ndash;Q${data.totalQuestions})</span>
       </div>

@@ -22,6 +22,22 @@ export type Difficulty = "easy" | "medium" | "hard";
 
 export const DIFFICULTY_WEIGHTS: Record<Difficulty, number> = { easy: 1, medium: 1.5, hard: 2 };
 
+// Subcategory names (normalized: lowercase, underscores and hyphens → spaces) that count as
+// Revising/Editing. Everything else that is ELA counts as Reading Comprehension.
+const RE_NORMS = new Set([
+  "sentence structure", "sentence combining", "subject verb agreement",
+  "pronoun agreement", "verb tense", "comma usage", "punctuation",
+  "usage & grammar", "style word choice", "word choice",
+  "organization concluding sentence", "organization logical placement",
+  "organization paragraph unity", "organization topic sentence",
+  "organization transitions", "text organization",
+]);
+
+export function isRevisingEditing(sub: string | null | undefined): boolean {
+  if (!sub) return false;
+  return RE_NORMS.has(sub.toLowerCase().replace(/[_-]/g, " ").trim());
+}
+
 // Normalizes any DB casing ("Easy", "MEDIUM", null, etc.) to a valid Difficulty key.
 function normDiff(raw: string | null | undefined): Difficulty {
   const lower = raw?.toLowerCase?.();
@@ -49,9 +65,11 @@ export interface SubcategoryScore {
 }
 
 export interface SHSATScore {
-  total: number;                  // 200–700
-  elaRatio: number;               // 0–1, for display as %
-  mathRatio: number;              // 0–1, for display as %
+  total: number;           // 200–700
+  elaRatio: number;        // 0–1, overall ELA weighted ratio
+  mathRatio: number;       // 0–1
+  revisingRatio: number;   // 0–1, Revising/Editing subset of ELA
+  readingRatio: number;    // 0–1, Reading Comprehension subset of ELA
   subcategories: SubcategoryScore[];
 }
 
@@ -106,10 +124,20 @@ export function computeSHSATScore(
   const mathEarned = mathQs.reduce((s, q) => s + (q.is_correct ? W[normDiff(q.difficulty)] : 0), 0);
   const mathMax    = mathQs.reduce((s, q) => s + W[normDiff(q.difficulty)], 0);
 
+  // Split ELA into Revising/Editing and Reading Comprehension
+  const revQs = elaQs.filter(q => isRevisingEditing(q.sub_category));
+  const rcQs  = elaQs.filter(q => !isRevisingEditing(q.sub_category));
+  const revEarned = revQs.reduce((s, q) => s + (q.is_correct ? W[normDiff(q.difficulty)] : 0), 0);
+  const revMax    = revQs.reduce((s, q) => s + W[normDiff(q.difficulty)], 0);
+  const rcEarned  = rcQs.reduce((s, q) => s + (q.is_correct ? W[normDiff(q.difficulty)] : 0), 0);
+  const rcMax     = rcQs.reduce((s, q) => s + W[normDiff(q.difficulty)], 0);
+
   return {
     total,
-    elaRatio:  elaMax  > 0 ? elaEarned  / elaMax  : 0,
-    mathRatio: mathMax > 0 ? mathEarned / mathMax : 0,
+    elaRatio:     elaMax > 0 ? elaEarned / elaMax : 0,
+    mathRatio:    mathMax > 0 ? mathEarned / mathMax : 0,
+    revisingRatio: revMax > 0 ? revEarned / revMax : 0,
+    readingRatio:  rcMax  > 0 ? rcEarned  / rcMax  : 0,
     subcategories,
   };
 }

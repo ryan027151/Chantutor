@@ -95,7 +95,21 @@ export default function AdminTokensPanel() {
   async function handleGenerate() {
     if (!user) return;
     setGenerating(true);
-    const token     = makeToken();
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Find a token that doesn't collide with any token from the last 30 days
+    let token = makeToken();
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const { count } = await supabase
+        .from("signup_tokens")
+        .select("id", { count: "exact", head: true })
+        .eq("token", token)
+        .gte("created_at", thirtyDaysAgo);
+      if ((count ?? 0) === 0) break;
+      token = makeToken();
+    }
+
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const { data, error } = await supabase
       .from("signup_tokens")
