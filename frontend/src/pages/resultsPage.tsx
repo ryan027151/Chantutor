@@ -71,16 +71,6 @@ function SectionBar({ label, correct, total, colorClass }: { label: string; corr
   );
 }
 
-function AIShimmer() {
-  return (
-    <div className="flex flex-col gap-3 animate-pulse">
-      <div className="h-4 bg-slate-200 rounded-full w-4/5" />
-      <div className="h-4 bg-slate-200 rounded-full w-3/5" />
-      <div className="h-4 bg-slate-200 rounded-full w-2/3" />
-    </div>
-  );
-}
-
 function AnalysisCard({ title, items, borderColor, bgColor, textColor, bulletColor }: {
   title: string; items: string[]; borderColor: string; bgColor: string; textColor: string; bulletColor: string;
 }) {
@@ -231,9 +221,6 @@ function ResultsPage() {
   const [test, setTest] = useState<Test | null>(null);
   const [questions, setQuestions] = useState<QuestionResult[]>([]);
   const [shsatScore, setShsatScore] = useState<SHSATScore | null>(null);
-  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
-  const [aiLoading, setAiLoading] = useState(true);
-  const [aiError, setAiError] = useState(false);
   const [selectedQ, setSelectedQ] = useState<SelectedQuestion | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
 
@@ -286,17 +273,6 @@ function ResultsPage() {
         setQuestions((qData as QuestionResult[]).map(q => ({ ...q, sub_category: null })));
       }
 
-      try {
-        const { data: aiData, error: aiErr } = await supabase.functions.invoke("analyze-performance", {
-          body: { test_id: testID, user_id: user.id },
-        });
-        if (aiErr || !aiData) throw new Error();
-        setAiAnalysis(aiData as AIAnalysis);
-      } catch {
-        setAiError(true);
-      } finally {
-        setAiLoading(false);
-      }
     })();
   }, [user, testID]);
 
@@ -322,7 +298,7 @@ function ResultsPage() {
   const revisingCorrect = revisingQs.filter(q => q.is_correct === true).length;
   const readingCorrect  = readingQs.filter(q => q.is_correct === true).length;
 
-  const fallbackAnalysis: AIAnalysis = {
+  const analysis: AIAnalysis = {
     strengths: [
       engCorrect >= englishQs.length * 0.7 ? "Strong English performance overall" : "Consistent effort across all questions",
       mathCorrect >= mathQs.length * 0.7 ? "Solid math fundamentals" : "Good attempt on challenging content",
@@ -339,8 +315,6 @@ function ResultsPage() {
       "Spend extra study time on your lower-scoring section",
     ],
   };
-
-  const analysis = aiAnalysis ?? (aiError ? fallbackAnalysis : null);
 
   async function handleExportPDF() {
     if (!test) return;
@@ -436,26 +410,13 @@ function ResultsPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             </div>
-            <h2 className="font-bold text-slate-900">AI Coach</h2>
-            <span className={`ml-auto text-xs rounded-full px-2.5 py-0.5 font-medium border ${
-              aiLoading
-                ? "text-slate-400 border-slate-200"
-                : !aiError
-                ? "text-blue-600 border-blue-200 bg-blue-50"
-                : "text-amber-600 border-amber-200 bg-amber-50"
-            }`}>
-              {aiLoading ? "Analyzing…" : !aiError ? "Powered by Claude" : "Auto summary"}
-            </span>
+            <h2 className="font-bold text-slate-900">Performance Summary</h2>
           </div>
-          {aiLoading ? (
-            <AIShimmer />
-          ) : analysis ? (
-            <div className="flex flex-col gap-3">
-              <AnalysisCard title="Strengths"            items={analysis.strengths}       borderColor="border-emerald-400" bgColor="bg-emerald-50" textColor="text-emerald-800" bulletColor="text-emerald-500" />
-              <AnalysisCard title="Areas to Improve"     items={analysis.improvements}    borderColor="border-amber-400"   bgColor="bg-amber-50"   textColor="text-amber-800"   bulletColor="text-amber-500"   />
-              <AnalysisCard title="Study Recommendations" items={analysis.recommendations} borderColor="border-blue-400"    bgColor="bg-blue-50"    textColor="text-blue-800"    bulletColor="text-blue-500"    />
-            </div>
-          ) : null}
+          <div className="flex flex-col gap-3">
+            <AnalysisCard title="Strengths"             items={analysis.strengths}       borderColor="border-emerald-400" bgColor="bg-emerald-50" textColor="text-emerald-800" bulletColor="text-emerald-500" />
+            <AnalysisCard title="Areas to Improve"      items={analysis.improvements}    borderColor="border-amber-400"   bgColor="bg-amber-50"   textColor="text-amber-800"   bulletColor="text-amber-500"   />
+            <AnalysisCard title="Study Recommendations" items={analysis.recommendations} borderColor="border-blue-400"    bgColor="bg-blue-50"    textColor="text-blue-800"    bulletColor="text-blue-500"    />
+          </div>
         </div>
 
         {/* Question review */}

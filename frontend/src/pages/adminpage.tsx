@@ -79,7 +79,7 @@ export default function AdminPage() {
           <div className="flex items-center gap-2.5">
             <FontAwesomeIcon icon={faCrown} className="text-amber-400 text-lg shrink-0" />
             <div className="min-w-0">
-              <p className="text-base font-bold text-zinc-900 leading-tight tracking-tight">Chan Tutoring</p>
+              <p className="brand-name text-lg text-zinc-900 leading-tight">TestQueens</p>
               <p className="text-sm text-zinc-400 font-medium">Admin Console</p>
             </div>
           </div>

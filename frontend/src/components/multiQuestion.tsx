@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { parseFormattedText } from "../utils/textParser";
 
-// Extracts the leading letter from a choice string like "A) text", "E. text", "F text".
-// Falls back to the provided default if no letter prefix is found.
 function extractLetter(text: string | undefined, fallback: string): string {
   if (!text) return fallback;
   const m = text.match(/^([A-Ha-h])[).:\s]/);
   return m ? m[1].toUpperCase() : fallback;
+}
+
+function stripChoicePrefix(text: string): string {
+  return text.replace(/^[A-Ha-h][).:\s]\s*/, "");
 }
 
 interface MCQuestionProps {
@@ -82,7 +84,7 @@ function MCQuestion({
                 <img src={choice.image} alt={`Choice ${choice.letter}`} className="max-h-16 h-auto" />
               ) : (
                 <span className={`text-sm leading-relaxed ${isSelected ? "text-blue-900" : "text-slate-700"}`}>
-                  {parseFormattedText(choice.label ?? "")}
+                  {parseFormattedText(stripChoicePrefix(choice.label ?? ""))}
                 </span>
               )}
             </div>

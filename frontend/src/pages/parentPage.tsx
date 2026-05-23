@@ -95,7 +95,7 @@ interface LangStrings {
   ela: string; math: string;
   revisingEditing: string; readingComprehension: string;
   estimatedScore: string; diffWeighted: string; bySubcategory: string;
-  aiCoach: string; analyzing: string; poweredByClaude: string; autoSummary: string; aiNote: string | null;
+  performanceSummary: string;
   strengths: string; improvements: string; recommendations: string;
   questionReview: string;
   correctCount: (n: number) => string; incorrectCount: (n: number) => string;
@@ -229,7 +229,7 @@ const T: Record<Lang, LangStrings> = {
     ela: "English / ELA", math: "Math",
     revisingEditing: "Revising/Editing", readingComprehension: "Reading Comprehension",
     estimatedScore: "Estimated SHSAT Score", diffWeighted: "Difficulty-weighted", bySubcategory: "By subcategory",
-    aiCoach: "AI Coach", analyzing: "Analyzing…", poweredByClaude: "Powered by Claude", autoSummary: "Auto summary", aiNote: null,
+    performanceSummary: "Performance Summary",
     strengths: "Strengths", improvements: "Areas to Improve", recommendations: "Study Recommendations",
     questionReview: "Question Review",
     correctCount: (n) => `${n} correct`, incorrectCount: (n) => `${n} incorrect`,
@@ -259,8 +259,7 @@ const T: Record<Lang, LangStrings> = {
     ela: "英語 / 語文", math: "數學",
     revisingEditing: "修訂與編輯", readingComprehension: "閱讀理解",
     estimatedScore: "SHSAT 預估分數", diffWeighted: "難度加權", bySubcategory: "按子類別查看",
-    aiCoach: "AI 學習教練", analyzing: "分析中…", poweredByClaude: "由 Claude 提供支持", autoSummary: "自動摘要",
-    aiNote: "（AI 分析僅提供英文版本）",
+    performanceSummary: "學習表現摘要",
     strengths: "優勢", improvements: "待提升方向", recommendations: "學習建議",
     questionReview: "題目回顧",
     correctCount: (n) => `${n} 題正確`, incorrectCount: (n) => `${n} 題錯誤`,
@@ -297,9 +296,6 @@ function ResultsModal({
 }) {
   const [data, setData]       = useState<TestResults | null>(null);
   const [shsat, setShsat]     = useState<SHSATScore | null>(null);
-  const [ai, setAi]           = useState<AIAnalysis | null>(null);
-  const [aiLoading, setAiLoading] = useState(true);
-  const [aiError, setAiError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -325,18 +321,6 @@ function ResultsModal({
       setShsat(computeSHSATScore(scored, englishCnt));
       setLoading(false);
 
-      // Trigger AI analysis
-      try {
-        const { data: aiData, error: aiErr } = await supabase.functions.invoke("analyze-performance", {
-          body: { test_id: testID, user_id: studentID },
-        });
-        if (aiErr || !aiData) throw new Error();
-        setAi(aiData as AIAnalysis);
-      } catch {
-        setAiError(true);
-      } finally {
-        setAiLoading(false);
-      }
     })();
   }, [testID, studentID]);
 
@@ -354,12 +338,11 @@ function ResultsModal({
 
   const engGood  = engCorrect >= englishCount * 0.7;
   const mathGood = mathCorrect >= (totalQ - englishCount) * 0.7;
-  const fallback: AIAnalysis = {
+  const analysis: AIAnalysis = {
     strengths:       t.fallbackStrengths(engGood, mathGood, questions.length, totalQ),
     improvements:    t.fallbackImprovements(engGood, mathGood),
     recommendations: t.fallbackRecs(),
   };
-  const analysis = ai ?? (aiError ? fallback : null);
   const shsatLabel = shsat ? scoreLabel(shsat.total) : null;
 
   function handleExportPDF() {
@@ -596,7 +579,7 @@ function ResultsModal({
               </div>
             )}
 
-            {/* AI Coach */}
+            {/* Performance Summary */}
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 flex flex-col gap-4">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
@@ -604,45 +587,27 @@ function ResultsModal({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </div>
-                <h3 className="font-bold text-slate-900">{t.aiCoach}</h3>
-                <span className={`ml-auto text-xs rounded-full px-2.5 py-0.5 font-medium border ${
-                  aiLoading ? "text-slate-400 border-slate-200" :
-                  !aiError  ? "text-blue-600 border-blue-200 bg-blue-50" :
-                  "text-amber-600 border-amber-200 bg-amber-50"
-                }`}>
-                  {aiLoading ? t.analyzing : !aiError ? t.poweredByClaude : t.autoSummary}
-                </span>
+                <h3 className="font-bold text-slate-900">{t.performanceSummary}</h3>
               </div>
-              {t.aiNote && !aiLoading && ai && (
-                <p className="text-xs text-slate-400 italic">{t.aiNote}</p>
-              )}
-              {aiLoading ? (
-                <div className="flex flex-col gap-3 animate-pulse">
-                  <div className="h-4 bg-slate-100 rounded-full w-4/5" />
-                  <div className="h-4 bg-slate-100 rounded-full w-3/5" />
-                  <div className="h-4 bg-slate-100 rounded-full w-2/3" />
-                </div>
-              ) : analysis && (
-                <div className="flex flex-col gap-3">
-                  {([
-                    { key: "strengths"       as const, title: t.strengths,       border: "border-emerald-400", bg: "bg-emerald-50", text: "text-emerald-800", bullet: "text-emerald-500" },
-                    { key: "improvements"    as const, title: t.improvements,    border: "border-amber-400",   bg: "bg-amber-50",   text: "text-amber-800",   bullet: "text-amber-500"   },
-                    { key: "recommendations" as const, title: t.recommendations, border: "border-blue-400",    bg: "bg-blue-50",    text: "text-blue-800",    bullet: "text-blue-500"    },
-                  ]).map(({ key, title, border, bg, text, bullet }) => (
-                    <div key={key} className={`border-l-4 rounded-r-xl p-4 ${border} ${bg}`}>
-                      <p className={`text-xs font-bold uppercase tracking-wider mb-2.5 ${text}`}>{title}</p>
-                      <ul className="flex flex-col gap-1.5">
-                        {analysis[key].map((item, i) => (
-                          <li key={i} className={`text-sm flex gap-2 ${text} opacity-90`}>
-                            <span className={`${bullet} mt-0.5 shrink-0`}>›</span>
-                            {item}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="flex flex-col gap-3">
+                {([
+                  { key: "strengths"       as const, title: t.strengths,       border: "border-emerald-400", bg: "bg-emerald-50", text: "text-emerald-800", bullet: "text-emerald-500" },
+                  { key: "improvements"    as const, title: t.improvements,    border: "border-amber-400",   bg: "bg-amber-50",   text: "text-amber-800",   bullet: "text-amber-500"   },
+                  { key: "recommendations" as const, title: t.recommendations, border: "border-blue-400",    bg: "bg-blue-50",    text: "text-blue-800",    bullet: "text-blue-500"    },
+                ]).map(({ key, title, border, bg, text, bullet }) => (
+                  <div key={key} className={`border-l-4 rounded-r-xl p-4 ${border} ${bg}`}>
+                    <p className={`text-xs font-bold uppercase tracking-wider mb-2.5 ${text}`}>{title}</p>
+                    <ul className="flex flex-col gap-1.5">
+                      {analysis[key].map((item, i) => (
+                        <li key={i} className={`text-sm flex gap-2 ${text} opacity-90`}>
+                          <span className={`${bullet} mt-0.5 shrink-0`}>›</span>
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Question review */}
@@ -760,9 +725,6 @@ function ParentPage() {
   const [removeLoading, setRemoveLoading]  = useState(false);
   const [removeError,   setRemoveError]    = useState("");
 
-  // AI analysis state per test
-  const [aiState, setAiState] = useState<Record<string, "loading" | "done" | "error">>({});
-
   // ── Data loading ─────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -831,17 +793,6 @@ function ParentPage() {
     }
   }
 
-  // ── AI Analysis ──────────────────────────────────────────────────────────
-
-  async function runAI(test: TestRecord) {
-    if (!selectedStudent || aiState[test.id] === "loading") return;
-    setAiState(prev => ({ ...prev, [test.id]: "loading" }));
-    const { data, error } = await supabase.functions.invoke("analyze-performance", {
-      body: { test_id: test.id, user_id: selectedStudent.id },
-    });
-    setAiState(prev => ({ ...prev, [test.id]: (error || !data || data.error) ? "error" : "done" }));
-  }
-
   async function signOut() {
     await supabase.auth.signOut();
     navigate("/");
@@ -858,7 +809,7 @@ function ParentPage() {
       <div className="bg-white border-b border-slate-100 shadow-sm px-6 py-3.5 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <FontAwesomeIcon icon={faCrown} className="text-lg text-amber-400" />
-          <span className="font-bold text-slate-800 text-sm">Chan Tutoring</span>
+          <span className="brand-name text-base text-slate-800">TestQueens</span>
           <span className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-0.5 rounded-full">
             Parent Portal
           </span>
@@ -1018,7 +969,6 @@ function ParentPage() {
                 ) : (
                   <div className="flex flex-col gap-2.5">
                     {tests.map(test => {
-                      const ai = aiState[test.id];
                       const isCompleted = test.score !== null;
                       return (
                         <div key={test.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm px-5 py-4 flex items-center gap-4">
@@ -1037,47 +987,18 @@ function ParentPage() {
                           <ScoreBadge score={test.score} />
 
                           {isCompleted && (
-                            <div className="flex items-center gap-2 shrink-0">
-                              {/* View Results */}
-                              <button
-                                type="button"
-                                onClick={() => setViewResult({
-                                  testID: test.id,
-                                  studentID: selectedStudent.id,
-                                  studentName: `${selectedStudent.first_name} ${selectedStudent.last_name}`,
-                                  duration: test.duration,
-                                })}
-                                className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors"
-                              >
-                                View Results
-                              </button>
-
-                              {/* AI Analysis */}
-                              <button
-                                type="button"
-                                disabled={ai === "loading"}
-                                onClick={() => runAI(test)}
-                                title={ai === "done" ? "Analysis saved — open results to view" : ai === "error" ? "Analysis failed — click to retry" : "Request AI coaching analysis"}
-                                className={`px-3.5 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${
-                                  ai === "done"    ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-                                  ai === "error"   ? "bg-rose-50 text-rose-600 border-rose-200" :
-                                  ai === "loading" ? "bg-slate-50 text-slate-400 border-slate-200" :
-                                  "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600"
-                                }`}
-                              >
-                                {ai === "loading" ? (
-                                  <span className="flex items-center gap-1.5">
-                                    <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                    </svg>
-                                    Analyzing…
-                                  </span>
-                                ) : ai === "done" ? "✓ Analysis ready" :
-                                   ai === "error"  ? "Retry analysis" :
-                                   "AI Analysis"}
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setViewResult({
+                                testID: test.id,
+                                studentID: selectedStudent.id,
+                                studentName: `${selectedStudent.first_name} ${selectedStudent.last_name}`,
+                                duration: test.duration,
+                              })}
+                              className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors shrink-0"
+                            >
+                              View Results
+                            </button>
                           )}
                         </div>
                       );

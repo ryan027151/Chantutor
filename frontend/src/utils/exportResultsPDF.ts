@@ -219,7 +219,7 @@ function buildHTML(data: PDFExportData): string {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #f3f4f6;">
       <div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-          <span style="font-size:16px;font-weight:800;color:#111827;">&#128081; Chan Tutoring</span>
+          <span style="font-size:18px;font-weight:800;color:#111827;font-family:'Outfit',sans-serif;letter-spacing:-0.03em;">&#128081; TestQueens</span>
         </div>
         <h1 style="font-size:22px;font-weight:800;color:#111827;margin-bottom:4px;">${data.testName}</h1>
         ${data.studentName ? `<p style="font-size:13px;color:#6b7280;">${data.studentName}</p>` : ""}
@@ -294,7 +294,7 @@ function buildHTML(data: PDFExportData): string {
     </div>
 
     <div style="margin-top:24px;padding-top:12px;border-top:1px solid #f3f4f6;display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;">
-      <span>Chan Tutoring &middot; SHSAT Preparation</span>
+      <span style="font-family:'Outfit',sans-serif;font-weight:700;letter-spacing:-0.02em;">TestQueens</span> &middot; SHSAT Preparation
       <span>Generated ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span>
     </div>`;
 }

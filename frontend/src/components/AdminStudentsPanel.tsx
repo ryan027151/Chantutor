@@ -27,38 +27,11 @@ interface QuestionStat {
   order_index: number;
 }
 
-interface AIAnalysis {
-  strengths: string[];
-  improvements: string[];
-  recommendations: string[];
-}
-
 interface ProfileForm {
   first_name: string;
   last_name: string;
   role: string;
 }
-
-const ANALYSIS_COLORS = {
-  strengths: {
-    card: "bg-emerald-500/5 border-emerald-500/15",
-    title: "text-emerald-600",
-    bullet: "text-emerald-500",
-    text: "text-emerald-800",
-  },
-  improvements: {
-    card: "bg-amber-500/5 border-amber-500/15",
-    title: "text-amber-600",
-    bullet: "text-amber-500",
-    text: "text-amber-800",
-  },
-  recommendations: {
-    card: "bg-blue-500/5 border-blue-500/15",
-    title: "text-blue-600",
-    bullet: "text-blue-500",
-    text: "text-blue-800",
-  },
-} as const;
 
 function formatDuration(min: number) {
   if (min === 0) return "Untimed";
@@ -117,7 +90,6 @@ export default function AdminStudentsPanel() {
 
   const [expandedTest, setExpandedTest] = useState<string | null>(null);
   const [questionStats, setQuestionStats] = useState<Record<string, QuestionStat[]>>({});
-  const [analysis, setAnalysis] = useState<Record<string, AIAnalysis | "loading" | "error">>({});
 
   // Edit profile
   const [editingProfile, setEditingProfile] = useState(false);
@@ -138,12 +110,22 @@ export default function AdminStudentsPanel() {
 
   async function loadStudents() {
     setLoading(true);
-    const { data } = await supabase
+    // Try with last_sign_in_at; fall back without it if the column doesn't exist yet
+    const { data: d1, error: e1 } = await supabase
       .from("profiles")
       .select("id, first_name, last_name, role, last_sign_in_at, created_at")
       .eq("role", "student")
       .order("first_name");
-    setStudents((data as Student[]) ?? []);
+    if (e1) {
+      const { data: d2 } = await supabase
+        .from("profiles")
+        .select("id, first_name, last_name, role, created_at")
+        .eq("role", "student")
+        .order("first_name");
+      setStudents((d2 as Student[]) ?? []);
+    } else {
+      setStudents((d1 as Student[]) ?? []);
+    }
     setLoading(false);
   }
 
@@ -154,7 +136,6 @@ export default function AdminStudentsPanel() {
     setTests([]);
     setExpandedTest(null);
     setQuestionStats({});
-    setAnalysis({});
     setConfirmDeleteStudent(false);
     setEditingProfile(false);
     setLinkedParents([]);
@@ -196,19 +177,6 @@ export default function AdminStudentsPanel() {
       .eq("test_id", test.id)
       .eq("user_id", selected!.id);
     setQuestionStats(prev => ({ ...prev, [test.id]: (data as QuestionStat[]) ?? [] }));
-  }
-
-  async function runAnalysis(test: TestRecord) {
-    setAnalysis(prev => ({ ...prev, [test.id]: "loading" }));
-    try {
-      const { data, error } = await supabase.functions.invoke("analyze-performance", {
-        body: { test_id: test.id, user_id: selected!.id },
-      });
-      if (error || !data) throw new Error();
-      setAnalysis(prev => ({ ...prev, [test.id]: data as AIAnalysis }));
-    } catch {
-      setAnalysis(prev => ({ ...prev, [test.id]: "error" }));
-    }
   }
 
   function openEditProfile() {
@@ -269,14 +237,12 @@ export default function AdminStudentsPanel() {
       await supabase.from("tests").delete().eq("id", testId);
       setTests(prev => prev.filter(t => t.id !== testId));
       setQuestionStats(prev => { const n = { ...prev }; delete n[testId]; return n; });
-      setAnalysis(prev => { const n = { ...prev }; delete n[testId]; return n; });
       if (expandedTest === testId) setExpandedTest(null);
     } else {
       await supabase.from("questions").delete().eq("test_id", testId).eq("user_id", selected.id);
       await supabase.from("tests").update({ score: null }).eq("id", testId);
       setTests(prev => prev.map(t => t.id === testId ? { ...t, score: null } : t));
       setQuestionStats(prev => { const n = { ...prev }; delete n[testId]; return n; });
-      setAnalysis(prev => { const n = { ...prev }; delete n[testId]; return n; });
       if (expandedTest === testId) setExpandedTest(null);
     }
     setTestConfirm(null);
@@ -504,7 +470,6 @@ export default function AdminStudentsPanel() {
                     const stats = questionStats[test.id];
                     const correct = stats?.filter(q => q.is_correct === true).length ?? 0;
                     const pct = stats ? Math.round((correct / test.total_questions) * 100) : null;
-                    const ai = analysis[test.id];
                     const isExpanded = expandedTest === test.id;
                     const isConfirming = testConfirm?.id === test.id;
 
@@ -540,23 +505,13 @@ export default function AdminStudentsPanel() {
                           </span>
 
                           {test.score !== null && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => setResultsModal({ testID: test.id, userID: selected!.id })}
-                                className="text-sm font-medium px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-600 hover:text-zinc-900 hover:border-zinc-300 hover:bg-zinc-100 transition-colors shrink-0"
-                              >
-                                View Results
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => runAnalysis(test)}
-                                disabled={ai === "loading"}
-                                className="text-sm font-medium px-3 py-1.5 rounded-lg border border-amber-500/20 text-amber-500 bg-amber-500/5 hover:bg-amber-500/10 transition-colors disabled:opacity-40 shrink-0"
-                              >
-                                {ai === "loading" ? "Analyzing…" : typeof ai === "object" ? "Re-analyze" : "AI Analysis"}
-                              </button>
-                            </>
+                            <button
+                              type="button"
+                              onClick={() => setResultsModal({ testID: test.id, userID: selected!.id })}
+                              className="text-sm font-medium px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-600 hover:text-zinc-900 hover:border-zinc-300 hover:bg-zinc-100 transition-colors shrink-0"
+                            >
+                              View Results
+                            </button>
                           )}
 
                           {isConfirming ? (
@@ -636,33 +591,6 @@ export default function AdminStudentsPanel() {
                           </div>
                         )}
 
-                        {/* AI analysis cards */}
-                        {typeof ai === "object" && ai !== null && (
-                          <div className="border-t border-zinc-200 px-5 py-4 grid grid-cols-3 gap-3">
-                            {(["strengths", "improvements", "recommendations"] as const).map(key => {
-                              const labels = { strengths: "Strengths", improvements: "Areas to Improve", recommendations: "Recommendations" };
-                              const c = ANALYSIS_COLORS[key];
-                              return (
-                                <div key={key} className={`rounded-lg p-3 border ${c.card}`}>
-                                  <p className={`text-sm font-bold uppercase tracking-wider mb-2 ${c.title}`}>{labels[key]}</p>
-                                  <ul className="flex flex-col gap-1">
-                                    {ai[key].map((item, i) => (
-                                      <li key={i} className={`text-sm flex gap-1.5 ${c.text}`}>
-                                        <span className={`${c.bullet} shrink-0 mt-0.5`}>›</span>
-                                        {item}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {ai === "error" && (
-                          <div className="border-t border-zinc-200 px-5 py-3 text-sm text-red-400">
-                            Analysis failed. Try again.
-                          </div>
-                        )}
                       </div>
                     );
                   })}

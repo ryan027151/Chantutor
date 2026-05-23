@@ -15,11 +15,34 @@ function choiceLetterOf(s: string): string {
   return m ? m[1].toUpperCase() : s.trim().toUpperCase();
 }
 
+interface GraphPoint { x: number; y: number; }
+
 // Returns true when the student's answer matches the correct answer.
-// MCQ: compares just the letter prefix so "A) text" == "A".
-// Grid-in: normalises fractions and decimals numerically; falls back to trimmed string compare.
+// MCQ: letter-prefix comparison.
+// Grid-in: numeric comparison with fraction/decimal normalisation.
+// linear_graphing: checks both student points lie on the correct line.
 function checkAnswer(student: string, correct: string, type: string): boolean {
   if (!student.trim() || !correct.trim()) return false;
+
+  if (type === "linear_graphing") {
+    try {
+      const { p1, p2 } = JSON.parse(student) as { p1: GraphPoint; p2: GraphPoint };
+      const expected = JSON.parse(correct) as {
+        m?: number; b?: number; vertical?: boolean; x?: number;
+      };
+      if (expected.vertical) {
+        // Both points must share x = expected.x and be distinct in y
+        return p1.x === expected.x && p2.x === expected.x && p1.y !== p2.y;
+      }
+      const m = expected.m ?? 0;
+      const b = expected.b ?? 0;
+      const tol = 0.01;
+      return (
+        Math.abs(p1.y - (m * p1.x + b)) < tol &&
+        Math.abs(p2.y - (m * p2.x + b)) < tol
+      );
+    } catch { return false; }
+  }
 
   if (type === "mcq") {
     return choiceLetterOf(student) === choiceLetterOf(correct);
@@ -140,10 +163,19 @@ function MockTest() {
       // Get already-answered UIDs for this test session to avoid repeats
       const answeredIds = answeredIdsRef.current;
 
-      // Fetch pool of available UIDs — filtered by topics if set
-      const topics: string[] = (test.configuration as Record<string, unknown> | null)?.practice_topics as string[] ?? [];
-      let uidQuery = supabase.from("all_questions").select("uid");
-      if (topics.length > 0) uidQuery = uidQuery.in("sub_category", topics);
+      // Fetch pool of available UIDs — only approved questions, filtered by subject or topics
+      const config = test.configuration as unknown as Record<string, unknown> | null;
+      const topics: string[] = config?.practice_topics as string[] ?? [];
+      let uidQuery = supabase.from("all_questions").select("uid").eq("status", "approved");
+      if (topics.length > 0) {
+        uidQuery = uidQuery.in("sub_category", topics);
+      } else {
+        // Enforce subject split: first englishCount questions are English, rest are Math
+        const englishCfg = config?.english as { count?: number } | null | undefined;
+        const englishCount = englishCfg?.count ?? Math.floor(test.total_questions / 2);
+        const subject = questionIndex <= englishCount ? "english" : "math";
+        uidQuery = uidQuery.eq("subject", subject);
+      }
       const { data: uidPool } = await uidQuery;
 
       const available = (uidPool ?? [])
@@ -328,7 +360,11 @@ function MockTest() {
         questionStartTimeRef.current = Date.now();
       }
     } else {
-      if (!chosenAnswer) { setNullSubmission(true); return; }
+      // Graphing questions always have an answer (the grapher sets it on mount)
+      if (!chosenAnswer && questionData?.type !== "linear_graphing") {
+        setNullSubmission(true);
+        return;
+      }
       await handleSubmit();
     }
   };
@@ -500,7 +536,7 @@ function MockTest() {
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
               <h2 className="text-base font-bold text-slate-900 mb-1">Starting: Math Section</h2>
               <p className="text-sm text-slate-500 mb-4">
-                Some questions ask you to grid in your own answer. Use these exact formats:
+                Some questions ask you to grid in your own answer or graph a line. Use these formats:
               </p>
               <div className="flex flex-col divide-y divide-slate-100">
                 {[
@@ -509,6 +545,7 @@ function MockTest() {
                   { type: "Mixed number", format: "Convert to improper fraction", example: "7/2" },
                   { type: "Decimal", format: "Use a decimal point", example: "0.75" },
                   { type: "Negative", format: "Use a minus sign", example: "-5" },
+                  { type: "Graphing", format: "Drag two points onto the line", example: "⊙ drag" },
                 ].map((row) => (
                   <div key={row.type} className="flex items-center gap-3 py-2.5 text-sm">
                     <span className="font-medium text-slate-700 w-32 shrink-0">{row.type}</span>
@@ -691,7 +728,7 @@ function MockTest() {
               <QuestionRenderer
                 key={currentQuestion}
                 chosenAnswer={setChosenAnswer}
-                type={questionData.type as "mcq" | "grid-in"}
+                type={questionData.type as "mcq" | "grid-in" | "linear_graphing"}
                 uid={questionData.uid}
                 options={[
                   questionData.choice_1,

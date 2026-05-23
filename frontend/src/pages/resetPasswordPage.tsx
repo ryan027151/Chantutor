@@ -34,7 +34,7 @@ export default function ResetPasswordPage() {
         <div className="relative z-10 flex flex-col items-center text-center gap-6">
           <FontAwesomeIcon icon={faCrown} className="text-6xl text-amber-300" />
           <div>
-            <h1 className="text-4xl font-bold text-white mb-2">Chan Tutoring</h1>
+            <h1 className="brand-name text-5xl text-white mb-2">TestQueens</h1>
             <p className="text-blue-200 text-lg leading-relaxed">
               Master the SHSAT with smart,<br />personalized practice.
             </p>
@@ -47,7 +47,7 @@ export default function ResetPasswordPage() {
         <div className="w-full max-w-sm flex flex-col gap-6">
           <div className="flex md:hidden items-center gap-2 mb-2">
             <FontAwesomeIcon icon={faCrown} className="text-2xl text-amber-400" />
-            <span className="text-xl font-bold text-slate-900">Chan Tutoring</span>
+            <span className="brand-name text-2xl text-slate-900">TestQueens</span>
           </div>
 
           {done ? (

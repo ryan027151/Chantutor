@@ -1,8 +1,11 @@
 import GridInQuestion from "./gridInQuestion";
 import MCQuestion from "./multiQuestion";
+import SHSATGrapher from "./SHSATGrapher";
+
+type QuestionType = "mcq" | "grid-in" | "linear_graphing";
 
 interface QuestionProps {
-  type: "mcq" | "grid-in";
+  type: QuestionType;
   uid: string;
   options: string[];
   answer: string;
@@ -16,6 +19,7 @@ export default function QuestionRenderer({
   type,
   options,
   chosenAnswer,
+  answer,
   isReadOnly = false,
   previousAnswer = "",
   choiceImages = {},
@@ -40,6 +44,15 @@ export default function QuestionRenderer({
           chosenAnswer={chosenAnswer}
           isReadOnly={isReadOnly}
           previousAnswer={previousAnswer}
+        />
+      );
+    case "linear_graphing":
+      return (
+        <SHSATGrapher
+          onAnswerChange={chosenAnswer}
+          isReadOnly={isReadOnly}
+          previousAnswer={isReadOnly ? previousAnswer : undefined}
+          correctAnswer={isReadOnly ? answer : undefined}
         />
       );
     default:

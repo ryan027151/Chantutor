@@ -195,9 +195,6 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
   const [test, setTest] = useState<TestInfo | null>(null);
   const [questions, setQuestions] = useState<QuestionResult[]>([]);
   const [shsatScore, setShsatScore] = useState<SHSATScore | null>(null);
-  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
-  const [aiLoading, setAiLoading] = useState(true);
-  const [aiError, setAiError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [selectedQ, setSelectedQ] = useState<SelectedQuestion | null>(null);
@@ -281,17 +278,6 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
         setShsatScore(computeSHSATScore(scored, englishCnt));
       }
 
-      try {
-        const { data: aiData, error: aiErr } = await supabase.functions.invoke("analyze-performance", {
-          body: { test_id: testID, user_id: userID },
-        });
-        if (aiErr || !aiData) throw new Error();
-        setAiAnalysis(aiData as AIAnalysis);
-      } catch {
-        setAiError(true);
-      } finally {
-        setAiLoading(false);
-      }
     })();
   }, [testID, userID]);
 
@@ -303,7 +289,7 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
   const engCorrect   = questions.filter(q => q.order_index <= englishCount && q.is_correct === true).length;
   const mathCorrect  = questions.filter(q => q.order_index > englishCount && q.is_correct === true).length;
 
-  const fallback: AIAnalysis = {
+  const analysis: AIAnalysis = {
     strengths: [
       engCorrect >= englishCount * 0.7 ? "Strong English performance overall" : "Consistent effort across sections",
       mathCorrect >= mathCount * 0.7 ? "Solid math fundamentals" : "Good attempt on challenging content",
@@ -320,8 +306,6 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
       "Spend extra time on the lower-scoring section",
     ],
   };
-
-  const analysis = aiAnalysis ?? (aiError ? fallback : null);
 
   function handleExportPDF() {
     if (!test) return;
@@ -430,7 +414,7 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
             {/* SHSAT Score Estimate */}
             {shsatScore && <SHSATScoreCard score={shsatScore} />}
 
-            {/* AI Coach */}
+            {/* Performance Summary */}
             <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-5 flex flex-col gap-3">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
@@ -438,42 +422,27 @@ export default function ResultsModal({ testID, userID, onClose }: ResultsModalPr
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </div>
-                <span className="text-sm font-bold text-white">AI Coach</span>
-                <span className={`ml-auto text-xs px-2 py-0.5 rounded-full border font-medium ${
-                  aiLoading ? "text-zinc-500 border-zinc-700"
-                  : !aiError ? "text-amber-400 border-amber-500/20 bg-amber-500/5"
-                  : "text-zinc-500 border-zinc-700"
-                }`}>
-                  {aiLoading ? "Analyzing…" : !aiError ? "Powered by Claude" : "Auto summary"}
-                </span>
+                <span className="text-sm font-bold text-white">Performance Summary</span>
               </div>
-              {aiLoading ? (
-                <div className="flex flex-col gap-2 animate-pulse">
-                  <div className="h-3 bg-zinc-800 rounded-full w-4/5" />
-                  <div className="h-3 bg-zinc-800 rounded-full w-3/5" />
-                  <div className="h-3 bg-zinc-800 rounded-full w-2/3" />
-                </div>
-              ) : analysis && (
-                <div className="flex flex-col gap-3">
-                  {(["strengths", "improvements", "recommendations"] as const).map(key => {
-                    const labels = { strengths: "Strengths", improvements: "Areas to Improve", recommendations: "What to Do Next" };
-                    const c = ANALYSIS_COLORS[key];
-                    return (
-                      <div key={key} className={`rounded-xl p-4 border ${c.card}`}>
-                        <p className={`text-xs font-bold uppercase tracking-wider mb-3 ${c.title}`}>{labels[key]}</p>
-                        <ul className="flex flex-col gap-3">
-                          {analysis[key].map((item, i) => (
-                            <li key={i} className={`text-sm flex gap-2.5 leading-relaxed ${c.text}`}>
-                              <span className={`${c.bullet} shrink-0 font-bold text-base leading-5`}>›</span>
-                              <span>{item}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <div className="flex flex-col gap-3">
+                {(["strengths", "improvements", "recommendations"] as const).map(key => {
+                  const labels = { strengths: "Strengths", improvements: "Areas to Improve", recommendations: "What to Do Next" };
+                  const c = ANALYSIS_COLORS[key];
+                  return (
+                    <div key={key} className={`rounded-xl p-4 border ${c.card}`}>
+                      <p className={`text-xs font-bold uppercase tracking-wider mb-3 ${c.title}`}>{labels[key]}</p>
+                      <ul className="flex flex-col gap-3">
+                        {analysis[key].map((item, i) => (
+                          <li key={i} className={`text-sm flex gap-2.5 leading-relaxed ${c.text}`}>
+                            <span className={`${c.bullet} shrink-0 font-bold text-base leading-5`}>›</span>
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Question review */}

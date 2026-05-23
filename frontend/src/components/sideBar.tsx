@@ -24,7 +24,7 @@ export default function SideBar() {
         {/* Logo */}
         <div className="flex items-center gap-2.5 px-4 pb-5 mb-2 border-b border-slate-100">
           <FontAwesomeIcon icon={faCrown} className="text-xl text-amber-400 shrink-0" />
-          <span className="md:inline hidden text-sm font-bold text-slate-800 tracking-tight">Chan Tutoring</span>
+          <span className="md:inline hidden brand-name text-base text-slate-800">TestQueens</span>
         </div>
 
         {/* Nav items */}

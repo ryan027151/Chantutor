@@ -3,6 +3,7 @@ import { supabase } from "../supabase-client";
 import { parseFormattedText } from "../utils/textParser";
 import MediaDisplay from "./mediaDisplay";
 import { MediaItem } from "./types";
+import SHSATGrapher from "./SHSATGrapher";
 
 interface AllQuestion {
   uid: string;
@@ -37,6 +38,10 @@ function extractLetter(text: string | null | undefined, fallback: string): strin
   if (!text) return fallback;
   const m = text.match(/^([A-Ha-h])[).:\s]/);
   return m ? m[1].toUpperCase() : fallback;
+}
+
+function stripChoicePrefix(text: string): string {
+  return text.replace(/^[A-Ha-h][).:\s]\s*/, "");
 }
 
 function isChoiceMedia(mediaId: string): boolean {
@@ -106,6 +111,7 @@ export default function QuestionDetailModal({
 
   const correctAnswer = question?.answer ?? "";
   const isGridIn = question?.type === "grid-in";
+  const isGraphing = question?.type === "linear_graphing";
   const fallbackLetters = ["A", "B", "C", "D"];
   const choices = question
     ? [question.choice_1, question.choice_2, question.choice_3, question.choice_4].map(
@@ -240,7 +246,33 @@ export default function QuestionDetailModal({
                 {parseFormattedText(question.text)}
               </p>
 
-              {isGridIn ? (
+              {isGraphing ? (
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-4 text-xs text-slate-500">
+                      {studentAnswer && (
+                        <span className="flex items-center gap-1.5">
+                          <span className="inline-block w-5 h-0.5 bg-gray-400 rounded" />
+                          Your line
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block w-5 h-0.5 bg-emerald-500 rounded" />
+                        Correct answer
+                      </span>
+                    </div>
+                    <SHSATGrapher
+                      onAnswerChange={() => {}}
+                      isReadOnly={true}
+                      previousAnswer={studentAnswer ?? undefined}
+                      correctAnswer={correctAnswer}
+                    />
+                  </div>
+                  {!studentAnswer && (
+                    <p className="text-xs text-slate-400 italic text-center">No answer was submitted for this question.</p>
+                  )}
+                </div>
+              ) : isGridIn ? (
                 <div className="flex flex-col gap-2">
                   <div className={`flex items-center gap-3 rounded-xl px-4 py-3 border ${
                     !studentAnswer ? "bg-slate-50 border-slate-200" :
@@ -284,7 +316,7 @@ export default function QuestionDetailModal({
                           {choiceImages[letter] ? (
                             <img src={choiceImages[letter]} alt={`Choice ${letter}`} className="max-h-16 h-auto" />
                           ) : (
-                            label ? parseFormattedText(label) : "—"
+                            label ? parseFormattedText(stripChoicePrefix(label)) : "—"
                           )}
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0 self-center">

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../supabase-client";
 
 type MediaType = "passage" | "graph" | "table" | "equation";
+type QuestionType = "mcq" | "grid-in" | "linear_graphing";
 
 interface MediaItem {
   mediaId: string;
@@ -23,7 +24,7 @@ function isImageType(t: MediaType) { return t !== "passage"; }
 
 interface Question {
   uid: string;
-  type: "mcq" | "grid-in";
+  type: QuestionType;
   text: string;
   choice_1?: string;
   choice_2?: string;
@@ -34,6 +35,8 @@ interface Question {
   sub_category?: string;
   difficulty?: string;
   media_refs?: string;
+  source?: string;
+  status?: string;
 }
 
 type FormData = Partial<Question>;
@@ -115,6 +118,212 @@ function Select({
   );
 }
 
+// ── Type badge helper ──────────────────────────────────────────────────────────
+
+function TypeBadge({ type, source }: { type: string; source?: string }) {
+  const label = type === "mcq" ? "MCQ" : type === "grid-in" ? "Grid-in" : "Graphing";
+  const cls =
+    type === "mcq"
+      ? "bg-zinc-100 text-zinc-500"
+      : type === "grid-in"
+      ? "bg-amber-500/10 text-amber-500"
+      : "bg-blue-500/10 text-blue-600";
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${cls}`}>{label}</span>
+      {source === "ai" && (
+        <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-600">AI</span>
+      )}
+    </div>
+  );
+}
+
+// ── Generate AI Questions modal ────────────────────────────────────────────────
+
+interface GenerateModalProps {
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
+  const [genType, setGenType] = useState<QuestionType>("mcq");
+  const [genCount, setGenCount] = useState(10);
+  const [genDifficulty, setGenDifficulty] = useState("mixed");
+  const [generating, setGenerating] = useState(false);
+  const [result, setResult] = useState<{ generated: number; approved: number; pending: number; duplicates_skipped: number } | null>(null);
+  const [genError, setGenError] = useState<string | null>(null);
+
+  async function generate() {
+    setGenerating(true);
+    setGenError(null);
+    setResult(null);
+    const { data, error } = await supabase.functions.invoke("generate-questions", {
+      body: { type: genType, count: genCount, difficulty: genDifficulty },
+    });
+    setGenerating(false);
+    if (error || data?.error) {
+      setGenError(data?.error ?? error?.message ?? "Unknown error");
+      return;
+    }
+    setResult({ generated: data.generated ?? 0, approved: data.approved ?? data.generated ?? 0, pending: data.pending ?? 0, duplicates_skipped: data.duplicates_skipped ?? 0 });
+    onSuccess();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-white border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-md flex flex-col">
+        <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between shrink-0">
+          <div>
+            <h3 className="text-lg font-bold text-zinc-900">Generate AI Questions</h3>
+            <p className="text-sm text-zinc-400 mt-0.5">Uses Claude to write SHSAT-style math questions</p>
+          </div>
+          <button type="button" onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors text-base">
+            ✕
+          </button>
+        </div>
+
+        <div className="p-6 flex flex-col gap-5">
+          {result ? (
+            <div className="flex flex-col items-center gap-3 py-4">
+              <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
+                <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p className="text-base font-semibold text-zinc-800">
+                Generated {result.generated} question{result.generated !== 1 ? "s" : ""}
+              </p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-700">
+                  {result.approved} approved
+                </span>
+                {result.pending > 0 && (
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-700">
+                    {result.pending} need review
+                  </span>
+                )}
+                {result.duplicates_skipped > 0 && (
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-500">
+                    {result.duplicates_skipped} duplicate{result.duplicates_skipped !== 1 ? "s" : ""} skipped
+                  </span>
+                )}
+              </div>
+              {result.pending > 0 && (
+                <p className="text-xs text-zinc-400 text-center">
+                  Questions marked "Pending" were flagged by the AI as possibly incorrect. Review them in the question bank.
+                </p>
+              )}
+              {result.duplicates_skipped > 0 && (
+                <p className="text-xs text-zinc-400 text-center">
+                  {result.duplicates_skipped} question{result.duplicates_skipped !== 1 ? "s were" : " was"} identical to existing questions and not added.
+                </p>
+              )}
+              <button type="button" onClick={onClose}
+                className="mt-2 px-6 py-2 rounded-lg text-base font-bold bg-zinc-900 text-white hover:bg-zinc-700 transition-colors">
+                Done
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Question type */}
+              <div className="flex flex-col gap-1.5">
+                <Label>Question Type</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { value: "mcq",             label: "Math MCQ"    },
+                    { value: "grid-in",          label: "Grid-in"     },
+                    { value: "linear_graphing",  label: "Graphing"    },
+                  ] as { value: QuestionType; label: string }[]).map(opt => (
+                    <button key={opt.value} type="button"
+                      onClick={() => setGenType(opt.value)}
+                      className={`py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+                        genType === opt.value
+                          ? "bg-amber-500 border-amber-400 text-zinc-950"
+                          : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-amber-500/40"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Count */}
+              <div className="flex flex-col gap-1.5">
+                <Label>How many questions?</Label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[5, 10, 15, 20].map(n => (
+                    <button key={n} type="button"
+                      onClick={() => setGenCount(n)}
+                      className={`py-2 rounded-xl border text-sm font-bold transition-all ${
+                        genCount === n
+                          ? "bg-amber-500 border-amber-400 text-zinc-950"
+                          : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-amber-500/40"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Difficulty */}
+              <div className="flex flex-col gap-1.5">
+                <Label>Difficulty</Label>
+                <div className="grid grid-cols-4 gap-2">
+                  {["mixed", "easy", "medium", "hard"].map(d => (
+                    <button key={d} type="button"
+                      onClick={() => setGenDifficulty(d)}
+                      className={`py-2 rounded-xl border text-sm font-bold capitalize transition-all ${
+                        genDifficulty === d
+                          ? "bg-amber-500 border-amber-400 text-zinc-950"
+                          : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-amber-500/40"
+                      }`}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cost estimate */}
+              <p className="text-xs text-zinc-400 bg-zinc-50 border border-zinc-100 rounded-lg px-3 py-2">
+                Estimated cost: ~${(genCount * (genType === "linear_graphing" ? 0.03 : 0.04)).toFixed(2)} USD using Claude Opus
+              </p>
+
+              {genError && (
+                <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{genError}</p>
+              )}
+            </>
+          )}
+        </div>
+
+        {!result && (
+          <div className="px-6 py-4 border-t border-zinc-200 flex items-center justify-between shrink-0">
+            <button type="button" onClick={onClose}
+              className="px-4 py-2 rounded-lg text-base text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors">
+              Cancel
+            </button>
+            <button type="button" onClick={generate} disabled={generating}
+              className="px-6 py-2 rounded-lg text-base font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors disabled:opacity-50 flex items-center gap-2">
+              {generating && (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              )}
+              {generating ? "Generating…" : `Generate ${genCount} Questions`}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main panel ─────────────────────────────────────────────────────────────────
+
 export default function AdminQuestionsPanel() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [total, setTotal] = useState(0);
@@ -128,8 +337,12 @@ export default function AdminQuestionsPanel() {
   const [filterSubject, setFilterSubject] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
+  const [filterSource, setFilterSource] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [pendingCount, setPendingCount] = useState(0);
 
   const [modalMode, setModalMode] = useState<"add" | "edit" | null>(null);
+  const [showGenerate, setShowGenerate] = useState(false);
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
   const [originalSubCategory, setOriginalSubCategory] = useState<string | null>(null);
   const [isNewTopic, setIsNewTopic] = useState(false);
@@ -159,28 +372,72 @@ export default function AdminQuestionsPanel() {
     });
   }, []);
 
+  const fetchPendingCount = useCallback(async () => {
+    const { count } = await supabase
+      .from("all_questions")
+      .select("uid", { count: "exact", head: true })
+      .eq("status", "pending");
+    setPendingCount(count ?? 0);
+  }, []);
+
   const fetchQuestions = useCallback(async () => {
     setLoading(true);
     setFetchError(null);
     let q = supabase
       .from("all_questions")
       .select(
-        "uid, type, text, choice_1, choice_2, choice_3, choice_4, answer, subject, sub_category, difficulty, media_refs",
+        "uid, type, text, choice_1, choice_2, choice_3, choice_4, answer, subject, sub_category, difficulty, media_refs, source, status",
         { count: "exact" }
       )
-      .order("uid", { ascending: true })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-    if (filterSubject) q = q.eq("subject", filterSubject);
-    if (filterType) q = q.eq("type", filterType);
+    if (filterSubject)  q = q.eq("subject", filterSubject);
+    if (filterType)     q = q.eq("type", filterType);
     if (filterCategory) q = q.eq("sub_category", filterCategory);
-    if (search.trim()) q = q.or(`uid.ilike.%${search.trim()}%,text.ilike.%${search.trim()}%`);
+    if (filterSource)   q = q.eq("source", filterSource);
+    if (filterStatus)   q = q.eq("status", filterStatus);
+    if (search.trim())  q = q.or(`uid.ilike.%${search.trim()}%,text.ilike.%${search.trim()}%`);
 
     const { data, count, error } = await q;
-    if (error) setFetchError(error.message);
-    else { setQuestions((data as Question[]) ?? []); setTotal(count ?? 0); }
+    if (error) {
+      setFetchError(error.message);
+    } else {
+      const sorted = (data as Question[] ?? []).sort((a, b) => {
+        const aNum = a.uid.match(/^ai_Q(\d+)$/);
+        const bNum = b.uid.match(/^ai_Q(\d+)$/);
+        if (aNum && bNum) return parseInt(aNum[1]) - parseInt(bNum[1]);
+        if (aNum) return 1;   // AI questions after bank questions
+        if (bNum) return -1;
+        return a.uid.localeCompare(b.uid);
+      });
+      setQuestions(sorted);
+      setTotal(count ?? 0);
+    }
     setLoading(false);
-  }, [page, filterSubject, filterType, filterCategory, search]);
+    fetchPendingCount();
+  }, [page, filterSubject, filterType, filterCategory, filterSource, filterStatus, search, fetchPendingCount]);
+
+  async function approveQuestion(uid: string) {
+    const { data, error } = await supabase
+      .from("all_questions")
+      .update({ status: "approved" })
+      .eq("uid", uid)
+      .select("uid");
+    if (error) { setFetchError(`Approve failed: ${error.message}`); return; }
+    if (!data || data.length === 0) { setFetchError("Approve blocked by RLS — run admin_rls_policies.sql in Supabase SQL Editor."); return; }
+    fetchQuestions();
+  }
+
+  async function rejectQuestion(uid: string) {
+    const { data, error } = await supabase
+      .from("all_questions")
+      .update({ status: "rejected" })
+      .eq("uid", uid)
+      .select("uid");
+    if (error) { setFetchError(`Reject failed: ${error.message}`); return; }
+    if (!data || data.length === 0) { setFetchError("Reject blocked by RLS — run admin_rls_policies.sql in Supabase SQL Editor."); return; }
+    fetchQuestions();
+  }
 
   useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
 
@@ -273,51 +530,71 @@ export default function AdminQuestionsPanel() {
 
     const mediaRefsStr = mediaItems.map(m => m.mediaId.trim()).filter(Boolean).join(", ") || null;
 
-    const payload = {
-      uid: form.uid,
+    // Fields for all_questions — uid only used for INSERT, not in UPDATE SET
+    const fields = {
       type: form.type ?? "mcq",
       subject: form.subject || null,
       sub_category: form.sub_category,
       difficulty: form.difficulty || null,
       text: form.text,
-      choice_1: form.choice_1 || null,
-      choice_2: form.choice_2 || null,
-      choice_3: form.choice_3 || null,
-      choice_4: form.choice_4 || null,
+      choice_1: form.type === "linear_graphing" ? null : (form.choice_1 || null),
+      choice_2: form.type === "linear_graphing" ? null : (form.choice_2 || null),
+      choice_3: form.type === "linear_graphing" ? null : (form.choice_3 || null),
+      choice_4: form.type === "linear_graphing" ? null : (form.choice_4 || null),
       answer: form.answer,
       media_refs: mediaRefsStr,
+      source: form.source || "bank",
     };
 
-    const { error: allQErr } = modalMode === "add"
-      ? await supabase.from("all_questions").insert([payload])
-      : await supabase.from("all_questions").update(payload).eq("uid", form.uid!);
+    // Topic tables only have the original core columns — exclude anything added later
+    const topicPayload = {
+      uid: form.uid,
+      type: fields.type,
+      text: fields.text,
+      choice_1: fields.choice_1,
+      choice_2: fields.choice_2,
+      choice_3: fields.choice_3,
+      choice_4: fields.choice_4,
+      answer: fields.answer,
+      difficulty: fields.difficulty,
+    };
+
+    let allQErr: { message: string } | null = null;
+    if (modalMode === "add") {
+      const { error } = await supabase.from("all_questions").insert([{ uid: form.uid, ...fields }]);
+      allQErr = error;
+    } else {
+      const { data: updated, error } = await supabase
+        .from("all_questions")
+        .update(fields)
+        .eq("uid", form.uid!)
+        .select("uid");
+      allQErr = error;
+      if (!error && (!updated || updated.length === 0)) {
+        setSaveError("Save blocked: 0 rows updated. Run admin_rls_policies.sql in the Supabase SQL Editor to grant admin write access.");
+        setSaving(false);
+        return;
+      }
+    }
 
     if (allQErr) { setSaveError(`all_questions error: ${allQErr.message}`); setSaving(false); return; }
 
     if (modalMode === "add") {
-      const { error: topicErr } = await supabase.from(form.sub_category!).insert([payload]);
+      const { error: topicErr } = await supabase.from(form.sub_category!).insert([topicPayload]);
       if (topicErr) {
         setSaveError(`Topic table "${form.sub_category}" error: ${topicErr.message}. all_questions was updated.`);
         setSaving(false);
         return;
       }
     } else {
+      // Edit mode: topic tables are best-effort — all_questions is already saved above.
+      // AI-generated questions were never inserted into topic tables, so errors here are expected.
       const subCategoryChanged = originalSubCategory && originalSubCategory !== form.sub_category;
       if (subCategoryChanged) {
         await supabase.from(originalSubCategory!).delete().eq("uid", form.uid!);
-        const { error: topicErr } = await supabase.from(form.sub_category!).insert([payload]);
-        if (topicErr) {
-          setSaveError(`New topic table "${form.sub_category}" error: ${topicErr.message}.`);
-          setSaving(false);
-          return;
-        }
+        await supabase.from(form.sub_category!).insert([topicPayload]);
       } else {
-        const { error: topicErr } = await supabase.from(form.sub_category!).update(payload).eq("uid", form.uid!);
-        if (topicErr) {
-          setSaveError(`Topic table "${form.sub_category}" error: ${topicErr.message}.`);
-          setSaving(false);
-          return;
-        }
+        await supabase.from(form.sub_category!).update(topicPayload).eq("uid", form.uid!);
       }
     }
 
@@ -409,7 +686,30 @@ export default function AdminQuestionsPanel() {
           <option value="">All Types</option>
           <option value="mcq">MCQ</option>
           <option value="grid-in">Grid-in</option>
+          <option value="linear_graphing">Graphing</option>
         </select>
+
+        <select title="Filter by source" value={filterSource} onChange={e => { setFilterSource(e.target.value); setPage(0); }}
+          className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+          <option value="">All Sources</option>
+          <option value="bank">Question Bank</option>
+          <option value="ai">AI Generated</option>
+        </select>
+
+        <div className="relative">
+          <select title="Filter by status" value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(0); }}
+            className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+            <option value="">All Statuses</option>
+            <option value="approved">Approved</option>
+            <option value="pending">Pending Review</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          {pendingCount > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 min-w-[1.1rem] h-[1.1rem] flex items-center justify-center text-xs font-bold bg-amber-500 text-white rounded-full px-1">
+              {pendingCount}
+            </span>
+          )}
+        </div>
 
         <select title="Filter by topic" value={filterCategory} onChange={e => { setFilterCategory(e.target.value); setPage(0); }}
           className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
@@ -417,10 +717,19 @@ export default function AdminQuestionsPanel() {
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
 
-        <button type="button" onClick={openAdd}
-          className="ml-auto shrink-0 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-base px-4 py-2 rounded-lg transition-colors">
-          + Add Question
-        </button>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          <button type="button" onClick={() => setShowGenerate(true)}
+            className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-500 text-white font-bold text-sm px-4 py-2 rounded-lg transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            Generate AI
+          </button>
+          <button type="button" onClick={openAdd}
+            className="bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-base px-4 py-2 rounded-lg transition-colors">
+            + Add Question
+          </button>
+        </div>
       </div>
 
       {fetchError && (
@@ -437,15 +746,16 @@ export default function AdminQuestionsPanel() {
               <th className="px-4 py-3 text-left text-sm font-bold text-zinc-400 uppercase tracking-widest">Type</th>
               <th className="px-4 py-3 text-left text-sm font-bold text-zinc-400 uppercase tracking-widest">Topic</th>
               <th className="px-4 py-3 text-left text-sm font-bold text-zinc-400 uppercase tracking-widest">Difficulty</th>
+              <th className="px-4 py-3 text-left text-sm font-bold text-zinc-400 uppercase tracking-widest">Status</th>
               <th className="px-4 py-3 text-left text-sm font-bold text-zinc-400 uppercase tracking-widest w-full">Question</th>
               <th className="px-4 py-3 text-right text-sm font-bold text-zinc-400 uppercase tracking-widest whitespace-nowrap">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="py-16 text-center text-zinc-400 text-base">Loading…</td></tr>
+              <tr><td colSpan={8} className="py-16 text-center text-zinc-400 text-base">Loading…</td></tr>
             ) : questions.length === 0 ? (
-              <tr><td colSpan={7} className="py-16 text-center text-zinc-400 text-base">No questions match the current filters.</td></tr>
+              <tr><td colSpan={8} className="py-16 text-center text-zinc-400 text-base">No questions match the current filters.</td></tr>
             ) : questions.map(q => (
               <tr key={q.uid} className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors group">
                 <td className="px-4 py-3 font-mono text-sm text-zinc-500 whitespace-nowrap align-top">{q.uid}</td>
@@ -457,17 +767,42 @@ export default function AdminQuestionsPanel() {
                     : <span className="text-zinc-400 text-sm">—</span>}
                 </td>
                 <td className="px-4 py-3 align-top">
-                  <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${q.type === "mcq" ? "bg-zinc-100 text-zinc-500" : "bg-amber-500/10 text-amber-500"}`}>
-                    {q.type === "mcq" ? "MCQ" : "Grid-in"}
-                  </span>
+                  <TypeBadge type={q.type} source={q.source} />
                 </td>
                 <td className="px-4 py-3 font-mono text-sm text-zinc-500 whitespace-nowrap align-top">{q.sub_category ?? "—"}</td>
                 <td className="px-4 py-3 text-sm text-zinc-500 capitalize align-top">{q.difficulty ?? "—"}</td>
+                <td className="px-4 py-3 align-top whitespace-nowrap">
+                  {q.status === "pending" ? (
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600">Pending</span>
+                  ) : q.status === "rejected" ? (
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-500/10 text-red-500">Rejected</span>
+                  ) : (
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600">Approved</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 align-top max-w-lg">
                   <p className="text-sm text-zinc-500 leading-relaxed line-clamp-2">{q.text}</p>
                 </td>
                 <td className="px-4 py-3 align-top">
-                  <div className="flex gap-1.5 justify-end">
+                  <div className="flex gap-1.5 justify-end flex-wrap">
+                    {q.status === "pending" && (
+                      <>
+                        <button type="button" onClick={() => approveQuestion(q.uid)}
+                          className="text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-md border border-emerald-200 transition-colors whitespace-nowrap">
+                          ✓ Approve
+                        </button>
+                        <button type="button" onClick={() => rejectQuestion(q.uid)}
+                          className="text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-md border border-red-200 transition-colors whitespace-nowrap">
+                          ✕ Reject
+                        </button>
+                      </>
+                    )}
+                    {q.status === "rejected" && (
+                      <button type="button" onClick={() => approveQuestion(q.uid)}
+                        className="text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-md border border-emerald-200 transition-colors whitespace-nowrap">
+                        ✓ Approve
+                      </button>
+                    )}
                     <button type="button" onClick={() => openEdit(q)}
                       className="text-sm font-medium text-zinc-500 hover:text-amber-500 px-3 py-1.5 rounded-md hover:bg-amber-500/8 border border-zinc-200 hover:border-amber-500/25 transition-colors whitespace-nowrap">
                       Edit
@@ -515,6 +850,14 @@ export default function AdminQuestionsPanel() {
         </div>
       </div>
 
+      {/* ── Generate AI Questions Modal ── */}
+      {showGenerate && (
+        <GenerateModal
+          onClose={() => setShowGenerate(false)}
+          onSuccess={fetchQuestions}
+        />
+      )}
+
       {/* ── Add / Edit Modal ── */}
       {modalMode && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
@@ -550,9 +893,21 @@ export default function AdminQuestionsPanel() {
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label>Type</Label>
-                  <Select value={form.type ?? "mcq"} onChange={v => setField("type", v as "mcq" | "grid-in")} title="Question type">
+                  <Select
+                    value={form.type ?? "mcq"}
+                    onChange={v => {
+                      const t = v as QuestionType;
+                      setField("type", t);
+                      if (t === "linear_graphing") {
+                        setField("subject", "math");
+                        setField("sub_category", "Linear_Graphing");
+                      }
+                    }}
+                    title="Question type"
+                  >
                     <option value="mcq">MCQ</option>
                     <option value="grid-in">Grid-in</option>
+                    <option value="linear_graphing">Linear Graphing</option>
                   </Select>
                 </div>
               </div>
@@ -601,6 +956,7 @@ export default function AdminQuestionsPanel() {
                 <Textarea value={form.text ?? ""} onChange={v => setField("text", v)} placeholder="Type the full question text here…" rows={6} />
               </div>
 
+              {/* Answer choices — only for MCQ */}
               {form.type === "mcq" && (
                 <div className="flex flex-col gap-2.5">
                   <Label>Answer Choices</Label>
@@ -639,75 +995,90 @@ export default function AdminQuestionsPanel() {
                       );
                     })}
                   </div>
+                ) : form.type === "linear_graphing" ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Input
+                      value={form.answer ?? ""}
+                      onChange={v => setField("answer", v)}
+                      placeholder='{"m": 2, "b": -3}  or  {"vertical": true, "x": 4}'
+                      mono
+                    />
+                    <p className="text-xs text-zinc-400">
+                      Enter JSON: <span className="font-mono text-zinc-600">{"{"}"m": slope, "b": y-intercept{"}"}</span> or <span className="font-mono text-zinc-600">{"{"}"vertical": true, "x": x-value{"}"}</span>
+                    </p>
+                  </div>
                 ) : (
                   <Input value={form.answer ?? ""} onChange={v => setField("answer", v)} placeholder="e.g. 42, 3/4, or 0.75" mono />
                 )}
               </div>
 
-              <div className="flex flex-col gap-2.5">
-                <div className="flex items-center justify-between">
-                  <Label>Media (optional)</Label>
-                  <button type="button" onClick={addMediaItem} className="text-sm text-amber-500 hover:text-amber-400 font-medium transition-colors">
-                    + Add media
-                  </button>
-                </div>
-                {mediaItems.length === 0 ? (
-                  <p className="text-sm text-zinc-400 italic">No media attached.</p>
-                ) : (
-                  <div className="flex flex-col gap-3">
-                    {mediaItems.map((item, idx) => (
-                      <div key={idx} className="border border-zinc-200 rounded-xl p-3.5 flex flex-col gap-3 bg-zinc-50">
-                        <div className="flex gap-2 items-end">
-                          <div className="flex-1 flex flex-col gap-1">
-                            <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">Media ID</span>
-                            <input type="text" value={item.mediaId} onChange={e => updateMediaItem(idx, { mediaId: e.target.value })} title="Media ID"
-                              placeholder={`${form.uid ?? "UID"}_${String.fromCharCode(65 + idx)}`}
-                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-1.5 text-sm font-mono text-zinc-700 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 transition-colors"
-                            />
-                          </div>
-                          <div className="flex flex-col gap-1 w-36 shrink-0">
-                            <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">Type</span>
-                            <select value={item.media_type} onChange={e => updateMediaItem(idx, { media_type: e.target.value as MediaType })} title="Media type"
-                              className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1.5 text-sm text-zinc-700 focus:outline-none focus:border-amber-500/60 transition-colors">
-                              {(Object.keys(MEDIA_TYPE_LABELS) as MediaType[]).map(t => (
-                                <option key={t} value={t}>{MEDIA_TYPE_LABELS[t]}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <button type="button" onClick={() => removeMediaItem(idx)}
-                            className="mb-0.5 w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors text-sm shrink-0">
-                            ✕
-                          </button>
-                        </div>
-                        {isImageType(item.media_type) ? (
-                          <div className="flex flex-col gap-2">
-                            {item.previewUrl && (
-                              <img src={item.previewUrl} alt="preview" className="max-h-36 object-contain rounded-lg border border-zinc-200 bg-zinc-50 p-1" />
-                            )}
-                            {item.isExisting && !item.file && (
-                              <p className="text-sm text-zinc-400">Existing image — upload a new file below to replace it.</p>
-                            )}
-                            <input type="file" accept="image/*" title="Upload image" placeholder="Upload image"
-                              onChange={e => handleImageFile(idx, e.target.files?.[0])}
-                              className="text-sm text-zinc-500 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-zinc-100 file:text-zinc-700 hover:file:bg-zinc-200 cursor-pointer"
-                            />
-                          </div>
-                        ) : (
-                          <div className="flex flex-col gap-1">
-                            {item.isExisting && !item.passageText && (
-                              <p className="text-sm text-zinc-400 mb-1">Existing passage — edit or replace text below.</p>
-                            )}
-                            <textarea value={item.passageText} onChange={e => updateMediaItem(idx, { passageText: e.target.value, isExisting: false })}
-                              placeholder="Paste or type the full passage text…" rows={5}
-                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm text-zinc-700 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 transition-colors resize-y"
-                            />
-                          </div>
-                        )}
-                      </div>
-                    ))}
+              {/* Media — not relevant for linear_graphing but allow it for edge cases */}
+              {form.type !== "linear_graphing" && (
+                <div className="flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between">
+                    <Label>Media (optional)</Label>
+                    <button type="button" onClick={addMediaItem} className="text-sm text-amber-500 hover:text-amber-400 font-medium transition-colors">
+                      + Add media
+                    </button>
                   </div>
-                )}
-              </div>
+                  {mediaItems.length === 0 ? (
+                    <p className="text-sm text-zinc-400 italic">No media attached.</p>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {mediaItems.map((item, idx) => (
+                        <div key={idx} className="border border-zinc-200 rounded-xl p-3.5 flex flex-col gap-3 bg-zinc-50">
+                          <div className="flex gap-2 items-end">
+                            <div className="flex-1 flex flex-col gap-1">
+                              <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">Media ID</span>
+                              <input type="text" value={item.mediaId} onChange={e => updateMediaItem(idx, { mediaId: e.target.value })} title="Media ID"
+                                placeholder={`${form.uid ?? "UID"}_${String.fromCharCode(65 + idx)}`}
+                                className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-1.5 text-sm font-mono text-zinc-700 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 transition-colors"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1 w-36 shrink-0">
+                              <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">Type</span>
+                              <select value={item.media_type} onChange={e => updateMediaItem(idx, { media_type: e.target.value as MediaType })} title="Media type"
+                                className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1.5 text-sm text-zinc-700 focus:outline-none focus:border-amber-500/60 transition-colors">
+                                {(Object.keys(MEDIA_TYPE_LABELS) as MediaType[]).map(t => (
+                                  <option key={t} value={t}>{MEDIA_TYPE_LABELS[t]}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <button type="button" onClick={() => removeMediaItem(idx)}
+                              className="mb-0.5 w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors text-sm shrink-0">
+                              ✕
+                            </button>
+                          </div>
+                          {isImageType(item.media_type) ? (
+                            <div className="flex flex-col gap-2">
+                              {item.previewUrl && (
+                                <img src={item.previewUrl} alt="preview" className="max-h-36 object-contain rounded-lg border border-zinc-200 bg-zinc-50 p-1" />
+                              )}
+                              {item.isExisting && !item.file && (
+                                <p className="text-sm text-zinc-400">Existing image — upload a new file below to replace it.</p>
+                              )}
+                              <input type="file" accept="image/*" title="Upload image" placeholder="Upload image"
+                                onChange={e => handleImageFile(idx, e.target.files?.[0])}
+                                className="text-sm text-zinc-500 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-zinc-100 file:text-zinc-700 hover:file:bg-zinc-200 cursor-pointer"
+                              />
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1">
+                              {item.isExisting && !item.passageText && (
+                                <p className="text-sm text-zinc-400 mb-1">Existing passage — edit or replace text below.</p>
+                              )}
+                              <textarea value={item.passageText} onChange={e => updateMediaItem(idx, { passageText: e.target.value, isExisting: false })}
+                                placeholder="Paste or type the full passage text…" rows={5}
+                                className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm text-zinc-700 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 transition-colors resize-y"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <p className="text-sm text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2">
                 Saves to <span className="text-zinc-700 font-mono">all_questions</span> and topic table{" "}

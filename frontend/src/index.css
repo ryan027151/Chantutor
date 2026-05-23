@@ -1,1 +1,7 @@
 @import "tailwindcss";
+
+.brand-name {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
