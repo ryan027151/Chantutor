@@ -1,4 +1,4 @@
-import { useState, useContext } from "react";
+import { useState, useContext, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase-client";
 import { UserContext } from "../components/userContext";
@@ -41,8 +41,8 @@ const ICON_SIGNOUT = (
   </svg>
 );
 
-function NavItem({ label, active, onClick, icon }: {
-  label: string; active: boolean; onClick: () => void; icon: React.ReactNode;
+function NavItem({ label, active, onClick, icon, badge }: {
+  label: string; active: boolean; onClick: () => void; icon: React.ReactNode; badge?: number;
 }) {
   return (
     <button
@@ -55,15 +55,35 @@ function NavItem({ label, active, onClick, icon }: {
       }`}
     >
       {icon}
-      {label}
+      <span className="flex-1">{label}</span>
+      {badge != null && badge > 0 && (
+        <span className="text-xs font-bold bg-rose-500 text-white rounded-full px-1.5 py-0.5 min-w-5 text-center leading-none">
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("students");
+  const [pendingReports, setPendingReports] = useState(0);
+  const [editQuestionUid, setEditQuestionUid] = useState<string | null>(null);
   const navigate = useNavigate();
   const user = useContext(UserContext);
+
+  useEffect(() => {
+    supabase
+      .from("question_reports")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .then(({ count }) => setPendingReports(count ?? 0));
+  }, []);
+
+  function handleEditQuestion(uid: string) {
+    setEditQuestionUid(uid);
+    setTab("questions");
+  }
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -88,10 +108,10 @@ export default function AdminPage() {
         {/* Nav */}
         <nav className="flex-1 p-3 flex flex-col gap-0.5">
           <p className="text-sm font-bold text-zinc-400 uppercase tracking-widest px-2 py-2">Management</p>
-          <NavItem label="Students" active={tab === "students"} onClick={() => setTab("students")} icon={ICON_USERS} />
+          <NavItem label="Students"      active={tab === "students"}  onClick={() => setTab("students")}  icon={ICON_USERS} />
           <NavItem label="Question Bank" active={tab === "questions"} onClick={() => setTab("questions")} icon={ICON_BOOK} />
-          <NavItem label="Reports" active={tab === "reports"} onClick={() => setTab("reports")} icon={ICON_FLAG} />
-          <NavItem label="Tokens" active={tab === "tokens"} onClick={() => setTab("tokens")} icon={ICON_KEY} />
+          <NavItem label="Reports"       active={tab === "reports"}   onClick={() => setTab("reports")}   icon={ICON_FLAG} badge={pendingReports} />
+          <NavItem label="Tokens"        active={tab === "tokens"}    onClick={() => setTab("tokens")}    icon={ICON_KEY} />
         </nav>
 
         {/* User card + sign out */}
@@ -114,10 +134,20 @@ export default function AdminPage() {
 
       {/* ── Content ── */}
       <main className="flex-1 overflow-hidden flex flex-col">
-        {tab === "students" && <AdminStudentsPanel />}
-        {tab === "questions" && <AdminQuestionsPanel />}
-        {tab === "reports" && <AdminReportsPanel />}
-        {tab === "tokens" && <AdminTokensPanel />}
+        {tab === "students"  && <AdminStudentsPanel />}
+        {tab === "questions" && (
+          <AdminQuestionsPanel
+            initialEditUid={editQuestionUid}
+            onEditHandled={() => setEditQuestionUid(null)}
+          />
+        )}
+        {tab === "reports"  && (
+          <AdminReportsPanel
+            onEditQuestion={handleEditQuestion}
+            onReportResolved={() => setPendingReports(n => Math.max(0, n - 1))}
+          />
+        )}
+        {tab === "tokens"   && <AdminTokensPanel />}
       </main>
     </div>
   );

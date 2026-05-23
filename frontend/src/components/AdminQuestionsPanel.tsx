@@ -324,7 +324,12 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
 
 // ── Main panel ─────────────────────────────────────────────────────────────────
 
-export default function AdminQuestionsPanel() {
+interface AdminQuestionsPanelProps {
+  initialEditUid?: string | null;
+  onEditHandled?: () => void;
+}
+
+export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: AdminQuestionsPanelProps = {}) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -440,6 +445,22 @@ export default function AdminQuestionsPanel() {
   }
 
   useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
+
+  // When navigated here from the Reports panel, auto-open the edit modal for the flagged question
+  useEffect(() => {
+    if (!initialEditUid) return;
+    (async () => {
+      const { data } = await supabase
+        .from("all_questions")
+        .select("uid, type, text, choice_1, choice_2, choice_3, choice_4, answer, subject, sub_category, difficulty, media_refs, source, status")
+        .eq("uid", initialEditUid)
+        .single();
+      if (data) openEdit(data as Question);
+      onEditHandled?.();
+    })();
+  // openEdit is stable (defined with plain function, not useCallback) — intentionally omitted from deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialEditUid]);
 
   function setField<K extends keyof FormData>(key: K, val: FormData[K]) {
     setForm(f => ({ ...f, [key]: val }));

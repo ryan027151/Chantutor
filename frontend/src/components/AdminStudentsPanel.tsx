@@ -8,8 +8,7 @@ interface Student {
   first_name: string;
   last_name: string;
   role: string;
-  last_sign_in_at: string | null;
-  created_at: string;
+  email: string | null;
 }
 
 interface TestRecord {
@@ -38,23 +37,6 @@ function formatDuration(min: number) {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return h > 0 ? `${h}h ${m > 0 ? `${m}m` : ""}` : `${m}m`;
-}
-
-function inactivityMonths(s: Student): number {
-  const ref = s.last_sign_in_at ?? s.created_at;
-  return (Date.now() - new Date(ref).getTime()) / (1000 * 60 * 60 * 24 * 30.44);
-}
-
-function inactivityDot(months: number): string {
-  if (months < 3) return "bg-emerald-500";
-  if (months < 5) return "bg-yellow-400";
-  if (months < 5.5) return "bg-orange-500";
-  return "bg-red-500";
-}
-
-function deletionDate(s: Student): Date {
-  const ref = new Date(s.last_sign_in_at ?? s.created_at);
-  return new Date(ref.getTime() + 6 * 30.44 * 24 * 60 * 60 * 1000);
 }
 
 function AdminInput({
@@ -101,7 +83,7 @@ export default function AdminStudentsPanel() {
   const [confirmDeleteStudent, setConfirmDeleteStudent] = useState(false);
   const [deletingStudent, setDeletingStudent] = useState(false);
 
-  // Per-test actions: { testId, action }
+  // Per-test actions
   const [testConfirm, setTestConfirm] = useState<{ id: string; action: "delete" | "reset" } | null>(null);
   const [processingTest, setProcessingTest] = useState(false);
 
@@ -110,21 +92,9 @@ export default function AdminStudentsPanel() {
 
   async function loadStudents() {
     setLoading(true);
-    // Try with last_sign_in_at; fall back without it if the column doesn't exist yet
-    const { data: d1, error: e1 } = await supabase
-      .from("profiles")
-      .select("id, first_name, last_name, role, last_sign_in_at, created_at")
-      .eq("role", "student")
-      .order("first_name");
-    if (e1) {
-      const { data: d2 } = await supabase
-        .from("profiles")
-        .select("id, first_name, last_name, role, created_at")
-        .eq("role", "student")
-        .order("first_name");
-      setStudents((d2 as Student[]) ?? []);
-    } else {
-      setStudents((d1 as Student[]) ?? []);
+    const { data, error } = await supabase.rpc("get_all_profiles");
+    if (!error && data) {
+      setStudents((data as Student[]).filter(s => s.role === "student"));
     }
     setLoading(false);
   }
@@ -157,11 +127,9 @@ export default function AdminStudentsPanel() {
 
     const parentIds = (parentLinks ?? []).map((l: { parent_id: string }) => l.parent_id);
     if (parentIds.length > 0) {
-      const { data: parentProfiles } = await supabase
-        .from("profiles")
-        .select("id, first_name, last_name")
-        .in("id", parentIds);
-      setLinkedParents((parentProfiles ?? []) as { id: string; first_name: string; last_name: string }[]);
+      const { data: parentProfiles } = await supabase.rpc("get_all_profiles");
+      const filtered = ((parentProfiles ?? []) as Student[]).filter(p => parentIds.includes(p.id));
+      setLinkedParents(filtered.map(p => ({ id: p.id, first_name: p.first_name, last_name: p.last_name })));
     }
 
     setLoadingTests(false);
@@ -290,18 +258,12 @@ export default function AdminStudentsPanel() {
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <div className="relative shrink-0">
-                  <div className="w-8 h-8 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center text-sm font-bold text-zinc-500">
-                    {s.first_name[0]}{s.last_name[0]}
-                  </div>
-                  <span
-                    title={`Last active: ${inactivityMonths(s) < 1 ? "< 1 month ago" : `${Math.round(inactivityMonths(s))} months ago`}`}
-                    className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${inactivityDot(inactivityMonths(s))}`}
-                  />
+                <div className="w-8 h-8 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center text-sm font-bold text-zinc-500 shrink-0">
+                  {s.first_name[0]}{s.last_name[0]}
                 </div>
                 <div className="min-w-0">
                   <p className="text-base font-semibold text-zinc-900 truncate">{s.first_name} {s.last_name}</p>
-                  <p className="text-sm text-zinc-400 capitalize">{s.role}</p>
+                  {s.email && <p className="text-sm text-zinc-400 truncate">{s.email}</p>}
                 </div>
               </div>
             </button>
@@ -333,43 +295,10 @@ export default function AdminStudentsPanel() {
                   <h3 className="text-lg font-bold text-zinc-900">{selected.first_name} {selected.last_name}</h3>
                   <div className="flex items-center gap-2 flex-wrap mt-0.5">
                     <span className="text-sm font-semibold text-amber-500 capitalize">{selected.role}</span>
-                    {(() => {
-                      const mo = inactivityMonths(selected);
-                      const moRounded = Math.round(mo);
-                      const lastSeenLabel = mo < 1
-                        ? "Last seen: less than 1 month ago"
-                        : `Last seen: ${moRounded} month${moRounded !== 1 ? "s" : ""} ago`;
-                      const dot = inactivityDot(mo);
-                      return (
-                        <span className={`flex items-center gap-1 text-sm ${
-                          mo >= 5.5 ? "text-red-400" : mo >= 5 ? "text-orange-400" : mo >= 3 ? "text-yellow-500" : "text-zinc-400"
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full inline-block ${dot}`} />
-                          {lastSeenLabel}
-                        </span>
-                      );
-                    })()}
+                    {selected.email && (
+                      <span className="text-sm text-zinc-400">{selected.email}</span>
+                    )}
                   </div>
-                  {inactivityMonths(selected) >= 5 && (() => {
-                    const del = deletionDate(selected);
-                    const isPast = del <= new Date();
-                    const mo = inactivityMonths(selected);
-                    return (
-                      <div className={`mt-2 text-sm rounded-lg px-3 py-2 border flex items-center gap-2 ${
-                        mo >= 5.5
-                          ? "bg-red-500/8 border-red-500/20 text-red-400"
-                          : "bg-orange-500/8 border-orange-500/20 text-orange-400"
-                      }`}>
-                        <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                        </svg>
-                        {isPast
-                          ? "Auto-deletion overdue — will be removed on next cleanup cycle (Sundays 3am UTC)."
-                          : `Account scheduled for auto-deletion on ${del.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.`
-                        }
-                      </div>
-                    );
-                  })()}
                 </div>
                 <div className="flex gap-4 shrink-0 items-center">
                   <div className="text-center">

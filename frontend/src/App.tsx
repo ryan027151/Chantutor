@@ -77,6 +77,7 @@ function App() {
     getUser();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
+        setUser(undefined); // show loading spinner in ProtectedRoute while profile fetch completes
         getUser();
       } else {
         setUser(null);
@@ -107,6 +108,13 @@ function App() {
 
           {/* Parent-only route */}
           <Route path="/parent" element={<ProtectedRoute><ParentPage /></ProtectedRoute>} />
+
+          {/* Catch-all: shown briefly while Supabase processes recovery/magic-link tokens from the URL hash */}
+          <Route path="*" element={
+            <div className="flex items-center justify-center min-h-screen bg-slate-50">
+              <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          } />
         </Routes>
       </UserContext.Provider>
     </Router>
