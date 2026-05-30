@@ -118,6 +118,9 @@ function MockTest() {
   const currentSubjectRef = useRef<string>("");
   const questionStartTimeRef = useRef<number>(Date.now());
   const answeredIdsRef = useRef<Set<string>>(new Set());
+  // Adaptive English queue: pre-planned ordered UIDs built at test start
+  const englishQueueRef = useRef<string[]>([]);
+  const englishQueuePosRef = useRef<number>(0);
 
   const navigate = useNavigate();
   const user = useContext(UserContext);
@@ -146,6 +149,85 @@ function MockTest() {
   const isPassageQuestion = mediaItems.some((m) => isMultiQuestionMedia(m.media_id));
   const showBackButton = currentQuestion > 1 && (isPassageQuestion || isReadOnly);
 
+  // ─── Adaptive English initialisation ────────────────────────────────────────
+
+  const GRAMMAR_SUBCATEGORIES = [
+    "Comma_Usage","Organization-Concluding_Sentence","Organization-Logical_Placement",
+    "Organization-Paragraph_Unity","Organization-Topic_Sentence","Organization-Transitions",
+    "Pronoun_Agreement","Sentence_Combining","Sentence_Structure",
+    "Style-Word_Choice","Subject-Verb_Agreement","Verb_Tense",
+  ];
+
+  function shuffle<T>(arr: T[]): T[] {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  const initEnglishAdaptive = async (test: Test) => {
+    if (!user || test.test_name === "Diagnostic Test") return;
+    const config = test.configuration as Record<string, unknown> | null;
+    if ((config?.practice_topics as string[] ?? []).length > 0) return; // practice mode — no RC sections
+
+    const englishCfg = config?.english as { count?: number } | null;
+    const englishCount = englishCfg?.count ?? Math.floor(test.total_questions / 2);
+
+    // Fetch passage pool and historical θ in parallel
+    const [{ data: passages }, { data: thetaRaw }] = await Promise.all([
+      supabase.rpc("get_english_passage_pool"),
+      supabase.rpc("get_student_rc_accuracy", { p_user_id: user.id }),
+    ]);
+
+    const theta = (thetaRaw as number | null) ?? 0.5;
+    const targetTier = theta < 0.45 ? "easier" : theta >= 0.70 ? "harder" : "medium";
+    const tierPriority =
+      targetTier === "easier" ? ["easier", "medium", "harder"] :
+      targetTier === "harder" ? ["harder", "medium", "easier"] :
+                                ["medium", "easier", "harder"];
+
+    type PassageGroup = { passage_id: string; tier: string; question_ids: string[] };
+    const pool = (passages ?? []) as PassageGroup[];
+
+    // Build RC UID sequence: select passages tier-by-tier until we have ~65% of English slots
+    const rcSlots = Math.round(englishCount * 0.65);
+    const rcUids: string[] = [];
+    const usedPassages = new Set<string>();
+
+    for (const tier of tierPriority) {
+      if (rcUids.length >= rcSlots) break;
+      for (const passage of shuffle(pool.filter(p => p.tier === tier))) {
+        if (rcUids.length >= rcSlots) break;
+        if (usedPassages.has(passage.passage_id)) continue;
+        rcUids.push(...passage.question_ids);
+        usedPassages.add(passage.passage_id);
+      }
+    }
+
+    // Fetch grammar questions (remaining ~35% of English slots)
+    const { data: grammarPool } = await supabase
+      .from("all_questions")
+      .select("uid")
+      .eq("status", "approved")
+      .eq("subject", "english")
+      .in("sub_category", GRAMMAR_SUBCATEGORIES);
+
+    const grammarUids = shuffle((grammarPool ?? []).map((q: { uid: string }) => q.uid));
+
+    // Interleave: 3 RC questions then 1 grammar, repeat until buffer is full
+    const queue: string[] = [];
+    let ri = 0, gi = 0;
+    while (queue.length < englishCount * 2 && (ri < rcUids.length || gi < grammarUids.length)) {
+      for (let i = 0; i < 3 && ri < rcUids.length; i++) queue.push(rcUids[ri++]);
+      if (gi < grammarUids.length) queue.push(grammarUids[gi++]);
+    }
+
+    englishQueueRef.current = queue;
+    englishQueuePosRef.current = 0;
+  };
+
   // ─── Data fetching ──────────────────────────────────────────────────────────
 
   const getQuestion = async (test: Test | null, questionIndex: number): Promise<Record<string, string> | null> => {
@@ -166,14 +248,40 @@ function MockTest() {
       // Fetch pool of available UIDs — only approved questions, filtered by subject or topics
       const config = test.configuration as unknown as Record<string, unknown> | null;
       const topics: string[] = config?.practice_topics as string[] ?? [];
+      const englishCfg = config?.english as { count?: number } | null | undefined;
+      const englishCount = englishCfg?.count ?? Math.floor(test.total_questions / 2);
+      const isEnglishSlot = topics.length === 0 && questionIndex <= englishCount;
+
+      // Adaptive English: use pre-planned queue instead of random selection
+      if (isEnglishSlot && englishQueueRef.current.length > 0) {
+        // Skip UIDs already answered (handles test resume)
+        while (
+          englishQueuePosRef.current < englishQueueRef.current.length &&
+          answeredIds.has(englishQueueRef.current[englishQueuePosRef.current])
+        ) {
+          englishQueuePosRef.current++;
+        }
+        if (englishQueuePosRef.current < englishQueueRef.current.length) {
+          const uid = englishQueueRef.current[englishQueuePosRef.current++];
+          const { data: qData, error } = await supabase
+            .from("all_questions")
+            .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
+            .eq("uid", uid)
+            .single();
+          if (!error && qData) {
+            questionStartTimeRef.current = Date.now();
+            setQuestionData(qData as unknown as Record<string, string>);
+            return qData as unknown as Record<string, string>;
+          }
+        }
+        // Fall through to random if queue exhausted
+      }
+
       let uidQuery = supabase.from("all_questions").select("uid").eq("status", "approved");
       if (topics.length > 0) {
         uidQuery = uidQuery.in("sub_category", topics);
       } else {
-        // Enforce subject split: first englishCount questions are English, rest are Math
-        const englishCfg = config?.english as { count?: number } | null | undefined;
-        const englishCount = englishCfg?.count ?? Math.floor(test.total_questions / 2);
-        const subject = questionIndex <= englishCount ? "english" : "math";
+        const subject = isEnglishSlot ? "english" : "math";
         uidQuery = uidQuery.eq("subject", subject);
       }
       const { data: uidPool } = await uidQuery;
@@ -424,6 +532,9 @@ function MockTest() {
         navigate("/home");
         return;
       }
+
+      // Build adaptive English queue before first question loads
+      if (test) await initEnglishAdaptive(test);
 
       setLatestQuestion(startIndex);
       setCurrentQuestion(startIndex);
