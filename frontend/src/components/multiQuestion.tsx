@@ -32,15 +32,19 @@ function MCQuestion({
   const [selected, setSelected] = useState(isReadOnly ? previousAnswer : "");
 
   const rawOptions = [option1, option2, option3, option4];
+  // Fallback letters if a choice has no letter prefix stored in the DB.
+  // Questions that use ABCD will have "A) …" prefixes; questions that use EFGH
+  // will have "E) …" prefixes. extractLetter reads whichever is present, so the
+  // bubble naturally shows the correct set for each question.
   const fallbackLetters = ["A", "B", "C", "D"];
 
   const choices = rawOptions.map((opt, i) => {
-    const letter = extractLetter(opt, fallbackLetters[i]);
+    const letter = extractLetter(opt, fallbackLetters[i]); // reads DB letter (A–D or E–H)
     return {
-      value: letter,
+      value: letter,          // backend answer key — original DB letter
       label: opt,
       image: choiceImages[letter],
-      letter,
+      letter,                 // bubble display — same original DB letter
     };
   });
 

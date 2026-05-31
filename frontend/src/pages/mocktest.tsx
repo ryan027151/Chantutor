@@ -93,6 +93,44 @@ function choiceLetter(mediaId: string): string {
   return suffix.slice(2); // remove "NL"
 }
 
+const GRAMMAR_SUBCATEGORIES = [
+  "Comma_Usage","Organization-Concluding_Sentence","Organization-Logical_Placement",
+  "Organization-Paragraph_Unity","Organization-Topic_Sentence","Organization-Transitions",
+  "Pronoun_Agreement","Sentence_Combining","Sentence_Structure",
+  "Style-Word_Choice","Subject-Verb_Agreement","Verb_Tense",
+];
+
+interface PassageGroup {
+  passage_id: string;
+  tier: string;
+  question_ids: string[];
+  passage_type: string;
+}
+
+interface MathGroup {
+  groupId: string;   // media_id for shared-media groups, uid for standalone
+  uids: string[];    // ordered question UIDs
+  tier: string;      // 'easy' | 'medium' | 'hard'
+}
+
+function diffToNum(d: string | null): number {
+  const s = (d ?? "medium").toLowerCase();
+  return s === "easy" ? 1 : s === "hard" ? 3 : 2;
+}
+
+function numToTier(avg: number): string {
+  return avg < 1.67 ? "easy" : avg < 2.34 ? "medium" : "hard";
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 function MockTest() {
   const [questionData, setQuestionData] = useState<Record<string, string> | null>(null);
   // Preserved copy of the active (unanswered) question while the student reviews past questions
@@ -118,9 +156,29 @@ function MockTest() {
   const currentSubjectRef = useRef<string>("");
   const questionStartTimeRef = useRef<number>(Date.now());
   const answeredIdsRef = useRef<Set<string>>(new Set());
-  // Adaptive English queue: pre-planned ordered UIDs built at test start
-  const englishQueueRef = useRef<string[]>([]);
-  const englishQueuePosRef = useRef<number>(0);
+  // Math adaptive: difficulty-based group selection
+  const mathHistThetaRef        = useRef<number>(0.5);
+  const mathCorrectRef          = useRef<number>(0);
+  const mathAttemptedRef        = useRef<number>(0);
+  const mathGroupsRef           = useRef<MathGroup[]>([]);
+  const currentMathGroupUidsRef = useRef<string[]>([]);
+  const currentMathGroupPosRef  = useRef<number>(0);
+  const usedMathGroupsRef       = useRef<Set<string>>(new Set());
+
+  // English RC: dynamic per-passage selection based on running performance
+  const passagePoolRef        = useRef<PassageGroup[]>([]);  // all RC passages available
+  const historicalThetaRef    = useRef<number>(0.5);         // θ from history before test
+  const rcCorrectRef          = useRef<number>(0);           // correct RC answers this test
+  const rcAttemptedRef        = useRef<number>(0);           // attempted RC answers this test
+  const rcTargetRef           = useRef<number>(0);           // how many RC questions to serve
+  const rcServedRef           = useRef<number>(0);           // how many RC questions served so far
+  const usedPassagesRef       = useRef<Set<string>>(new Set());
+  const currentPassageUidsRef = useRef<string[]>([]);        // UIDs of the active passage
+  const currentPassagePosRef  = useRef<number>(0);           // position within active passage
+
+  // English grammar: pre-built flat queue (grammar passages then standalone)
+  const grammarQueueRef = useRef<string[]>([]);
+  const grammarPosRef   = useRef<number>(0);
 
   const navigate = useNavigate();
   const user = useContext(UserContext);
@@ -151,29 +209,56 @@ function MockTest() {
 
   // ─── Adaptive English initialisation ────────────────────────────────────────
 
-  const GRAMMAR_SUBCATEGORIES = [
-    "Comma_Usage","Organization-Concluding_Sentence","Organization-Logical_Placement",
-    "Organization-Paragraph_Unity","Organization-Topic_Sentence","Organization-Transitions",
-    "Pronoun_Agreement","Sentence_Combining","Sentence_Structure",
-    "Style-Word_Choice","Subject-Verb_Agreement","Verb_Tense",
-  ];
+  // Picks the next RC passage based on blended historical + current-test θ.
+  // Called at test start (first passage) and automatically after each passage
+  // is exhausted during getQuestion, so difficulty adjusts in real time.
+  function selectNextRCPassage() {
+    const attempted = rcAttemptedRef.current;
+    const correct   = rcCorrectRef.current;
+    const hist      = historicalThetaRef.current;
 
-  function shuffle<T>(arr: T[]): T[] {
-    const a = [...arr];
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
+    // Weight rises 0 → 0.85 as current-test answers accumulate (historical dominates early)
+    const w     = Math.min(attempted / (attempted + 10), 0.85);
+    const theta = attempted > 0 ? hist * (1 - w) + (correct / attempted) * w : hist;
+
+    const targetTier =
+      theta < 0.45  ? "easier" :
+      theta >= 0.70 ? "harder" : "medium";
+
+    const tierPriority =
+      targetTier === "easier" ? ["easier", "medium", "harder"] :
+      targetTier === "harder" ? ["harder", "medium", "easier"] :
+                                ["medium", "easier", "harder"];
+
+    const available = passagePoolRef.current.filter(
+      p => !usedPassagesRef.current.has(p.passage_id)
+    );
+
+    for (const tier of tierPriority) {
+      const candidates = available.filter(p => p.tier === tier);
+      if (candidates.length > 0) {
+        const selected = candidates[Math.floor(Math.random() * candidates.length)];
+        currentPassageUidsRef.current = selected.question_ids;
+        currentPassagePosRef.current  = 0;
+        usedPassagesRef.current.add(selected.passage_id);
+        return;
+      }
     }
-    return a;
+    currentPassageUidsRef.current = []; // pool exhausted
   }
 
   const initEnglishAdaptive = async (test: Test) => {
     if (!user || test.test_name === "Diagnostic Test") return;
     const config = test.configuration as Record<string, unknown> | null;
-    if ((config?.practice_topics as string[] ?? []).length > 0) return; // practice mode — no RC sections
+    if ((config?.practice_topics as string[] ?? []).length > 0) return;
 
     const englishCfg = config?.english as { count?: number } | null;
     const englishCount = englishCfg?.count ?? Math.floor(test.total_questions / 2);
+
+    // SHSAT ratio: 46 RC / 11 grammar out of 57 English questions
+    const rcTarget      = Math.round(englishCount * (46 / 57));
+    const grammarTarget = englishCount - rcTarget;
+    rcTargetRef.current = rcTarget;
 
     // Fetch passage pool and historical θ in parallel
     const [{ data: passages }, { data: thetaRaw }] = await Promise.all([
@@ -181,32 +266,23 @@ function MockTest() {
       supabase.rpc("get_student_rc_accuracy", { p_user_id: user.id }),
     ]);
 
-    const theta = (thetaRaw as number | null) ?? 0.5;
-    const targetTier = theta < 0.45 ? "easier" : theta >= 0.70 ? "harder" : "medium";
-    const tierPriority =
-      targetTier === "easier" ? ["easier", "medium", "harder"] :
-      targetTier === "harder" ? ["harder", "medium", "easier"] :
-                                ["medium", "easier", "harder"];
+    historicalThetaRef.current = (thetaRaw as number | null) ?? 0.5;
 
-    type PassageGroup = { passage_id: string; tier: string; question_ids: string[] };
     const pool = (passages ?? []) as PassageGroup[];
+    passagePoolRef.current = pool.filter(p => p.passage_type === "rc");
+    const grammarPassages  = pool.filter(p => p.passage_type === "grammar");
 
-    // Build RC UID sequence: select passages tier-by-tier until we have ~65% of English slots
-    const rcSlots = Math.round(englishCount * 0.65);
-    const rcUids: string[] = [];
-    const usedPassages = new Set<string>();
+    // Select first RC passage based on historical θ
+    selectNextRCPassage();
 
-    for (const tier of tierPriority) {
-      if (rcUids.length >= rcSlots) break;
-      for (const passage of shuffle(pool.filter(p => p.tier === tier))) {
-        if (rcUids.length >= rcSlots) break;
-        if (usedPassages.has(passage.passage_id)) continue;
-        rcUids.push(...passage.question_ids);
-        usedPassages.add(passage.passage_id);
-      }
+    // Grammar queue: grammar passages (non-adaptive, random order) → standalone
+    const grammarPassageTarget = Math.round(grammarTarget * 0.8);
+    const grammarPassageUids: string[] = [];
+    for (const passage of shuffle(grammarPassages)) {
+      if (grammarPassageUids.length >= grammarPassageTarget) break;
+      grammarPassageUids.push(...passage.question_ids);
     }
 
-    // Fetch grammar questions (remaining ~35% of English slots)
     const { data: grammarPool } = await supabase
       .from("all_questions")
       .select("uid")
@@ -214,18 +290,92 @@ function MockTest() {
       .eq("subject", "english")
       .in("sub_category", GRAMMAR_SUBCATEGORIES);
 
-    const grammarUids = shuffle((grammarPool ?? []).map((q: { uid: string }) => q.uid));
+    const grammarPassageUidSet = new Set(grammarPassageUids);
+    const standaloneGrammarUids = shuffle(
+      (grammarPool ?? [])
+        .map((q: { uid: string }) => q.uid)
+        .filter((uid: string) => !grammarPassageUidSet.has(uid))
+    ).slice(0, grammarTarget - grammarPassageUids.length);
 
-    // Interleave: 3 RC questions then 1 grammar, repeat until buffer is full
-    const queue: string[] = [];
-    let ri = 0, gi = 0;
-    while (queue.length < englishCount * 2 && (ri < rcUids.length || gi < grammarUids.length)) {
-      for (let i = 0; i < 3 && ri < rcUids.length; i++) queue.push(rcUids[ri++]);
-      if (gi < grammarUids.length) queue.push(grammarUids[gi++]);
+    grammarQueueRef.current = [...grammarPassageUids, ...standaloneGrammarUids];
+    grammarPosRef.current   = 0;
+  };
+
+  // Picks next math group (or standalone question) based on blended θ.
+  // Called at test start (first group) and at every group boundary during the test.
+  function selectNextMathGroup() {
+    const attempted = mathAttemptedRef.current;
+    const correct   = mathCorrectRef.current;
+    const hist      = mathHistThetaRef.current;
+
+    const w     = Math.min(attempted / (attempted + 8), 0.85);
+    const theta = attempted > 0 ? hist * (1 - w) + (correct / attempted) * w : hist;
+
+    const targetTier =
+      theta < 0.40  ? "easy"   :
+      theta >= 0.65 ? "hard"   : "medium";
+
+    const tierPriority =
+      targetTier === "easy" ? ["easy", "medium", "hard"] :
+      targetTier === "hard" ? ["hard", "medium", "easy"] :
+                              ["medium", "easy", "hard"];
+
+    const available = mathGroupsRef.current.filter(
+      g => !usedMathGroupsRef.current.has(g.groupId)
+    );
+
+    for (const tier of tierPriority) {
+      const candidates = available.filter(g => g.tier === tier);
+      if (candidates.length > 0) {
+        const selected = candidates[Math.floor(Math.random() * candidates.length)];
+        currentMathGroupUidsRef.current = selected.uids;
+        currentMathGroupPosRef.current  = 0;
+        usedMathGroupsRef.current.add(selected.groupId);
+        return;
+      }
+    }
+    currentMathGroupUidsRef.current = []; // pool exhausted
+  }
+
+  const initMathAdaptive = async (test: Test) => {
+    if (!user || test.test_name === "Diagnostic Test") return;
+    const config = test.configuration as Record<string, unknown> | null;
+    if ((config?.practice_topics as string[] ?? []).length > 0) return;
+
+    // Fetch pool and historical θ in parallel
+    const [{ data: pool }, { data: thetaRaw }] = await Promise.all([
+      supabase.rpc("get_math_question_pool"),
+      supabase.rpc("get_student_math_accuracy", { p_user_id: user.id }),
+    ]);
+
+    mathHistThetaRef.current = (thetaRaw as number | null) ?? 0.5;
+
+    if (!pool || (pool as unknown[]).length === 0) return;
+
+    type PoolRow = { uid: string; sub_category: string | null; difficulty: string | null; media_group: string | null; grp_position: number };
+    const rows = (pool as PoolRow[]);
+
+    // Build MathGroups: media-grouped questions form one group, standalone = group of 1
+    const groupMap = new Map<string, PoolRow[]>();
+    for (const row of rows) {
+      const key = row.media_group ?? `__solo__${row.uid}`;
+      if (!groupMap.has(key)) groupMap.set(key, []);
+      groupMap.get(key)!.push(row);
     }
 
-    englishQueueRef.current = queue;
-    englishQueuePosRef.current = 0;
+    mathGroupsRef.current = [...groupMap.entries()].map(([groupId, qs]) => {
+      // Sort within group by grp_position (preserves original exam order for media groups)
+      const sorted = [...qs].sort((a, b) => a.grp_position - b.grp_position);
+      const avgDiff = sorted.reduce((s, q) => s + diffToNum(q.difficulty), 0) / sorted.length;
+      return {
+        groupId,
+        uids: sorted.map(q => q.uid),
+        tier: numToTier(avgDiff),
+      };
+    });
+
+    // Select first group based on historical θ
+    selectNextMathGroup();
   };
 
   // ─── Data fetching ──────────────────────────────────────────────────────────
@@ -252,17 +402,24 @@ function MockTest() {
       const englishCount = englishCfg?.count ?? Math.floor(test.total_questions / 2);
       const isEnglishSlot = topics.length === 0 && questionIndex <= englishCount;
 
-      // Adaptive English: use pre-planned queue instead of random selection
-      if (isEnglishSlot && englishQueueRef.current.length > 0) {
-        // Skip UIDs already answered (handles test resume)
+      // Adaptive English — passages served atomically; difficulty adjusts between passages only
+      if (isEnglishSlot && rcTargetRef.current > 0) {
+
+        // Skip already-answered UIDs within the active passage (handles test resume)
         while (
-          englishQueuePosRef.current < englishQueueRef.current.length &&
-          answeredIds.has(englishQueueRef.current[englishQueuePosRef.current])
+          currentPassagePosRef.current < currentPassageUidsRef.current.length &&
+          answeredIds.has(currentPassageUidsRef.current[currentPassagePosRef.current])
         ) {
-          englishQueuePosRef.current++;
+          currentPassagePosRef.current++;
         }
-        if (englishQueuePosRef.current < englishQueueRef.current.length) {
-          const uid = englishQueueRef.current[englishQueuePosRef.current++];
+
+        const passageHasMore =
+          currentPassagePosRef.current < currentPassageUidsRef.current.length;
+
+        if (passageHasMore) {
+          // ── Mid-passage: ALWAYS continue — passage must be completed before anything else ──
+          const uid = currentPassageUidsRef.current[currentPassagePosRef.current++];
+          rcServedRef.current++;
           const { data: qData, error } = await supabase
             .from("all_questions")
             .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
@@ -273,8 +430,97 @@ function MockTest() {
             setQuestionData(qData as unknown as Record<string, string>);
             return qData as unknown as Record<string, string>;
           }
+
+        } else if (rcServedRef.current < rcTargetRef.current) {
+          // ── Passage boundary + RC quota not yet met: select next passage ──────
+          // θ is recomputed here using all answers so far, so this is where adaptation happens
+          selectNextRCPassage();
+          if (currentPassagePosRef.current < currentPassageUidsRef.current.length) {
+            const uid = currentPassageUidsRef.current[currentPassagePosRef.current++];
+            rcServedRef.current++;
+            const { data: qData, error } = await supabase
+              .from("all_questions")
+              .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
+              .eq("uid", uid)
+              .single();
+            if (!error && qData) {
+              questionStartTimeRef.current = Date.now();
+              setQuestionData(qData as unknown as Record<string, string>);
+              return qData as unknown as Record<string, string>;
+            }
+          }
+
+        } else {
+          // ── RC quota met (always at a passage boundary): switch to grammar ────
+          while (
+            grammarPosRef.current < grammarQueueRef.current.length &&
+            answeredIds.has(grammarQueueRef.current[grammarPosRef.current])
+          ) {
+            grammarPosRef.current++;
+          }
+          if (grammarPosRef.current < grammarQueueRef.current.length) {
+            const uid = grammarQueueRef.current[grammarPosRef.current++];
+            const { data: qData, error } = await supabase
+              .from("all_questions")
+              .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
+              .eq("uid", uid)
+              .single();
+            if (!error && qData) {
+              questionStartTimeRef.current = Date.now();
+              setQuestionData(qData as unknown as Record<string, string>);
+              return qData as unknown as Record<string, string>;
+            }
+          }
         }
-        // Fall through to random if queue exhausted
+        // Fall through to random if all queues exhausted
+      }
+
+      // Adaptive math — media groups served atomically; difficulty adjusts between groups
+      const isMathSlot = topics.length === 0 && !isEnglishSlot;
+      if (isMathSlot && mathGroupsRef.current.length > 0) {
+
+        // Skip already-answered UIDs within the active group (handles test resume)
+        while (
+          currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length &&
+          answeredIds.has(currentMathGroupUidsRef.current[currentMathGroupPosRef.current])
+        ) {
+          currentMathGroupPosRef.current++;
+        }
+
+        const groupHasMore =
+          currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length;
+
+        if (groupHasMore) {
+          // Mid-group: ALWAYS continue — never switch group mid-way
+          const uid = currentMathGroupUidsRef.current[currentMathGroupPosRef.current++];
+          const { data: qData, error } = await supabase
+            .from("all_questions")
+            .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
+            .eq("uid", uid)
+            .single();
+          if (!error && qData) {
+            questionStartTimeRef.current = Date.now();
+            setQuestionData(qData as unknown as Record<string, string>);
+            return qData as unknown as Record<string, string>;
+          }
+        } else {
+          // Group boundary: pick next group based on current performance
+          selectNextMathGroup();
+          if (currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length) {
+            const uid = currentMathGroupUidsRef.current[currentMathGroupPosRef.current++];
+            const { data: qData, error } = await supabase
+              .from("all_questions")
+              .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
+              .eq("uid", uid)
+              .single();
+            if (!error && qData) {
+              questionStartTimeRef.current = Date.now();
+              setQuestionData(qData as unknown as Record<string, string>);
+              return qData as unknown as Record<string, string>;
+            }
+          }
+        }
+        // Fall through to random if pool exhausted
       }
 
       let uidQuery = supabase.from("all_questions").select("uid").eq("status", "approved");
@@ -410,6 +656,17 @@ function MockTest() {
 
     answeredIdsRef.current.add(questionData.uid);
 
+    // Update section performance counters for within-test adaptive selection
+    const subj   = questionData.subject ?? "";
+    const subCat = questionData.sub_category ?? "";
+    if (subj === "english" && !GRAMMAR_SUBCATEGORIES.includes(subCat)) {
+      rcAttemptedRef.current++;
+      if (is_correct) rcCorrectRef.current++;
+    } else if (subj === "math") {
+      mathAttemptedRef.current++;
+      if (is_correct) mathCorrectRef.current++;
+    }
+
     if (currentTest && Number(currentTest.total_questions) === Number(currentQuestion)) {
       localStorage.removeItem(`timerRemaining_${testID}`);
       await markTestComplete();
@@ -418,8 +675,10 @@ function MockTest() {
     }
 
     const nextIndex = currentQuestion + 1;
-    setLatestQuestion(nextIndex);
-    setCurrentQuestion(nextIndex);
+    // Clear the answer immediately so the UI feels responsive on click,
+    // but defer currentQuestion/latestQuestion until the next question is ready
+    // so there is never an intermediate state where the question index has advanced
+    // but questionData still holds the previous question.
     setChosenAnswer("");
     setNullSubmission(false);
     let nextQuestion = await getQuestion(currentTest, nextIndex);
@@ -436,6 +695,10 @@ function MockTest() {
         setLatestQuestion(skipIdx);
         setCurrentQuestion(skipIdx);
       }
+    } else if (nextQuestion) {
+      // Normal path: advance index now that the question is ready
+      setLatestQuestion(nextIndex);
+      setCurrentQuestion(nextIndex);
     }
 
     if (!nextQuestion) {
@@ -533,8 +796,8 @@ function MockTest() {
         return;
       }
 
-      // Build adaptive English queue before first question loads
-      if (test) await initEnglishAdaptive(test);
+      // Build adaptive question pools before first question loads
+      if (test) await Promise.all([initEnglishAdaptive(test), initMathAdaptive(test)]);
 
       setLatestQuestion(startIndex);
       setCurrentQuestion(startIndex);
@@ -562,26 +825,23 @@ function MockTest() {
     init();
   }, [user]);
 
-  // Clear media immediately when the question index changes so old media never
-  // bleeds into the next question during the async fetch gap.
-  useEffect(() => {
-    setMediaItems([]);
-  }, [currentQuestion]);
-
-  // Fetch media once the new question's uid is known
+  // Fetch media whenever the active question changes.
+  // We replace directly (no pre-clear) so passage-based questions sharing the same
+  // media don't flash blank between consecutive questions in the same passage.
+  // A cancel flag prevents stale responses from a slow previous fetch overwriting
+  // the current question's media.
   useEffect(() => {
     if (!questionData?.uid) { setMediaItems([]); return; }
-
-    const fetchMedia = async () => {
+    let cancelled = false;
+    (async () => {
       const { data } = await supabase
         .from("dictionary_of_media")
         .select("*")
         .eq("question_id", questionData.uid)
         .order("media_id");
-      setMediaItems((data as MediaItem[]) ?? []);
-    };
-
-    fetchMedia();
+      if (!cancelled) setMediaItems((data as MediaItem[]) ?? []);
+    })();
+    return () => { cancelled = true; };
   }, [questionData?.uid]);
 
   // Start countdown only after the first question has loaded.
