@@ -558,10 +558,7 @@ function ResultsModal({
                                   <div key={sub.name} className="flex flex-col gap-1">
                                     <div className="flex items-center justify-between text-xs">
                                       <span className="text-slate-600">{t.translateSubcategory(sub.name)}</span>
-                                      <span className={`font-bold tabular-nums ${color}`}>
-                                        {sc}
-                                        <span className="text-slate-400 font-normal ml-1">({sub.correct}/{sub.total})</span>
-                                      </span>
+                                      <span className="text-slate-400 font-normal">({sub.correct}/{sub.total})</span>
                                     </div>
                                     <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                       <div className={`h-full rounded-full ${group.accent}`} style={{ width: `${Math.round(((sc - 200) / 500) * 100)}%` }} />

@@ -189,10 +189,7 @@ function SHSATScoreCard({ score }: { score: SHSATScore }) {
                         <div key={sub.name} className="flex flex-col gap-1">
                           <div className="flex items-center justify-between text-xs">
                             <span className="text-slate-600 font-medium">{sub.name}</span>
-                            <span className={`font-bold tabular-nums ${subScoreColor(sub.score)}`}>
-                              {sub.score}
-                              <span className="text-slate-400 font-normal ml-1.5">({sub.correct}/{sub.total})</span>
-                            </span>
+                            <span className="text-slate-400 font-normal">({sub.correct}/{sub.total})</span>
                           </div>
                           <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                             <div

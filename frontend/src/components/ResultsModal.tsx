@@ -296,10 +296,7 @@ function SHSATScoreCard({ score, t }: { score: SHSATScore; t: LangStrings }) {
                       <div key={sub.name} className="flex flex-col gap-1">
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-zinc-400 font-medium">{t.translateSubcategory(sub.name)}</span>
-                          <span className={`font-bold tabular-nums ${subScoreColor(sub.score)}`}>
-                            {sub.score}
-                            <span className="text-zinc-500 font-normal ml-1.5">({sub.correct}/{sub.total})</span>
-                          </span>
+                          <span className="text-zinc-500 font-normal">({sub.correct}/{sub.total})</span>
                         </div>
                         <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                           <div
