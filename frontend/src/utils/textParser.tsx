@@ -1,61 +1,108 @@
 import { ReactNode } from "react";
 
-// Parses question text that contains <b>, <u>, <i> formatting tags and \n newlines.
-// Tags may be nested (e.g. <b>text <u>word</u> text</b>).
-// Returns an array of React nodes safe to render inside any element.
-export function parseFormattedText(text: string, keyPrefix: string = ""): ReactNode[] {
-  if (!text) return [];
+// Common HTML entities found in SHSAT question text
+const ENTITIES: Record<string, string> = {
+  "&amp;":   "&",
+  "&lt;":    "<",
+  "&gt;":    ">",
+  "&nbsp;":  " ",
+  "&apos;":  "'",
+  "&#39;":   "'",
+  "&#x27;":  "'",
+  "&quot;":  '"',
+  "&#34;":   '"',
+  "&mdash;": "—",
+  "&ndash;": "–",
+  "&lsquo;": "‘",
+  "&rsquo;": "’",
+  "&ldquo;": "“",
+  "&rdquo;": "”",
+  "&hellip;": "…",
+  "&times;": "×",
+  "&divide;": "÷",
+  "&plusmn;": "±",
+  "&frac12;": "½",
+  "&frac14;": "¼",
+  "&frac34;": "¾",
+};
 
-  // Ensure a space exists on both sides of every inline tag if not already there.
-  const normalized = text
-    .replace(/(\S)(<[bui]>)/g, "$1 $2")
-    .replace(/(<\/[bui]>)([^\s.,;:!?'"])/g, "$1 $2");
+function decodeEntities(s: string): string {
+  return s.replace(/&[a-zA-Z0-9#x]+;/g, (e) => ENTITIES[e] ?? e);
+}
 
-  const TAG_REGEX = /(<b>.*?<\/b>|<u>.*?<\/u>|<i>.*?<\/i>)/gs;
-  const parts = normalized.split(TAG_REGEX);
+// Matches any of the supported inline tags (case-insensitive, dotAll for multi-line content).
+// Supported: <b> <strong> <i> <em> <u> <sup> <sub>
+const TAG_REGEX = /(<(?:b|strong)>.*?<\/(?:b|strong)>|<(?:i|em)>.*?<\/(?:i|em)>|<u>.*?<\/u>|<sup>.*?<\/sup>|<sub>.*?<\/sub>)/gis;
+
+function innerOf(part: string, open: string, close: string): string {
+  return part.slice(open.length, part.toLowerCase().lastIndexOf(close));
+}
+
+// Parses question / choice text that contains HTML-style formatting tags and entities.
+// Handles: <b>/<strong> bold, <i>/<em> italic, <u> underline,
+//          <sup> superscript, <sub> subscript, <br>/<br/> line breaks,
+//          common HTML entities, and \n newlines.
+// Tags may be nested and are matched case-insensitively.
+export function parseFormattedText(raw: string, keyPrefix: string = ""): ReactNode[] {
+  if (!raw) return [];
+
+  // 1. Decode HTML entities
+  // 2. Normalise <br> variants to \n
+  // 3. Ensure a space next to inline tags so they don't merge with surrounding words
+  const text = decodeEntities(raw)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/(\S)(<(?:b|i|u|strong|em|sup|sub)>)/gi, "$1 $2")
+    .replace(/(<\/(?:b|i|u|strong|em|sup|sub)>)([^\s.,;:!?'"\n])/gi, "$1 $2");
+
+  const parts = text.split(TAG_REGEX);
   const result: ReactNode[] = [];
 
-  parts.forEach((part, index) => {
-    if (part.startsWith("<b>") && part.endsWith("</b>")) {
-      const inner = part.slice(3, -4);
-      const lead = inner.match(/^(\s+)/)?.[1] ?? "";
+  parts.forEach((part, idx) => {
+    const lo = part.toLowerCase();
+
+    if (lo.startsWith("<b>") || lo.startsWith("<strong>")) {
+      const closeTag = lo.startsWith("<b>") ? "</b>" : "</strong>";
+      const openLen  = lo.startsWith("<b>") ? 3 : 8;
+      const inner    = innerOf(part, part.slice(0, openLen), closeTag);
+      const lead  = inner.match(/^(\s+)/)?.[1] ?? "";
       const trail = inner.match(/(\s+)$/)?.[1] ?? "";
-      if (lead) result.push(lead);
-      result.push(
-        <strong key={`${keyPrefix}b-${index}`}>
-          {parseFormattedText(inner.trim(), `${keyPrefix}b-${index}-`)}
-        </strong>
-      );
+      if (lead)  result.push(lead);
+      result.push(<strong key={`${keyPrefix}b-${idx}`}>{parseFormattedText(inner.trim(), `${keyPrefix}b-${idx}-`)}</strong>);
       if (trail) result.push(trail);
-    } else if (part.startsWith("<u>") && part.endsWith("</u>")) {
-      const inner = part.slice(3, -4);
-      const lead = inner.match(/^(\s+)/)?.[1] ?? "";
+
+    } else if (lo.startsWith("<i>") || lo.startsWith("<em>")) {
+      const closeTag = lo.startsWith("<i>") ? "</i>" : "</em>";
+      const openLen  = lo.startsWith("<i>") ? 3 : 4;
+      const inner    = innerOf(part, part.slice(0, openLen), closeTag);
+      const lead  = inner.match(/^(\s+)/)?.[1] ?? "";
       const trail = inner.match(/(\s+)$/)?.[1] ?? "";
-      if (lead) result.push(lead);
-      result.push(
-        <u key={`${keyPrefix}u-${index}`}>
-          {parseFormattedText(inner.trim(), `${keyPrefix}u-${index}-`)}
-        </u>
-      );
+      if (lead)  result.push(lead);
+      result.push(<em key={`${keyPrefix}i-${idx}`}>{parseFormattedText(inner.trim(), `${keyPrefix}i-${idx}-`)}</em>);
       if (trail) result.push(trail);
-    } else if (part.startsWith("<i>") && part.endsWith("</i>")) {
+
+    } else if (lo.startsWith("<u>") && lo.endsWith("</u>")) {
       const inner = part.slice(3, -4);
-      const lead = inner.match(/^(\s+)/)?.[1] ?? "";
+      const lead  = inner.match(/^(\s+)/)?.[1] ?? "";
       const trail = inner.match(/(\s+)$/)?.[1] ?? "";
-      if (lead) result.push(lead);
-      result.push(
-        <em key={`${keyPrefix}i-${index}`}>
-          {parseFormattedText(inner.trim(), `${keyPrefix}i-${index}-`)}
-        </em>
-      );
+      if (lead)  result.push(lead);
+      result.push(<u key={`${keyPrefix}u-${idx}`}>{parseFormattedText(inner.trim(), `${keyPrefix}u-${idx}-`)}</u>);
       if (trail) result.push(trail);
+
+    } else if (lo.startsWith("<sup>") && lo.endsWith("</sup>")) {
+      const inner = part.slice(5, -6);
+      result.push(<sup key={`${keyPrefix}sup-${idx}`}>{parseFormattedText(inner, `${keyPrefix}sup-${idx}-`)}</sup>);
+
+    } else if (lo.startsWith("<sub>") && lo.endsWith("</sub>")) {
+      const inner = part.slice(5, -6);
+      result.push(<sub key={`${keyPrefix}sub-${idx}`}>{parseFormattedText(inner, `${keyPrefix}sub-${idx}-`)}</sub>);
+
     } else {
-      // Plain text — split on newlines and insert <br /> between lines
+      // Plain text — convert \n to <br />
       const lines = part.split("\n");
-      lines.forEach((line, lineIdx) => {
-        result.push(line);
-        if (lineIdx < lines.length - 1) {
-          result.push(<br key={`${keyPrefix}br-${index}-${lineIdx}`} />);
+      lines.forEach((line, li) => {
+        if (line) result.push(line);
+        if (li < lines.length - 1) {
+          result.push(<br key={`${keyPrefix}br-${idx}-${li}`} />);
         }
       });
     }

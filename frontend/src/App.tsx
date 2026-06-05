@@ -1,5 +1,5 @@
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
-import { ReactNode, useContext, useEffect } from 'react'
+import { ReactNode, useContext, useEffect, useRef } from 'react'
 import LoginPage from './pages/loginpage'
 import HomePage from './pages/homepage'
 import MockTest from './pages/mocktest'
@@ -49,11 +49,16 @@ function ProtectedRoute({ children, adminOnly = false, studentOnly = false }: {
 
 function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  // Tracks the auth uid of the currently loaded user profile.
+  // Used to suppress auth events that fire for the same user (e.g. SIGNED_IN
+  // after a background token refresh when the tab regains focus).
+  const loadedUserIdRef = useRef<string | null>(null);
 
   async function getUser() {
     const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
     if (authError || !authUser) {
       setUser(null);
+      loadedUserIdRef.current = null;
       return;
     }
     const { data: profile, error: profileError } = await supabase
@@ -63,6 +68,7 @@ function App() {
       .single();
     if (profileError || !profile) {
       setUser(null);
+      loadedUserIdRef.current = null;
       return;
     }
     setUser({
@@ -71,16 +77,25 @@ function App() {
       last_name: profile.last_name,
       role: profile.role,
     });
+    loadedUserIdRef.current = authUser.id;
   }
 
   useEffect(() => {
     getUser();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Silent background events — never disrupt the current page:
+      // TOKEN_REFRESHED: JWT silently renewed (fires on every tab focus when near expiry)
+      // SIGNED_IN for the same user: Supabase re-emits this after a token refresh in some
+      //   SDK versions; if our profile is already loaded for this user, skip the reload.
+      if (event === 'TOKEN_REFRESHED') return;
+      if (event === 'SIGNED_IN' && session && loadedUserIdRef.current === session.user.id) return;
+
       if (session) {
-        setUser(undefined); // show loading spinner in ProtectedRoute while profile fetch completes
+        setUser(undefined); // show loading spinner while profile fetch completes
         getUser();
       } else {
         setUser(null);
+        loadedUserIdRef.current = null;
       }
     });
     return () => subscription.unsubscribe();

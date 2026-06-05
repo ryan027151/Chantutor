@@ -149,8 +149,10 @@ function MockTest() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState("wrong_answer_key");
   const [reportDesc, setReportDesc] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportDone, setReportDone] = useState(false);
+  const [reportError, setReportError] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasInitialized = useRef(false);
   const currentSubjectRef = useRef<string>("");
@@ -179,6 +181,17 @@ function MockTest() {
   // English grammar: pre-built flat queue (grammar passages then standalone)
   const grammarQueueRef = useRef<string[]>([]);
   const grammarPosRef   = useRef<number>(0);
+
+  // Practice queue: pre-built at test start (avoids 2-step UID-then-fetch per question)
+  const practiceQueueRef    = useRef<string[]>([]);
+  const practiceQueuePosRef = useRef<number>(0);
+
+  // Pre-fetch cache: stores the next question AND its media so both can be applied instantly
+  const prefetchedRef  = useRef<{ uid: string; data: Record<string, string>; media: MediaItem[] } | null>(null);
+  const prefetchingRef = useRef(false);
+  // Set to a uid when media was applied synchronously from pre-fetch cache,
+  // so the async media useEffect knows to skip the redundant DB fetch.
+  const mediaSetForRef = useRef<string | null>(null);
 
   const navigate = useNavigate();
   const user = useContext(UserContext);
@@ -260,10 +273,12 @@ function MockTest() {
     const grammarTarget = englishCount - rcTarget;
     rcTargetRef.current = rcTarget;
 
-    // Fetch passage pool and historical θ in parallel
-    const [{ data: passages }, { data: thetaRaw }] = await Promise.all([
+    // Fetch passage pool, historical θ, AND grammar UIDs all in parallel
+    const [{ data: passages }, { data: thetaRaw }, { data: grammarPool }] = await Promise.all([
       supabase.rpc("get_english_passage_pool"),
       supabase.rpc("get_student_rc_accuracy", { p_user_id: user.id }),
+      supabase.from("all_questions").select("uid").eq("status", "approved")
+        .eq("subject", "english").in("sub_category", GRAMMAR_SUBCATEGORIES),
     ]);
 
     historicalThetaRef.current = (thetaRaw as number | null) ?? 0.5;
@@ -282,13 +297,6 @@ function MockTest() {
       if (grammarPassageUids.length >= grammarPassageTarget) break;
       grammarPassageUids.push(...passage.question_ids);
     }
-
-    const { data: grammarPool } = await supabase
-      .from("all_questions")
-      .select("uid")
-      .eq("status", "approved")
-      .eq("subject", "english")
-      .in("sub_category", GRAMMAR_SUBCATEGORIES);
 
     const grammarPassageUidSet = new Set(grammarPassageUids);
     const standaloneGrammarUids = shuffle(
@@ -378,6 +386,95 @@ function MockTest() {
     selectNextMathGroup();
   };
 
+  // ─── Pre-fetch helpers ───────────────────────────────────────────────────────
+
+  // Start a background fetch of the given UID — fetches question data AND media in parallel
+  // so both can be applied synchronously (no async delay) when the student submits.
+  function triggerPrefetch(uid: string) {
+    if (prefetchingRef.current || prefetchedRef.current?.uid === uid || answeredIdsRef.current.has(uid)) return;
+    prefetchingRef.current = true;
+    Promise.all([
+      supabase
+        .from("all_questions")
+        .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
+        .eq("uid", uid)
+        .single(),
+      supabase
+        .from("dictionary_of_media")
+        .select("*")
+        .eq("question_id", uid)
+        .order("media_id"),
+    ]).then(([{ data: qData, error: qErr }, { data: mData }]) => {
+      prefetchingRef.current = false;
+      if (!qErr && qData) {
+        const fetched = (qData as Record<string, string>).uid;
+        if (!answeredIdsRef.current.has(fetched)) {
+          prefetchedRef.current = {
+            uid:   fetched,
+            data:  qData as unknown as Record<string, string>,
+            media: (mData as MediaItem[]) ?? [],
+          };
+        }
+      }
+    });
+  }
+
+  // Fetch a question by UID, using the pre-fetch cache when available.
+  // On a cache hit, question data AND media are both applied synchronously —
+  // no async delay, no risk of stale media from the previous question bleeding through.
+  const fetchByUID = async (
+    uid: string,
+    nextUidToPrefetch?: string,
+  ): Promise<Record<string, string> | null> => {
+    if (prefetchedRef.current?.uid === uid) {
+      const { data: cached, media: cachedMedia } = prefetchedRef.current;
+      prefetchedRef.current = null;
+      questionStartTimeRef.current = Date.now();
+      // Mark that media is already set so the useEffect skips its async fetch
+      mediaSetForRef.current = uid;
+      setQuestionData(cached);
+      setMediaItems(cachedMedia);
+      if (nextUidToPrefetch) triggerPrefetch(nextUidToPrefetch);
+      return cached;
+    }
+    // Cache miss: fetch question from DB; media will be fetched by the useEffect
+    const { data, error } = await supabase
+      .from("all_questions")
+      .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
+      .eq("uid", uid)
+      .single();
+    if (error || !data) return null;
+    questionStartTimeRef.current = Date.now();
+    setQuestionData(data as unknown as Record<string, string>);
+    if (nextUidToPrefetch) triggerPrefetch(nextUidToPrefetch);
+    return data as unknown as Record<string, string>;
+  };
+
+  // ─── Practice queue initialisation ───────────────────────────────────────────
+
+  // Pre-builds a shuffled UID queue at test start so practice mode only needs
+  // one DB call per question instead of the 2-step UID-pool → full-fetch approach.
+  const initPracticeQueue = async (test: Test) => {
+    if (!user || test.test_name === "Diagnostic Test") return;
+    const config = test.configuration as Record<string, unknown> | null;
+    const topics = config?.practice_topics as string[] ?? [];
+    if (topics.length === 0) return;
+
+    const { data } = await supabase
+      .from("all_questions")
+      .select("uid")
+      .eq("status", "approved")
+      .in("sub_category", topics);
+
+    if (!data || (data as unknown[]).length === 0) return;
+
+    const uids = shuffle((data as { uid: string }[]).map(q => q.uid))
+      .filter(uid => !answeredIdsRef.current.has(uid));
+
+    practiceQueueRef.current    = uids;
+    practiceQueuePosRef.current = 0;
+  };
+
   // ─── Data fetching ──────────────────────────────────────────────────────────
 
   const getQuestion = async (test: Test | null, questionIndex: number): Promise<Record<string, string> | null> => {
@@ -402,133 +499,111 @@ function MockTest() {
       const englishCount = englishCfg?.count ?? Math.floor(test.total_questions / 2);
       const isEnglishSlot = topics.length === 0 && questionIndex <= englishCount;
 
-      // Adaptive English — passages served atomically; difficulty adjusts between passages only
+      // ── Adaptive English ─────────────────────────────────────────────────────
+      // Passages served atomically; difficulty re-evaluated at every passage boundary.
       if (isEnglishSlot && rcTargetRef.current > 0) {
-
-        // Skip already-answered UIDs within the active passage (handles test resume)
-        while (
-          currentPassagePosRef.current < currentPassageUidsRef.current.length &&
-          answeredIds.has(currentPassageUidsRef.current[currentPassagePosRef.current])
-        ) {
+        while (currentPassagePosRef.current < currentPassageUidsRef.current.length &&
+               answeredIds.has(currentPassageUidsRef.current[currentPassagePosRef.current])) {
           currentPassagePosRef.current++;
         }
 
-        const passageHasMore =
-          currentPassagePosRef.current < currentPassageUidsRef.current.length;
+        const passageHasMore = currentPassagePosRef.current < currentPassageUidsRef.current.length;
 
         if (passageHasMore) {
-          // ── Mid-passage: ALWAYS continue — passage must be completed before anything else ──
-          const uid = currentPassageUidsRef.current[currentPassagePosRef.current++];
+          // Mid-passage: always continue
+          const uid  = currentPassageUidsRef.current[currentPassagePosRef.current++];
+          const next = currentPassagePosRef.current < currentPassageUidsRef.current.length
+            ? currentPassageUidsRef.current[currentPassagePosRef.current] : undefined;
           rcServedRef.current++;
-          const { data: qData, error } = await supabase
-            .from("all_questions")
-            .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
-            .eq("uid", uid)
-            .single();
-          if (!error && qData) {
-            questionStartTimeRef.current = Date.now();
-            setQuestionData(qData as unknown as Record<string, string>);
-            return qData as unknown as Record<string, string>;
-          }
+          const q = await fetchByUID(uid, next);
+          if (q) return q;
 
         } else if (rcServedRef.current < rcTargetRef.current) {
-          // ── Passage boundary + RC quota not yet met: select next passage ──────
-          // θ is recomputed here using all answers so far, so this is where adaptation happens
+          // Passage boundary — select next passage (θ re-evaluated here)
           selectNextRCPassage();
           if (currentPassagePosRef.current < currentPassageUidsRef.current.length) {
-            const uid = currentPassageUidsRef.current[currentPassagePosRef.current++];
+            const uid  = currentPassageUidsRef.current[currentPassagePosRef.current++];
+            const next = currentPassagePosRef.current < currentPassageUidsRef.current.length
+              ? currentPassageUidsRef.current[currentPassagePosRef.current] : undefined;
             rcServedRef.current++;
-            const { data: qData, error } = await supabase
-              .from("all_questions")
-              .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
-              .eq("uid", uid)
-              .single();
-            if (!error && qData) {
-              questionStartTimeRef.current = Date.now();
-              setQuestionData(qData as unknown as Record<string, string>);
-              return qData as unknown as Record<string, string>;
-            }
+            const q = await fetchByUID(uid, next);
+            if (q) return q;
           }
 
         } else {
-          // ── RC quota met (always at a passage boundary): switch to grammar ────
-          while (
-            grammarPosRef.current < grammarQueueRef.current.length &&
-            answeredIds.has(grammarQueueRef.current[grammarPosRef.current])
-          ) {
+          // RC quota met — serve grammar
+          while (grammarPosRef.current < grammarQueueRef.current.length &&
+                 answeredIds.has(grammarQueueRef.current[grammarPosRef.current])) {
             grammarPosRef.current++;
           }
           if (grammarPosRef.current < grammarQueueRef.current.length) {
-            const uid = grammarQueueRef.current[grammarPosRef.current++];
-            const { data: qData, error } = await supabase
-              .from("all_questions")
-              .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
-              .eq("uid", uid)
-              .single();
-            if (!error && qData) {
-              questionStartTimeRef.current = Date.now();
-              setQuestionData(qData as unknown as Record<string, string>);
-              return qData as unknown as Record<string, string>;
-            }
+            const uid  = grammarQueueRef.current[grammarPosRef.current++];
+            const next = grammarPosRef.current < grammarQueueRef.current.length
+              ? grammarQueueRef.current[grammarPosRef.current] : undefined;
+            const q = await fetchByUID(uid, next);
+            if (q) return q;
           }
         }
         // Fall through to random if all queues exhausted
       }
 
-      // Adaptive math — media groups served atomically; difficulty adjusts between groups
+      // ── Adaptive math ─────────────────────────────────────────────────────────
+      // Groups served atomically; difficulty re-evaluated at every group boundary.
       const isMathSlot = topics.length === 0 && !isEnglishSlot;
       if (isMathSlot && mathGroupsRef.current.length > 0) {
-
-        // Skip already-answered UIDs within the active group (handles test resume)
-        while (
-          currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length &&
-          answeredIds.has(currentMathGroupUidsRef.current[currentMathGroupPosRef.current])
-        ) {
+        while (currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length &&
+               answeredIds.has(currentMathGroupUidsRef.current[currentMathGroupPosRef.current])) {
           currentMathGroupPosRef.current++;
         }
 
-        const groupHasMore =
-          currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length;
+        const groupHasMore = currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length;
 
         if (groupHasMore) {
-          // Mid-group: ALWAYS continue — never switch group mid-way
-          const uid = currentMathGroupUidsRef.current[currentMathGroupPosRef.current++];
-          const { data: qData, error } = await supabase
-            .from("all_questions")
-            .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
-            .eq("uid", uid)
-            .single();
-          if (!error && qData) {
-            questionStartTimeRef.current = Date.now();
-            setQuestionData(qData as unknown as Record<string, string>);
-            return qData as unknown as Record<string, string>;
-          }
+          // Mid-group: always continue
+          const uid  = currentMathGroupUidsRef.current[currentMathGroupPosRef.current++];
+          const next = currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length
+            ? currentMathGroupUidsRef.current[currentMathGroupPosRef.current] : undefined;
+          const q = await fetchByUID(uid, next);
+          if (q) return q;
         } else {
-          // Group boundary: pick next group based on current performance
+          // Group boundary — select next group (θ re-evaluated here)
           selectNextMathGroup();
           if (currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length) {
-            const uid = currentMathGroupUidsRef.current[currentMathGroupPosRef.current++];
-            const { data: qData, error } = await supabase
-              .from("all_questions")
-              .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
-              .eq("uid", uid)
-              .single();
-            if (!error && qData) {
-              questionStartTimeRef.current = Date.now();
-              setQuestionData(qData as unknown as Record<string, string>);
-              return qData as unknown as Record<string, string>;
-            }
+            const uid  = currentMathGroupUidsRef.current[currentMathGroupPosRef.current++];
+            const next = currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length
+              ? currentMathGroupUidsRef.current[currentMathGroupPosRef.current] : undefined;
+            const q = await fetchByUID(uid, next);
+            if (q) return q;
           }
         }
         // Fall through to random if pool exhausted
       }
 
+      // ── Practice queue ────────────────────────────────────────────────────────
+      // Pre-built at test start; avoids the 2-step random UID fetch for practice mode.
+      if (topics.length > 0 && practiceQueueRef.current.length > 0) {
+        while (practiceQueuePosRef.current < practiceQueueRef.current.length &&
+               answeredIds.has(practiceQueueRef.current[practiceQueuePosRef.current])) {
+          practiceQueuePosRef.current++;
+        }
+        if (practiceQueuePosRef.current < practiceQueueRef.current.length) {
+          const uid  = practiceQueueRef.current[practiceQueuePosRef.current++];
+          const next = practiceQueuePosRef.current < practiceQueueRef.current.length
+            ? practiceQueueRef.current[practiceQueuePosRef.current] : undefined;
+          const q = await fetchByUID(uid, next);
+          if (q) return q;
+        }
+        // Fall through to random if practice queue exhausted
+      }
+
+      // Random fallback: use ilike for case-insensitive subject matching so questions
+      // stored as "Math" or "English" (any case) are still correctly filtered.
+      const expectedSubject = isEnglishSlot ? "english" : "math";
       let uidQuery = supabase.from("all_questions").select("uid").eq("status", "approved");
       if (topics.length > 0) {
         uidQuery = uidQuery.in("sub_category", topics);
       } else {
-        const subject = isEnglishSlot ? "english" : "math";
-        uidQuery = uidQuery.eq("subject", subject);
+        uidQuery = uidQuery.ilike("subject", expectedSubject);
       }
       const { data: uidPool } = await uidQuery;
 
@@ -538,7 +613,6 @@ function MockTest() {
 
       if (available.length === 0) return null;
 
-      // Pick a random UID, then fetch the full question
       const uid = available[Math.floor(Math.random() * available.length)];
       const { data: qData, error } = await supabase
         .from("all_questions")
@@ -547,6 +621,15 @@ function MockTest() {
         .single();
 
       if (error || !qData) { console.error("Question fetch error:", error); return null; }
+
+      // Hard subject guard: never let a question from the wrong section through,
+      // even if DB data has incorrect subject values.
+      const returnedSubject = ((qData as Record<string, string>).subject ?? "").toLowerCase();
+      if (topics.length === 0 && returnedSubject !== expectedSubject) {
+        console.warn(`Subject mismatch: expected ${expectedSubject}, got ${returnedSubject} for uid ${(qData as Record<string, string>).uid}`);
+        return null;
+      }
+
       questionStartTimeRef.current = Date.now();
       setQuestionData(qData as unknown as Record<string, string>);
       return qData as unknown as Record<string, string>;
@@ -630,7 +713,8 @@ function MockTest() {
 
   // Submit the current answer and advance to the next question.
   const handleSubmit = async () => {
-    if (!user || !questionData) return;
+    if (!user || !questionData || submitting) return;
+    setSubmitting(true);
 
     const is_correct = checkAnswer(
       chosenAnswer,
@@ -639,24 +723,10 @@ function MockTest() {
     );
     const time_spent = Math.round((Date.now() - questionStartTimeRef.current) / 1000);
 
-    const { error } = await supabase.from("questions").upsert(
-      {
-        id: questionData.uid,
-        test_id: testID,
-        user_id: user.id,
-        student_answer: chosenAnswer,
-        is_correct,
-        time_spent,
-        order_index: currentQuestion,
-      },
-      { onConflict: "test_id, user_id, id" }
-    );
-
-    if (error) { console.error("Answer not submitted:", error); return; }
-
+    // ── Synchronous bookkeeping BEFORE any await ───────────────────────────────
+    // answeredIdsRef and adaptive counters must be updated before getQuestion runs
+    // so the queue skip logic and passage/group selection see the latest state.
     answeredIdsRef.current.add(questionData.uid);
-
-    // Update section performance counters for within-test adaptive selection
     const subj   = questionData.subject ?? "";
     const subCat = questionData.sub_category ?? "";
     if (subj === "english" && !GRAMMAR_SUBCATEGORIES.includes(subCat)) {
@@ -667,7 +737,17 @@ function MockTest() {
       if (is_correct) mathCorrectRef.current++;
     }
 
+    // Clear answer immediately — gives instant visual feedback on click
+    setChosenAnswer("");
+    setNullSubmission(false);
+
+    // ── Last question: save then complete (must be sequential) ─────────────────
     if (currentTest && Number(currentTest.total_questions) === Number(currentQuestion)) {
+      const { error } = await supabase.from("questions").upsert(
+        { id: questionData.uid, test_id: testID, user_id: user.id, student_answer: chosenAnswer, is_correct, time_spent, order_index: currentQuestion },
+        { onConflict: "test_id, user_id, id" }
+      );
+      if (error) { console.error("Answer not submitted:", error); setSubmitting(false); return; }
       localStorage.removeItem(`timerRemaining_${testID}`);
       await markTestComplete();
       navigate(`/results/${testID}`);
@@ -675,50 +755,57 @@ function MockTest() {
     }
 
     const nextIndex = currentQuestion + 1;
-    // Clear the answer immediately so the UI feels responsive on click,
-    // but defer currentQuestion/latestQuestion until the next question is ready
-    // so there is never an intermediate state where the question index has advanced
-    // but questionData still holds the previous question.
-    setChosenAnswer("");
-    setNullSubmission(false);
-    let nextQuestion = await getQuestion(currentTest, nextIndex);
 
-    // For Diagnostic tests, a missing question in the bank should not end the test —
-    // scan forward to find the next available question.
-    if (!nextQuestion && currentTest.test_name === "Diagnostic Test" && nextIndex < Number(currentTest.total_questions)) {
-      let skipIdx = nextIndex + 1;
-      while (skipIdx <= Number(currentTest.total_questions) && !nextQuestion) {
-        nextQuestion = await getQuestion(currentTest, skipIdx);
-        if (!nextQuestion) skipIdx++;
-      }
-      if (nextQuestion) {
-        setLatestQuestion(skipIdx);
-        setCurrentQuestion(skipIdx);
-      }
-    } else if (nextQuestion) {
-      // Normal path: advance index now that the question is ready
-      setLatestQuestion(nextIndex);
-      setCurrentQuestion(nextIndex);
+    // ── Save + fetch in parallel — main perf improvement ──────────────────────
+    // The DB write and the next question fetch are independent; running them
+    // together cuts perceived latency roughly in half.
+    const [upsertResult, nextQuestion] = await Promise.all([
+      supabase.from("questions").upsert(
+        { id: questionData.uid, test_id: testID, user_id: user.id, student_answer: chosenAnswer, is_correct, time_spent, order_index: currentQuestion },
+        { onConflict: "test_id, user_id, id" }
+      ),
+      getQuestion(currentTest, nextIndex),
+    ]);
+
+    if (upsertResult.error) {
+      console.error("Answer not submitted:", upsertResult.error);
+      setSubmitting(false);
+      return;
     }
 
-    if (!nextQuestion) {
-      // Question pool exhausted (e.g. all topics done before total_questions reached)
+    // ── Diagnostic: scan forward if a question slot is missing ────────────────
+    let finalQuestion: Record<string, string> | null = nextQuestion;
+    let finalIndex = nextIndex;
+    if (!finalQuestion && currentTest.test_name === "Diagnostic Test" && nextIndex < Number(currentTest.total_questions)) {
+      let skipIdx = nextIndex + 1;
+      while (skipIdx <= Number(currentTest.total_questions) && !finalQuestion) {
+        finalQuestion = await getQuestion(currentTest, skipIdx);
+        if (!finalQuestion) skipIdx++;
+      }
+      if (finalQuestion) finalIndex = skipIdx;
+    }
+
+    if (!finalQuestion) {
       localStorage.removeItem(`timerRemaining_${testID}`);
       await markTestComplete();
       navigate(`/results/${testID}`);
       return;
     }
 
+    setLatestQuestion(finalIndex);
+    setCurrentQuestion(finalIndex);
+
     const prevSubject = currentSubjectRef.current;
-    const nextSubject = (nextQuestion.subject ?? "").toLowerCase();
+    const nextSubject = (finalQuestion.subject ?? "").toLowerCase();
     currentSubjectRef.current = nextSubject;
-    if (prevSubject === "english" && nextSubject === "math") {
-      setShowSectionBreak(true);
-    }
+    if (prevSubject === "english" && nextSubject === "math") setShowSectionBreak(true);
+
+    setSubmitting(false);
   };
 
   // Clicking the right arrow either submits (on active question) or advances review.
   const handleForward = async () => {
+    if (submitting) return;
     if (isReadOnly) {
       const nextIndex = currentQuestion + 1;
       if (nextIndex < latestQuestion) {
@@ -764,15 +851,19 @@ function MockTest() {
       status: "pending",
     }]);
     setReportSubmitting(false);
-    if (!error) {
-      setReportDone(true);
-      setTimeout(() => {
-        setShowReportModal(false);
-        setReportDone(false);
-        setReportDesc("");
-        setReportReason("wrong_answer_key");
-      }, 1800);
+    if (error) {
+      console.error("Flag submission failed:", error);
+      setReportError(true);
+      return;
     }
+    setReportError(false);
+    setReportDone(true);
+    setTimeout(() => {
+      setShowReportModal(false);
+      setReportDone(false);
+      setReportDesc("");
+      setReportReason("wrong_answer_key");
+    }, 1800);
   }
 
   // ─── Effects ─────────────────────────────────────────────────────────────────
@@ -796,8 +887,8 @@ function MockTest() {
         return;
       }
 
-      // Build adaptive question pools before first question loads
-      if (test) await Promise.all([initEnglishAdaptive(test), initMathAdaptive(test)]);
+      // Build all question pools in parallel before first question loads
+      if (test) await Promise.all([initEnglishAdaptive(test), initMathAdaptive(test), initPracticeQueue(test)]);
 
       setLatestQuestion(startIndex);
       setCurrentQuestion(startIndex);
@@ -826,12 +917,18 @@ function MockTest() {
   }, [user]);
 
   // Fetch media whenever the active question changes.
-  // We replace directly (no pre-clear) so passage-based questions sharing the same
-  // media don't flash blank between consecutive questions in the same passage.
-  // A cancel flag prevents stale responses from a slow previous fetch overwriting
-  // the current question's media.
+  // If media was already applied synchronously from the pre-fetch cache (cache hit),
+  // skip the async DB fetch — mediaSetForRef marks this case.
+  // A cancel flag prevents a slow previous fetch from overwriting fresher media.
   useEffect(() => {
     if (!questionData?.uid) { setMediaItems([]); return; }
+
+    // Cache hit path: media was already set synchronously in fetchByUID — skip async fetch
+    if (mediaSetForRef.current === questionData.uid) {
+      mediaSetForRef.current = null;
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       const { data } = await supabase
@@ -981,7 +1078,7 @@ function MockTest() {
       {questionData && !isReadOnly && (
         <button
           type="button"
-          onClick={() => setShowReportModal(true)}
+          onClick={() => { setReportError(false); setShowReportModal(true); }}
           className="fixed bottom-6 right-6 z-20 flex items-center gap-1.5 bg-white border border-slate-200 shadow-md rounded-full px-3.5 py-2 text-xs font-medium text-slate-500 hover:text-amber-600 hover:border-amber-300 hover:shadow-lg transition-all"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1051,6 +1148,11 @@ function MockTest() {
                   />
                 </div>
 
+                {reportError && (
+                  <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 text-center">
+                    Failed to submit — please try again.
+                  </p>
+                )}
                 <button
                   type="button"
                   disabled={reportSubmitting}
@@ -1136,10 +1238,19 @@ function MockTest() {
                   )}
                   <button
                     type="button"
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors"
+                    disabled={submitting}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors flex items-center gap-2"
                     onClick={handleForward}
                   >
-                    {isReadOnly
+                    {submitting ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Loading…
+                      </>
+                    ) : isReadOnly
                       ? currentQuestion + 1 < latestQuestion ? "Next" : "Resume"
                       : currentTest && Number(currentQuestion) === Number(currentTest.total_questions) ? "Finish" : "Submit"}
                   </button>
