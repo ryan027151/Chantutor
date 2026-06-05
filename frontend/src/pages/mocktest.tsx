@@ -149,6 +149,7 @@ function MockTest() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState("wrong_answer_key");
   const [reportDesc, setReportDesc] = useState("");
+  const [showTestRules, setShowTestRules] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportDone, setReportDone] = useState(false);
@@ -909,6 +910,9 @@ function MockTest() {
 
       if (question) {
         currentSubjectRef.current = (question.subject ?? "").toLowerCase();
+        if (lastAnswered === 0 && test?.test_name !== "Diagnostic Test") {
+          setShowTestRules(true);
+        }
         setTestReady(true);
       }
     };
@@ -945,7 +949,7 @@ function MockTest() {
   // Remaining seconds are saved to localStorage every tick so the timer pauses
   // when the user closes or reloads the page and resumes exactly where they left off.
   useEffect(() => {
-    if (!testReady || !currentTest || currentTest.duration === 0) return;
+    if (!testReady || showTestRules || !currentTest || currentTest.duration === 0) return;
 
     const storageKey = `timerRemaining_${testID}`;
     const stored = localStorage.getItem(storageKey);
@@ -969,7 +973,7 @@ function MockTest() {
     }, 1000);
 
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [testReady]);
+  }, [testReady, showTestRules]);
 
   // Navigate to results when timer hits zero and clean up stored remaining time
   useEffect(() => {
@@ -1030,6 +1034,48 @@ function MockTest() {
               onClick={() => setShowSectionBreak(false)}
             >
               Begin Math Section
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Pre-test rules overlay — shown once for new (not resumed) non-diagnostic tests */}
+      {testReady && showTestRules && (
+        <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center z-50 p-8">
+          <div className="max-w-lg w-full flex flex-col gap-5">
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h1 className="text-2xl font-bold text-slate-900 mb-1">Before You Begin</h1>
+              <p className="text-slate-500 text-sm">{currentTest?.test_name}</p>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 flex flex-col gap-3">
+              <div className="flex items-start gap-3 p-3.5 bg-rose-50 border border-rose-200 rounded-xl">
+                <svg className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+                <p className="text-sm text-rose-800 font-medium">You are not allowed to skip questions.</p>
+              </div>
+              <div className="flex items-start gap-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+                <svg className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-9.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                </svg>
+                <p className="text-sm text-amber-800 font-medium">
+                  If a question has an issue, use the <span className="font-bold">Flag</span> button at the bottom-right to report it, then fill in any answer to move on.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-semibold transition-colors"
+              onClick={() => setShowTestRules(false)}
+            >
+              Begin Test
             </button>
           </div>
         </div>

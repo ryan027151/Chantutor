@@ -158,6 +158,20 @@ function HomePage() {
                 </li>
               ))}
             </ul>
+            <div className="flex flex-col gap-2 bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-700">Important Rules</p>
+              <ul className="flex flex-col gap-2">
+                {[
+                  "You are not allowed to skip questions.",
+                  "If a question has an issue, use the Flag button (bottom-right) to report it, then fill in any answer to move on.",
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-sm text-amber-800">
+                    <span className="mt-0.5 shrink-0">⚠</span>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
             <button
               type="button"
               className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-semibold transition-colors"
@@ -249,7 +263,7 @@ function HomePage() {
             <button
               type="button"
               aria-label="Toggle timed mode"
-              aria-pressed={isTimed ? "true" : "false"}
+              aria-pressed={isTimed}
               onClick={() => setIsTimed(t => !t)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isTimed ? "bg-blue-600" : "bg-slate-200"}`}
             >

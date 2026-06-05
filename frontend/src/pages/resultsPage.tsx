@@ -191,7 +191,6 @@ function SHSATScoreCard({ score }: { score: SHSATScore }) {
                             <span className="text-slate-600 font-medium">{sub.name}</span>
                             <span className={`font-bold tabular-nums ${subScoreColor(sub.score)}`}>
                               {sub.score}
-                              <span className="text-slate-300 font-normal"> /700</span>
                               <span className="text-slate-400 font-normal ml-1.5">({sub.correct}/{sub.total})</span>
                             </span>
                           </div>

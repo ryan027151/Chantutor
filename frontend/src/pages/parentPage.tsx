@@ -559,7 +559,7 @@ function ResultsModal({
                                     <div className="flex items-center justify-between text-xs">
                                       <span className="text-slate-600">{t.translateSubcategory(sub.name)}</span>
                                       <span className={`font-bold tabular-nums ${color}`}>
-                                        {sc}<span className="text-slate-300 font-normal"> /700</span>
+                                        {sc}
                                         <span className="text-slate-400 font-normal ml-1">({sub.correct}/{sub.total})</span>
                                       </span>
                                     </div>

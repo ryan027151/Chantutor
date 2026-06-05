@@ -88,7 +88,7 @@ export default function AdminStudentsPanel() {
   const [processingTest, setProcessingTest] = useState(false);
 
   // Results modal
-  const [resultsModal, setResultsModal] = useState<{ testID: string; userID: string } | null>(null);
+  const [resultsModal, setResultsModal] = useState<{ testID: string; userID: string; studentName: string } | null>(null);
 
   async function loadStudents() {
     setLoading(true);
@@ -436,7 +436,7 @@ export default function AdminStudentsPanel() {
                           {test.score !== null && (
                             <button
                               type="button"
-                              onClick={() => setResultsModal({ testID: test.id, userID: selected!.id })}
+                              onClick={() => setResultsModal({ testID: test.id, userID: selected!.id, studentName: `${selected!.first_name} ${selected!.last_name}` })}
                               className="text-sm font-medium px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-600 hover:text-zinc-900 hover:border-zinc-300 hover:bg-zinc-100 transition-colors shrink-0"
                             >
                               View Results
@@ -535,6 +535,7 @@ export default function AdminStudentsPanel() {
         <ResultsModal
           testID={resultsModal.testID}
           userID={resultsModal.userID}
+          studentName={resultsModal.studentName}
           onClose={() => setResultsModal(null)}
         />
       )}
