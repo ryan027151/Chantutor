@@ -48,16 +48,17 @@ function NavItem({ label, active, onClick, icon, badge }: {
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center justify-center sm:justify-start gap-3 px-2 sm:px-3 py-2.5 rounded-lg text-base font-medium transition-all w-full text-left border ${
+      title={label}
+      className={`flex items-center justify-center lg:justify-start gap-3 px-2 lg:px-3 py-2.5 rounded-lg text-base font-medium transition-all w-full text-left border ${
         active
           ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
           : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 border-transparent"
       }`}
     >
       {icon}
-      <span className="flex-1 hidden sm:inline">{label}</span>
+      <span className="flex-1 hidden lg:inline">{label}</span>
       {badge != null && badge > 0 && (
-        <span className="text-xs font-bold bg-rose-500 text-white rounded-full px-1.5 py-0.5 min-w-5 text-center leading-none hidden sm:block">
+        <span className="text-xs font-bold bg-rose-500 text-white rounded-full px-1.5 py-0.5 min-w-5 text-center leading-none hidden lg:block">
           {badge}
         </span>
       )}
@@ -93,12 +94,12 @@ export default function AdminPage() {
   return (
     <div className="flex h-screen bg-white text-zinc-800 overflow-hidden">
       {/* ── Sidebar ── */}
-      <aside className="w-10 sm:w-56 shrink-0 flex flex-col bg-white border-r border-zinc-200">
+      <aside className="w-10 lg:w-56 shrink-0 flex flex-col bg-white border-r border-zinc-200">
         {/* Logo */}
-        <div className="px-2 sm:px-5 py-5 border-b border-zinc-200">
-          <div className="flex items-center justify-center sm:justify-start gap-2.5">
+        <div className="px-2 lg:px-5 py-5 border-b border-zinc-200">
+          <div className="flex items-center justify-center lg:justify-start gap-2.5">
             <FontAwesomeIcon icon={faCrown} className="text-amber-400 text-lg shrink-0" />
-            <div className="min-w-0 hidden sm:block">
+            <div className="min-w-0 hidden lg:block">
               <p className="brand-name text-lg text-zinc-900 leading-tight">TestQueens</p>
               <p className="text-sm text-zinc-400 font-medium">Admin Console</p>
             </div>
@@ -106,8 +107,8 @@ export default function AdminPage() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 p-2 sm:p-3 flex flex-col gap-0.5">
-          <p className="text-sm font-bold text-zinc-400 uppercase tracking-widest px-2 py-2 hidden sm:block">Management</p>
+        <nav className="flex-1 p-2 lg:p-3 flex flex-col gap-0.5">
+          <p className="text-sm font-bold text-zinc-400 uppercase tracking-widest px-2 py-2 hidden lg:block">Management</p>
           <NavItem label="Students"      active={tab === "students"}  onClick={() => setTab("students")}  icon={ICON_USERS} />
           <NavItem label="Question Bank" active={tab === "questions"} onClick={() => setTab("questions")} icon={ICON_BOOK} />
           <NavItem label="Reports"       active={tab === "reports"}   onClick={() => setTab("reports")}   icon={ICON_FLAG} badge={pendingReports} />
@@ -115,8 +116,8 @@ export default function AdminPage() {
         </nav>
 
         {/* User card + sign out */}
-        <div className="p-2 sm:p-3 border-t border-zinc-200 flex flex-col gap-1.5">
-          <div className="hidden sm:block px-3 py-2.5 rounded-lg bg-zinc-50 border border-zinc-200">
+        <div className="p-2 lg:p-3 border-t border-zinc-200 flex flex-col gap-1.5">
+          <div className="hidden lg:block px-3 py-2.5 rounded-lg bg-zinc-50 border border-zinc-200">
             <p className="text-sm text-zinc-400 mb-0.5">Signed in as</p>
             <p className="text-base font-semibold text-zinc-900 leading-tight">{user?.first_name} {user?.last_name}</p>
             <span className="text-sm text-amber-500 font-medium">Administrator</span>
@@ -125,10 +126,10 @@ export default function AdminPage() {
             type="button"
             onClick={signOut}
             title="Sign Out"
-            className="flex items-center justify-center sm:justify-start gap-2.5 px-2 sm:px-3 py-2 rounded-lg text-base text-zinc-400 hover:text-red-500 hover:bg-zinc-100 transition-colors w-full"
+            className="flex items-center justify-center lg:justify-start gap-2.5 px-2 lg:px-3 py-2 rounded-lg text-base text-zinc-400 hover:text-red-500 hover:bg-zinc-100 transition-colors w-full"
           >
             {ICON_SIGNOUT}
-            <span className="hidden sm:inline">Sign Out</span>
+            <span className="hidden lg:inline">Sign Out</span>
           </button>
         </div>
       </aside>

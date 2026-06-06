@@ -226,8 +226,8 @@ export default function AdminStudentsPanel() {
   return (
     <div className="flex h-full overflow-hidden">
 
-      {/* ── Student list — hidden on mobile when a student is selected ── */}
-      <div className={`${selected ? "hidden sm:flex" : "flex"} w-full sm:w-48 lg:w-64 shrink-0 flex-col border-r border-zinc-200 bg-white`}>
+      {/* ── Student list — hidden below lg when a student is selected ── */}
+      <div className={`${selected ? "hidden lg:flex" : "flex"} w-full lg:w-56 xl:w-64 shrink-0 flex-col border-r border-zinc-200 bg-white`}>
         <div className="px-4 py-4 border-b border-zinc-200">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-base font-bold text-zinc-900">Students</h2>
@@ -271,8 +271,8 @@ export default function AdminStudentsPanel() {
         </div>
       </div>
 
-      {/* ── Detail panel — hidden on mobile until a student is selected ── */}
-      <div className={`${!selected ? "hidden sm:flex sm:flex-col" : "flex flex-col"} flex-1 overflow-y-auto bg-white`}>
+      {/* ── Detail panel — hidden below lg until a student is selected ── */}
+      <div className={`${!selected ? "hidden lg:flex lg:flex-col" : "flex flex-col"} flex-1 overflow-y-auto bg-white`}>
         {!selected ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center flex flex-col items-center gap-2">
@@ -284,11 +284,11 @@ export default function AdminStudentsPanel() {
           </div>
         ) : (
           <div className="p-4 sm:p-6 flex flex-col gap-5 max-w-4xl">
-            {/* Back button — mobile only */}
+            {/* Back button — shown below lg only */}
             <button
               type="button"
               onClick={() => setSelected(null)}
-              className="sm:hidden flex items-center gap-1.5 text-sm font-medium text-zinc-500 hover:text-zinc-800 -mb-1"
+              className="lg:hidden flex items-center gap-1.5 text-sm font-medium text-zinc-500 hover:text-zinc-800 -mb-1"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
