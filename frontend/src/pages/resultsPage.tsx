@@ -358,9 +358,9 @@ function ResultsPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <div>
-          <h1 className="text-base font-bold text-slate-900">{test.test_name}</h1>
-          <p className="text-xs text-slate-400">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-sm sm:text-base font-bold text-slate-900 truncate">{test.test_name}</h1>
+          <p className="text-xs text-slate-400 hidden sm:block">
             {new Date(test.created_at).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
           </p>
         </div>
@@ -368,7 +368,7 @@ function ResultsPage() {
           type="button"
           onClick={handleExportPDF}
           disabled={pdfLoading}
-          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 transition-colors disabled:opacity-50"
+          className="ml-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 transition-colors disabled:opacity-50 shrink-0"
         >
           {pdfLoading ? (
             <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -380,13 +380,13 @@ function ResultsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
           )}
-          {pdfLoading ? "Generating…" : "Save as PDF"}
+          <span className="hidden sm:inline">{pdfLoading ? "Generating…" : "Save as PDF"}</span>
         </button>
       </div>
 
       <div className="max-w-2xl mx-auto px-3 sm:px-5 py-5 sm:py-8 flex flex-col gap-5">
         {/* Raw score hero */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 flex flex-col items-center gap-7">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 sm:p-8 flex flex-col items-center gap-5 sm:gap-7">
           <ScoreCircle correct={totalCorrect} total={test.total_questions} />
           <div className="w-full flex flex-col gap-4">
             <SectionBar label="Revising/Editing"      correct={revisingCorrect} total={revisingQs.length} colorClass="bg-blue-500" />
@@ -417,9 +417,9 @@ function ResultsPage() {
 
         {/* Question review */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="font-bold text-slate-900">Question Review</h2>
-            <div className="flex gap-3 text-xs font-medium text-slate-400">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+            <h2 className="font-bold text-slate-900 text-sm sm:text-base">Question Review</h2>
+            <div className="flex gap-2 sm:gap-3 text-xs font-medium text-slate-400">
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />{totalCorrect} correct</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400 inline-block" />{questions.filter(q => q.is_correct === false).length} incorrect</span>
             </div>
@@ -430,7 +430,7 @@ function ResultsPage() {
               const isEnglish = i + 1 <= englishCount;
               const correct = q?.is_correct;
               const clickable = !!q;
-              const rowCls = `w-full text-left flex items-center gap-3 px-5 py-3 border-l-[3px] ${
+              const rowCls = `w-full text-left flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2.5 border-l-[3px] ${
                 correct === true  ? "bg-emerald-50/60 border-emerald-400" :
                 correct === false ? "bg-rose-50/60 border-rose-400" :
                 "bg-slate-50/60 border-slate-200"
@@ -458,7 +458,7 @@ function ResultsPage() {
                     <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-violet-50 text-violet-600">Math</span>
                   )}
                   {q?.sub_category && (
-                    <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-slate-100 text-slate-500">
+                    <span className="hidden sm:inline text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-slate-100 text-slate-500 max-w-28 truncate">
                       {fmtSub(q.sub_category)}
                     </span>
                   )}

@@ -79,7 +79,7 @@ export default function TestTableRow({ id, name, date, completed, score, wasRese
           <button
             type="button"
             onClick={() => navigate(completed ? `/results/${id}` : `/mock/${id}`)}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            className={`px-3 py-1 sm:px-4 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors shrink-0 ${
               completed
                 ? "bg-blue-600 hover:bg-blue-700 text-white"
                 : "bg-slate-100 hover:bg-slate-200 text-slate-700"

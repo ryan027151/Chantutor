@@ -319,18 +319,18 @@ function HomePage() {
 
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Top bar */}
-        <div className="bg-white border-b border-slate-100 px-4 sm:px-8 py-4 flex items-center justify-between shrink-0 shadow-sm">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">
+        <div className="bg-white border-b border-slate-100 px-4 sm:px-8 py-3 sm:py-4 flex items-center justify-between shrink-0 shadow-sm gap-3">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-base sm:text-xl font-bold text-slate-900 truncate">
               {greeting}, {user?.first_name}
             </h1>
-            <p className="text-sm text-slate-500">
+            <p className="text-xs sm:text-sm text-slate-500 hidden sm:block">
               {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
             </p>
           </div>
           <button
             type="button"
-            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-colors"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg font-medium text-xs sm:text-sm transition-colors shrink-0"
             onClick={() => setMockTestPopUp(true)}
           >
             + New Test
@@ -378,13 +378,13 @@ function HomePage() {
                       key={f}
                       type="button"
                       onClick={() => setFilterType(f)}
-                      className={`px-3 py-1.5 transition-colors capitalize ${
+                      className={`px-2.5 py-1.5 transition-colors capitalize ${
                         filterType === f
                           ? "bg-blue-600 text-white"
                           : "bg-white text-slate-500 hover:bg-slate-50"
                       }`}
                     >
-                      {f === "all" ? "All" : f === "mock" ? "Mock / Diagnostic" : "Practice"}
+                      {f === "all" ? "All" : f === "mock" ? <><span className="sm:hidden">Mock</span><span className="hidden sm:inline">Mock / Diagnostic</span></> : "Practice"}
                     </button>
                   ))}
                 </div>

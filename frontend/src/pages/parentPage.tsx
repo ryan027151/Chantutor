@@ -804,11 +804,11 @@ function ParentPage() {
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden">
 
       {/* ── Header ── */}
-      <div className="bg-white border-b border-slate-100 shadow-sm px-6 py-3.5 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <FontAwesomeIcon icon={faCrown} className="text-lg text-amber-400" />
-          <span className="brand-name text-base text-slate-800">TestQueens</span>
-          <span className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-0.5 rounded-full">
+      <div className="bg-white border-b border-slate-100 shadow-sm px-4 sm:px-6 py-3 sm:py-3.5 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <FontAwesomeIcon icon={faCrown} className="text-lg text-amber-400 shrink-0" />
+          <span className="brand-name text-base text-slate-800 hidden sm:inline">TestQueens</span>
+          <span className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-2 sm:px-2.5 py-0.5 rounded-full shrink-0">
             Parent Portal
           </span>
         </div>
@@ -859,7 +859,7 @@ function ParentPage() {
                 >
                   <Avatar student={s} size="md" />
                   <div className="min-w-0 flex-1">
-                    <p className={`text-sm font-semibold truncate ${selectedStudent?.id === s.id ? "text-blue-700" : "text-slate-800"}`}>
+                    <p className={`text-sm font-semibold wrap-break-word ${selectedStudent?.id === s.id ? "text-blue-700" : "text-slate-800"}`}>
                       {s.first_name} {s.last_name}
                     </p>
                     <p className="text-xs text-slate-400">Student</p>
@@ -943,12 +943,13 @@ function ParentPage() {
                 <button
                   type="button"
                   onClick={() => navigate(`/performance/${selectedStudent.id}`)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors shrink-0"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
-                  View Performance
+                  <span className="hidden sm:inline">View Performance</span>
+                  <span className="sm:hidden">Performance</span>
                 </button>
               </div>
 
@@ -969,8 +970,8 @@ function ParentPage() {
                     {tests.map(test => {
                       const isCompleted = test.score !== null;
                       return (
-                        <div key={test.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm px-5 py-4 flex items-center gap-4">
-                          <div className="flex-1 min-w-0">
+                        <div key={test.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 py-3 sm:px-5 sm:py-4 flex flex-wrap items-center gap-3">
+                          <div className="flex-1 min-w-32">
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="text-sm font-semibold text-slate-900">{test.test_name || "Untitled"}</p>
                               {test.test_name === "Diagnostic Test" && (

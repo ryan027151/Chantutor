@@ -1101,7 +1101,7 @@ function MockTest() {
         </div>
 
         {/* Center: question counter */}
-        <div className="flex flex-col items-center shrink-0 px-4">
+        <div className="flex flex-col items-center shrink-0 px-2 sm:px-4">
           <span className="text-xs font-semibold uppercase tracking-widest text-slate-400 leading-tight">Question</span>
           <span className="text-sm font-bold text-slate-800 tabular-nums">
             {currentTest ? `${currentQuestion} / ${currentTest.total_questions}` : "—"}
@@ -1262,30 +1262,31 @@ function MockTest() {
               />
 
               {/* Navigation row — back left, submit right */}
-              <div className="flex items-center justify-between pt-1">
-                <div>
-                  {showBackButton && (
-                    <button
-                      type="button"
-                      aria-label="Previous question"
-                      onClick={handleBack}
-                      className="flex items-center gap-1.5 text-slate-500 hover:text-slate-700 px-4 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 text-sm font-medium transition-colors"
-                    >
-                      {icons.arrowLeft}
-                      Back
-                    </button>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  {nullSubmission && (
-                    <p className="text-sm text-rose-600 font-medium animate-bounce">
-                      Select an answer before continuing.
-                    </p>
-                  )}
+              <div className="flex flex-col gap-2 pt-1">
+                {nullSubmission && (
+                  <p className="text-xs sm:text-sm text-rose-600 font-medium animate-bounce text-center">
+                    Select an answer before continuing.
+                  </p>
+                )}
+                <div className="flex items-center justify-between">
+                  <div>
+                    {showBackButton && (
+                      <button
+                        type="button"
+                        aria-label="Previous question"
+                        onClick={handleBack}
+                        className="flex items-center gap-1.5 text-slate-500 hover:text-slate-700 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 text-xs sm:text-sm font-medium transition-colors"
+                      >
+                        {icons.arrowLeft}
+                        Back
+                      </button>
+                    )}
+                  </div>
+                  <div>
                   <button
                     type="button"
                     disabled={submitting}
-                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors flex items-center gap-2"
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed text-white px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl font-semibold text-xs sm:text-sm transition-colors flex items-center gap-2"
                     onClick={handleForward}
                   >
                     {submitting ? (
@@ -1301,6 +1302,7 @@ function MockTest() {
                       : currentTest && Number(currentQuestion) === Number(currentTest.total_questions) ? "Finish" : "Submit"}
                   </button>
                 </div>
+              </div>
               </div>
             </div>
           </>

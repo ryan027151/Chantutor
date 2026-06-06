@@ -93,10 +93,10 @@ export default function AdminPage() {
   return (
     <div className="flex h-screen bg-white text-zinc-800 overflow-hidden">
       {/* ── Sidebar ── */}
-      <aside className="w-14 sm:w-56 shrink-0 flex flex-col bg-white border-r border-zinc-200">
+      <aside className="w-10 sm:w-56 shrink-0 flex flex-col bg-white border-r border-zinc-200">
         {/* Logo */}
-        <div className="px-3 sm:px-5 py-5 border-b border-zinc-200">
-          <div className="flex items-center gap-2.5">
+        <div className="px-2 sm:px-5 py-5 border-b border-zinc-200">
+          <div className="flex items-center justify-center sm:justify-start gap-2.5">
             <FontAwesomeIcon icon={faCrown} className="text-amber-400 text-lg shrink-0" />
             <div className="min-w-0 hidden sm:block">
               <p className="brand-name text-lg text-zinc-900 leading-tight">TestQueens</p>

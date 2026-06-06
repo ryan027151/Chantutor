@@ -226,8 +226,8 @@ export default function AdminStudentsPanel() {
   return (
     <div className="flex h-full overflow-hidden">
 
-      {/* ── Student list ── */}
-      <div className="w-48 lg:w-64 shrink-0 flex flex-col border-r border-zinc-200 bg-white">
+      {/* ── Student list — hidden on mobile when a student is selected ── */}
+      <div className={`${selected ? "hidden sm:flex" : "flex"} w-full sm:w-48 lg:w-64 shrink-0 flex-col border-r border-zinc-200 bg-white`}>
         <div className="px-4 py-4 border-b border-zinc-200">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-base font-bold text-zinc-900">Students</h2>
@@ -262,7 +262,7 @@ export default function AdminStudentsPanel() {
                   {s.first_name[0]}{s.last_name[0]}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-base font-semibold text-zinc-900 truncate">{s.first_name} {s.last_name}</p>
+                  <p className="text-base font-semibold text-zinc-900 wrap-break-word">{s.first_name} {s.last_name}</p>
                   {s.email && <p className="text-sm text-zinc-400 truncate">{s.email}</p>}
                 </div>
               </div>
@@ -271,8 +271,8 @@ export default function AdminStudentsPanel() {
         </div>
       </div>
 
-      {/* ── Detail panel ── */}
-      <div className="flex-1 overflow-y-auto bg-white">
+      {/* ── Detail panel — hidden on mobile until a student is selected ── */}
+      <div className={`${!selected ? "hidden sm:flex sm:flex-col" : "flex flex-col"} flex-1 overflow-y-auto bg-white`}>
         {!selected ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center flex flex-col items-center gap-2">
@@ -283,37 +283,49 @@ export default function AdminStudentsPanel() {
             </div>
           </div>
         ) : (
-          <div className="p-6 flex flex-col gap-5 max-w-4xl">
+          <div className="p-4 sm:p-6 flex flex-col gap-5 max-w-4xl">
+            {/* Back button — mobile only */}
+            <button
+              type="button"
+              onClick={() => setSelected(null)}
+              className="sm:hidden flex items-center gap-1.5 text-sm font-medium text-zinc-500 hover:text-zinc-800 -mb-1"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              All Students
+            </button>
 
             {/* ── Student header card ── */}
             <div className="bg-zinc-50 rounded-xl border border-zinc-200 p-4 sm:p-5">
-              {/* Top row: avatar + name + stats */}
-              <div className="flex flex-wrap items-start gap-4">
-                <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-lg font-bold text-amber-400 shrink-0">
+              {/* Avatar + name row */}
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-base sm:text-lg font-bold text-amber-400 shrink-0">
                   {selected.first_name[0]}{selected.last_name[0]}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-lg font-bold text-zinc-900">{selected.first_name} {selected.last_name}</h3>
-                  <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                    <span className="text-sm font-semibold text-amber-500 capitalize">{selected.role}</span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base sm:text-lg font-bold text-zinc-900 wrap-break-word">{selected.first_name} {selected.last_name}</h3>
+                  <div className="flex items-center gap-2 mt-0.5 min-w-0">
+                    <span className="text-xs sm:text-sm font-semibold text-amber-500 capitalize shrink-0">{selected.role}</span>
                     {selected.email && (
-                      <span className="text-sm text-zinc-400 truncate">{selected.email}</span>
+                      <span className="text-xs text-zinc-400 truncate">{selected.email}</span>
                     )}
                   </div>
                 </div>
-                <div className="flex gap-4 shrink-0 items-center">
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-zinc-900">{tests.length}</p>
-                    <p className="text-sm text-zinc-400">Tests</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-emerald-500">{completedTests.length}</p>
-                    <p className="text-sm text-zinc-400">Done</p>
-                  </div>
+              </div>
+              {/* Stats row — always below the name */}
+              <div className="flex gap-4 mt-3 pt-3 border-t border-zinc-200">
+                <div>
+                  <span className="text-xl font-bold text-zinc-900">{tests.length}</span>
+                  <span className="text-xs text-zinc-400 ml-1">Tests</span>
+                </div>
+                <div>
+                  <span className="text-xl font-bold text-emerald-500">{completedTests.length}</span>
+                  <span className="text-xs text-zinc-400 ml-1">Done</span>
                 </div>
               </div>
               {/* Actions row */}
-              <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-zinc-200">
+              <div className="flex flex-wrap items-center gap-2 mt-3">
                 <button
                   type="button"
                   onClick={openEditProfile}
@@ -408,26 +420,29 @@ export default function AdminStudentsPanel() {
                       <div key={test.id} className="bg-zinc-50 rounded-xl border border-zinc-200 overflow-hidden">
 
                         {/* Row header */}
-                        <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+                        <div className="px-4 py-3 flex flex-col gap-2">
+                          {/* Test name — always full width */}
                           <button
                             type="button"
                             onClick={() => expandTest(test)}
-                            className="flex-1 text-left min-w-40"
+                            className="w-full text-left"
                           >
                             <div className="flex items-center gap-2 min-w-0">
                               <svg className={`w-3.5 h-3.5 text-zinc-400 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                               </svg>
-                              <p className="text-base font-semibold text-zinc-900 truncate">{test.test_name || "Untitled"}</p>
+                              <p className="text-sm font-semibold text-zinc-900 truncate">{test.test_name || "Untitled"}</p>
                             </div>
-                            <p className="text-sm text-zinc-400 mt-0.5 ml-5">
+                            <p className="text-xs text-zinc-400 mt-0.5 ml-5">
                               {new Date(test.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                               {" · "}{test.total_questions} Qs{" · "}{formatDuration(test.duration)}
                               {pct !== null && <span className="text-amber-500 font-semibold ml-1.5">{pct}% correct</span>}
                             </p>
                           </button>
 
-                          <span className={`text-sm font-medium px-2.5 py-1 rounded-full border shrink-0 ${
+                          {/* Actions row — status + buttons all on one line */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full border shrink-0 ${
                             test.score !== null
                               ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
                               : "bg-amber-500/10 text-amber-500 border-amber-500/20"
@@ -439,7 +454,7 @@ export default function AdminStudentsPanel() {
                             <button
                               type="button"
                               onClick={() => setResultsModal({ testID: test.id, userID: selected!.id, studentName: `${selected!.first_name} ${selected!.last_name}` })}
-                              className="text-sm font-medium px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-600 hover:text-zinc-900 hover:border-zinc-300 hover:bg-zinc-100 transition-colors shrink-0"
+                              className="text-xs font-medium px-2.5 py-1 rounded-lg border border-zinc-200 text-zinc-600 hover:text-zinc-900 hover:border-zinc-300 hover:bg-zinc-100 transition-colors shrink-0"
                             >
                               View Results
                             </button>
@@ -447,32 +462,32 @@ export default function AdminStudentsPanel() {
 
                           {isConfirming ? (
                             <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-sm text-zinc-500">
-                                {testConfirm.action === "delete" ? "Delete test?" : "Reset progress?"}
+                              <span className="text-xs text-zinc-500">
+                                {testConfirm.action === "delete" ? "Delete?" : "Reset?"}
                               </span>
                               <button
                                 type="button"
                                 onClick={confirmTestAction}
                                 disabled={processingTest}
-                                className={`px-2.5 py-1 rounded-lg text-sm font-bold text-white transition-colors disabled:opacity-50 ${testConfirm.action === "delete" ? "bg-red-600 hover:bg-red-500" : "bg-amber-600 hover:bg-amber-500"}`}
+                                className={`px-2 py-0.5 rounded-lg text-xs font-bold text-white transition-colors disabled:opacity-50 ${testConfirm.action === "delete" ? "bg-red-600 hover:bg-red-500" : "bg-amber-600 hover:bg-amber-500"}`}
                               >
                                 {processingTest ? "…" : "Confirm"}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setTestConfirm(null)}
-                                className="px-2 py-1 rounded-lg text-sm text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+                                className="px-1.5 py-0.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
                               >
                                 ✕
                               </button>
                             </div>
                           ) : (
-                            <div className="flex gap-1 shrink-0">
+                            <div className="flex gap-1 ml-auto shrink-0">
                               <button
                                 type="button"
                                 title="Reset test — clears all answers so student can retake"
                                 onClick={() => setTestConfirm({ id: test.id, action: "reset" })}
-                                className="px-2.5 py-1.5 rounded-lg text-sm font-medium text-zinc-400 hover:text-amber-500 hover:bg-amber-500/8 border border-transparent hover:border-amber-500/20 transition-colors"
+                                className="px-2 py-1 rounded-lg text-xs font-medium text-zinc-400 hover:text-amber-500 hover:bg-amber-500/8 border border-transparent hover:border-amber-500/20 transition-colors"
                               >
                                 Reset
                               </button>
@@ -480,12 +495,13 @@ export default function AdminStudentsPanel() {
                                 type="button"
                                 title="Permanently delete this test and all its answers"
                                 onClick={() => setTestConfirm({ id: test.id, action: "delete" })}
-                                className="px-2.5 py-1.5 rounded-lg text-sm font-medium text-zinc-400 hover:text-red-400 hover:bg-red-500/8 border border-transparent hover:border-red-500/20 transition-colors"
+                                className="px-2 py-1 rounded-lg text-xs font-medium text-zinc-400 hover:text-red-400 hover:bg-red-500/8 border border-transparent hover:border-red-500/20 transition-colors"
                               >
                                 Delete
                               </button>
                             </div>
                           )}
+                          </div>
                         </div>
 
                         {/* Question breakdown */}
