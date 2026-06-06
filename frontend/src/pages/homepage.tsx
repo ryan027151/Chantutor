@@ -319,7 +319,7 @@ function HomePage() {
 
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Top bar */}
-        <div className="bg-white border-b border-slate-100 px-8 py-4 flex items-center justify-between shrink-0 shadow-sm">
+        <div className="bg-white border-b border-slate-100 px-4 sm:px-8 py-4 flex items-center justify-between shrink-0 shadow-sm">
           <div>
             <h1 className="text-xl font-bold text-slate-900">
               {greeting}, {user?.first_name}
@@ -338,9 +338,9 @@ function HomePage() {
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto px-8 py-6 flex flex-col gap-6">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-4 sm:py-6 flex flex-col gap-5 sm:gap-6">
           {/* Stats row */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Tests Taken</p>
               <p className="text-3xl font-bold text-slate-900">{recentTests?.length ?? "—"}</p>
@@ -368,11 +368,11 @@ function HomePage() {
 
           {/* Recent tests */}
           <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-y-2">
               <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Recent Tests</h2>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap justify-end">
                 {/* Type filter */}
-                <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-medium">
+                <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-medium shrink-0">
                   {(["all", "mock", "practice"] as const).map((f) => (
                     <button
                       key={f}

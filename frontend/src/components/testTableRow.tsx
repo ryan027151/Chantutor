@@ -19,12 +19,12 @@ export default function TestTableRow({ id, name, date, completed, score, wasRese
   return (
     <div className="bg-white border border-slate-100 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
       {/* Row header */}
-      <div className="flex items-center justify-between px-5 py-4">
-        <div className="flex flex-col gap-0.5">
-          <h3 className="text-base font-semibold text-slate-900">{name || "Untitled"}</h3>
+      <div className="flex flex-wrap items-center justify-between px-4 py-3 sm:px-5 sm:py-4 gap-2">
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <h3 className="text-base font-semibold text-slate-900 truncate">{name || "Untitled"}</h3>
           <p className="text-sm text-slate-500">{date}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 justify-end">
           {completed && score !== null ? (
             <span className={`text-xs font-bold px-2.5 py-1 rounded-full tabular-nums ${
               score >= 70 ? "bg-emerald-50 text-emerald-700" :

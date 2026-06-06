@@ -1082,7 +1082,7 @@ function MockTest() {
       )}
 
       {/* Header */}
-      <div className="bg-white border-b border-slate-100 shadow-sm px-8 py-4 flex items-center justify-between shrink-0 sticky top-0 z-10">
+      <div className="bg-white border-b border-slate-100 shadow-sm px-4 sm:px-8 py-3 sm:py-4 flex items-center justify-between shrink-0 sticky top-0 z-10">
         {/* Left: name + home */}
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <h1 className="text-sm font-bold text-slate-900 truncate">
@@ -1213,19 +1213,19 @@ function MockTest() {
         </div>
       )}
 
-      {/* Question area — overflow-x-auto so content scrolls rather than squeezes when viewport is narrow */}
-      <div className="flex items-start justify-center py-8 px-6 flex-1 gap-4 overflow-x-auto">
+      {/* Question area — stacks vertically on mobile, side-by-side on large screens */}
+      <div className="flex flex-col lg:flex-row items-start justify-center py-4 sm:py-8 px-3 sm:px-6 flex-1 gap-4">
         {questionData ? (
           <>
-            {/* Left panel — 45% wide by default, resizable up to 65% of the viewport */}
+            {/* Left panel — full width on mobile, 45% on large screens */}
             {displayMedia.length > 0 && (
-              <div className="flex flex-col shrink-0 w-[45%] min-w-72 max-w-[65%] h-[calc(100vh-8rem)] min-h-48 resize overflow-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-6 self-start sticky top-20">
+              <div className="flex flex-col w-full lg:w-[45%] lg:min-w-72 lg:max-w-[65%] lg:h-[calc(100vh-8rem)] lg:min-h-48 lg:resize overflow-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-6 lg:self-start lg:sticky lg:top-20">
                 <MediaDisplay mediaItems={displayMedia} />
               </div>
             )}
 
-            {/* Right panel — always at least 420px so question text never wraps awkwardly */}
-            <div className={`bg-white rounded-2xl shadow-sm border border-slate-100 p-8 flex flex-col gap-5 ${displayMedia.length > 0 ? "flex-1 min-w-105" : "w-full max-w-3xl"}`}>
+            {/* Right panel — full width on mobile, flexible on large screens */}
+            <div className={`bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-8 flex flex-col gap-5 w-full ${displayMedia.length > 0 ? "lg:flex-1" : "lg:max-w-3xl lg:mx-auto"}`}>
               {/* Question label */}
               <div className="flex items-center gap-2.5">
                 <span className="text-xs font-bold uppercase tracking-widest text-slate-400">

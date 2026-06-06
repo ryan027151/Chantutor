@@ -476,12 +476,12 @@ export default function ResultsModal({ testID, userID, studentName, onClose }: R
   }
 
   return (
-    <div className="fixed inset-0 bg-black/85 z-50 flex items-start justify-center overflow-y-auto p-6">
+    <div className="fixed inset-0 bg-black/85 z-50 flex items-start justify-center overflow-y-auto p-3 sm:p-6">
       <div className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-2xl my-auto flex flex-col">
 
         {/* Header */}
-        <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between shrink-0">
-          <div>
+        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-zinc-800 flex items-center justify-between shrink-0">
+          <div className="min-w-0">
             {/* Language toggle */}
             <div className="flex items-center gap-1 mb-2">
               {(["en", "zh-TW"] as const).map(l => (

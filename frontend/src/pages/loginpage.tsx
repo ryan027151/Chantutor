@@ -84,7 +84,7 @@ function LoginPage() {
       </div>
 
       {/* Right panel — form */}
-      <div className="flex flex-1 items-center justify-center bg-white p-8">
+      <div className="flex flex-1 items-center justify-center bg-white p-4 sm:p-8 overflow-y-auto">
         <div className="w-full max-w-sm flex flex-col gap-6">
           <div className="flex md:hidden items-center gap-2 mb-2">
             <FontAwesomeIcon icon={faCrown} className="text-2xl text-amber-400" />

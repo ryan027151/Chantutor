@@ -347,7 +347,7 @@ function ResultsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="bg-white border-b border-slate-100 shadow-sm px-6 py-4 flex items-center gap-3 sticky top-0 z-10">
+      <div className="bg-white border-b border-slate-100 shadow-sm px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sticky top-0 z-10">
         <button
           type="button"
           onClick={() => navigate("/home")}
@@ -384,7 +384,7 @@ function ResultsPage() {
         </button>
       </div>
 
-      <div className="max-w-2xl mx-auto px-5 py-8 flex flex-col gap-5">
+      <div className="max-w-2xl mx-auto px-3 sm:px-5 py-5 sm:py-8 flex flex-col gap-5">
         {/* Raw score hero */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 flex flex-col items-center gap-7">
           <ScoreCircle correct={totalCorrect} total={test.total_questions} />

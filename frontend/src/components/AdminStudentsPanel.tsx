@@ -227,7 +227,7 @@ export default function AdminStudentsPanel() {
     <div className="flex h-full overflow-hidden">
 
       {/* ── Student list ── */}
-      <div className="w-64 shrink-0 flex flex-col border-r border-zinc-200 bg-white">
+      <div className="w-48 lg:w-64 shrink-0 flex flex-col border-r border-zinc-200 bg-white">
         <div className="px-4 py-4 border-b border-zinc-200">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-base font-bold text-zinc-900">Students</h2>
@@ -286,8 +286,9 @@ export default function AdminStudentsPanel() {
           <div className="p-6 flex flex-col gap-5 max-w-4xl">
 
             {/* ── Student header card ── */}
-            <div className="bg-zinc-50 rounded-xl border border-zinc-200 p-5">
-              <div className="flex items-start gap-4">
+            <div className="bg-zinc-50 rounded-xl border border-zinc-200 p-4 sm:p-5">
+              {/* Top row: avatar + name + stats */}
+              <div className="flex flex-wrap items-start gap-4">
                 <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-lg font-bold text-amber-400 shrink-0">
                   {selected.first_name[0]}{selected.last_name[0]}
                 </div>
@@ -296,7 +297,7 @@ export default function AdminStudentsPanel() {
                   <div className="flex items-center gap-2 flex-wrap mt-0.5">
                     <span className="text-sm font-semibold text-amber-500 capitalize">{selected.role}</span>
                     {selected.email && (
-                      <span className="text-sm text-zinc-400">{selected.email}</span>
+                      <span className="text-sm text-zinc-400 truncate">{selected.email}</span>
                     )}
                   </div>
                 </div>
@@ -307,62 +308,63 @@ export default function AdminStudentsPanel() {
                   </div>
                   <div className="text-center">
                     <p className="text-2xl font-bold text-emerald-500">{completedTests.length}</p>
-                    <p className="text-sm text-zinc-400">Completed</p>
-                  </div>
-                  <div className="flex flex-col gap-1.5 ml-2">
-                    <button
-                      type="button"
-                      onClick={openEditProfile}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-zinc-600 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 hover:border-zinc-300 transition-colors"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                      Edit Profile
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/performance/${selected.id}`)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-zinc-600 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 hover:border-zinc-300 transition-colors"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                      </svg>
-                      View Performance
-                    </button>
-                    {!confirmDeleteStudent ? (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteStudent(true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-zinc-400 hover:text-red-400 hover:bg-red-500/8 border border-transparent hover:border-red-500/20 transition-colors"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                        Delete Student
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm text-red-400">Delete all data?</span>
-                        <button
-                          type="button"
-                          onClick={deleteStudent}
-                          disabled={deletingStudent}
-                          className="px-2.5 py-1 rounded-lg text-sm font-bold bg-red-600 hover:bg-red-500 text-white transition-colors disabled:opacity-50"
-                        >
-                          {deletingStudent ? "…" : "Confirm"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteStudent(false)}
-                          className="px-2 py-1 rounded-lg text-sm text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    )}
+                    <p className="text-sm text-zinc-400">Done</p>
                   </div>
                 </div>
+              </div>
+              {/* Actions row */}
+              <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-zinc-200">
+                <button
+                  type="button"
+                  onClick={openEditProfile}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-zinc-600 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 hover:border-zinc-300 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Edit Profile
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/performance/${selected.id}`)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-zinc-600 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 hover:border-zinc-300 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  View Performance
+                </button>
+                {!confirmDeleteStudent ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteStudent(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-zinc-400 hover:text-red-400 hover:bg-red-500/8 border border-transparent hover:border-red-500/20 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm text-red-400">Delete all data?</span>
+                    <button
+                      type="button"
+                      onClick={deleteStudent}
+                      disabled={deletingStudent}
+                      className="px-2.5 py-1 rounded-lg text-sm font-bold bg-red-600 hover:bg-red-500 text-white transition-colors disabled:opacity-50"
+                    >
+                      {deletingStudent ? "…" : "Confirm"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteStudent(false)}
+                      className="px-2 py-1 rounded-lg text-sm text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -406,11 +408,11 @@ export default function AdminStudentsPanel() {
                       <div key={test.id} className="bg-zinc-50 rounded-xl border border-zinc-200 overflow-hidden">
 
                         {/* Row header */}
-                        <div className="flex items-center gap-3 px-4 py-3.5">
+                        <div className="flex flex-wrap items-center gap-2 px-4 py-3">
                           <button
                             type="button"
                             onClick={() => expandTest(test)}
-                            className="flex-1 text-left min-w-0"
+                            className="flex-1 text-left min-w-40"
                           >
                             <div className="flex items-center gap-2 min-w-0">
                               <svg className={`w-3.5 h-3.5 text-zinc-400 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">

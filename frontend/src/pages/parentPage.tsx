@@ -382,8 +382,8 @@ function ResultsModal({
     <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center overflow-y-auto p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-6 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-          <div>
+        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <div className="min-w-0">
             <div className="flex items-center gap-1 mb-2">
               {(["en", "zh-TW"] as const).map(l => (
                 <button
@@ -827,10 +827,10 @@ function ParentPage() {
       </div>
 
       {/* ── Body ── */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-col sm:flex-row flex-1 overflow-hidden">
 
         {/* ── Sidebar: children list ── */}
-        <div className="w-72 shrink-0 bg-white border-r border-slate-200 flex flex-col overflow-hidden">
+        <div className="w-full sm:w-56 lg:w-72 shrink-0 bg-white border-b sm:border-b-0 sm:border-r border-slate-200 flex flex-col overflow-hidden max-h-52 sm:max-h-none">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <h2 className="text-sm font-bold text-slate-700">My Children</h2>
             <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">{students.length}</span>
@@ -913,16 +913,16 @@ function ParentPage() {
               </div>
             </div>
           ) : (
-            <div className="p-6 flex flex-col gap-5 max-w-4xl">
+            <div className="p-4 sm:p-6 flex flex-col gap-5 max-w-4xl">
 
               {/* Student header */}
-              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center gap-4">
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 sm:p-5 flex flex-wrap items-center gap-4">
                 <Avatar student={selectedStudent} size="lg" />
                 <div className="flex-1 min-w-0">
                   <h1 className="text-lg font-bold text-slate-900">{selectedStudent.first_name} {selectedStudent.last_name}</h1>
                   <p className="text-sm text-slate-400">Student</p>
                 </div>
-                <div className="flex gap-6 shrink-0">
+                <div className="flex flex-wrap gap-4 sm:gap-6 shrink-0">
                   <div className="text-center">
                     <p className="text-2xl font-bold text-slate-900">{tests.length}</p>
                     <p className="text-xs text-slate-400">Total Tests</p>
