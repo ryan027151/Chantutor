@@ -358,6 +358,7 @@ function ResultsModal({
       mathCorrect,
       mathTotal: totalQ - englishCount,
       studentName,
+      lang,
       shsatScore: shsat && shsatLabel ? {
         total: shsat.total,
         elaRatio: shsat.elaRatio,

@@ -455,6 +455,7 @@ export default function ResultsModal({ testID, userID, studentName, onClose }: R
       mathCorrect,
       mathTotal: mathCount,
       studentName,
+      lang,
       shsatScore: shsatScore && sl ? {
         total: shsatScore.total,
         elaRatio: shsatScore.elaRatio,
