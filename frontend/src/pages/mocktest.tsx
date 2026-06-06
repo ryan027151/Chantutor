@@ -201,19 +201,39 @@ function MockTest() {
   // Derived values — recalculated every render, no extra state needed
   const isReadOnly = currentQuestion < latestQuestion;
 
-  // Split mediaItems into display media (passage/graph/table/equation)
-  // and number-line choice images
+  // Build choice images and the set of media_ids consumed as choices,
+  // so they can be excluded from the display-media panel.
+  const choiceImages: Record<string, string> = {};
+  const choiceMediaIdSet = new Set<string>();
+
+  // Pattern 1: NL-suffix number-line images (e.g. "24A_Q113_NLA")
+  mediaItems
+    .filter((m) => isChoiceMedia(m.media_id))
+    .forEach((m) => {
+      choiceImages[choiceLetter(m.media_id)] = m.content;
+      choiceMediaIdSet.add(m.media_id);
+    });
+
+  // Pattern 2: choice value IS a media_id (e.g. choice_1 = "25A_Q5_A")
+  if (questionData) {
+    const mediaById = new Map(mediaItems.map((m) => [m.media_id, m.content]));
+    (["choice_1", "choice_2", "choice_3", "choice_4"] as const).forEach((key, i) => {
+      const val = (questionData as Record<string, string | null>)[key]?.trim();
+      if (val && mediaById.has(val)) {
+        choiceImages["ABCD"[i]] = mediaById.get(val)!;
+        choiceMediaIdSet.add(val);
+      }
+    });
+  }
+
+  // Display media = everything NOT consumed as a choice image
   const displayMedia = mediaItems
-    .filter((m) => !isChoiceMedia(m.media_id))
+    .filter((m) => !choiceMediaIdSet.has(m.media_id))
     .sort((a, b) => {
       const suffixA = a.media_id.split("_").pop() ?? "";
       const suffixB = b.media_id.split("_").pop() ?? "";
       return suffixA.localeCompare(suffixB);
     });
-  const choiceImages: Record<string, string> = {};
-  mediaItems
-    .filter((m) => isChoiceMedia(m.media_id))
-    .forEach((m) => { choiceImages[choiceLetter(m.media_id)] = m.content; });
 
   // Back button is shown for passage questions (active mode) or any question in review mode.
   // In active mode, isPassageQuestion gates entry into review.
