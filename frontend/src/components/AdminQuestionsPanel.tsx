@@ -11,6 +11,10 @@ interface MediaItem {
   passageText: string;
   previewUrl: string;
   isExisting: boolean;
+  // original DB values — set when loading existing media, used to detect changes
+  _origId?: string;
+  _origType?: MediaType;
+  _origContent?: string;
 }
 
 const MEDIA_TYPE_LABELS: Record<MediaType, string> = {
@@ -355,6 +359,7 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [originalForm, setOriginalForm] = useState<FormData | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<Question | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -501,6 +506,7 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
 
   async function openEdit(q: Question) {
     setForm({ ...q });
+    setOriginalForm({ ...q });
     setOriginalSubCategory(q.sub_category ?? null);
     setIsNewTopic(false);
     setNewTopicName("");
@@ -522,6 +528,9 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
         passageText: m.media_type === "passage" ? (m.content ?? "") : "",
         previewUrl: m.media_type !== "passage" ? (m.content ?? "") : "",
         isExisting: true,
+        _origId: m.media_id,
+        _origType: m.media_type ?? "graph",
+        _origContent: m.content ?? "",
       })));
     } else if (q.media_refs?.trim()) {
       setMediaItems(q.media_refs.split(/[,\s]+/).filter(Boolean).map(id => ({
@@ -539,6 +548,18 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
 
     setSaving(true);
     setSaveError(null);
+
+    // Duplicate media ID check — warn if two different items share the same ID
+    const nonEmptyIds = mediaItems.map(m => m.mediaId.trim()).filter(Boolean);
+    const seen = new Set<string>();
+    for (const id of nonEmptyIds) {
+      if (seen.has(id)) {
+        setSaveError(`Duplicate media ID "${id}" — each media item must have a unique ID on this question.`);
+        setSaving(false);
+        return;
+      }
+      seen.add(id);
+    }
 
     if (isNewTopic && form.sub_category?.trim()) {
       const { error: rpcErr } = await supabase.rpc("create_topic_table", { table_name: form.sub_category.trim() });
@@ -581,20 +602,37 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
     };
 
     let allQErr: { message: string } | null = null;
+    let changedFields: Record<string, unknown> = {};
+
     if (modalMode === "add") {
       const { error } = await supabase.from("all_questions").insert([{ uid: form.uid, ...fields }]);
       allQErr = error;
     } else {
-      const { data: updated, error } = await supabase
-        .from("all_questions")
-        .update(fields)
-        .eq("uid", form.uid!)
-        .select("uid");
-      allQErr = error;
-      if (!error && (!updated || updated.length === 0)) {
-        setSaveError("Save blocked: 0 rows updated. Run admin_rls_policies.sql in the Supabase SQL Editor to grant admin write access.");
-        setSaving(false);
-        return;
+      // Only send fields that actually changed
+      const norm = (v: unknown, isRefs = false): unknown => {
+        if (v === null || v === undefined || v === "") return null;
+        if (isRefs) return String(v).split(/[,\s]+/).filter(Boolean).join(",");
+        return v;
+      };
+      for (const [key, newVal] of Object.entries(fields)) {
+        const origVal = (originalForm as Record<string, unknown> | null)?.[key];
+        if (norm(newVal, key === "media_refs") !== norm(origVal, key === "media_refs")) {
+          changedFields[key] = newVal;
+        }
+      }
+
+      if (Object.keys(changedFields).length > 0) {
+        const { data: updated, error } = await supabase
+          .from("all_questions")
+          .update(changedFields)
+          .eq("uid", form.uid!)
+          .select("uid");
+        allQErr = error;
+        if (!error && (!updated || updated.length === 0)) {
+          setSaveError("Save blocked: 0 rows updated. Run admin_rls_policies.sql in the Supabase SQL Editor to grant admin write access.");
+          setSaving(false);
+          return;
+        }
       }
     }
 
@@ -615,7 +653,10 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
         await supabase.from(originalSubCategory!).delete().eq("uid", form.uid!);
         await supabase.from(form.sub_category!).insert([topicPayload]);
       } else {
-        await supabase.from(form.sub_category!).update(topicPayload).eq("uid", form.uid!);
+        const topicKeys = ["type", "text", "choice_1", "choice_2", "choice_3", "choice_4", "answer", "difficulty"];
+        if (Object.keys(changedFields).some(k => topicKeys.includes(k))) {
+          await supabase.from(form.sub_category!).update(topicPayload).eq("uid", form.uid!);
+        }
       }
     }
 
@@ -625,14 +666,25 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
 
     for (let i = 0; i < mediaItems.length; i++) {
       const item = mediaItems[i];
+
+      // Determine what changed
+      const hasNewFile = isImageType(item.media_type) && item.file !== null;
+      const passageChanged = item.media_type === "passage" &&
+        item.passageText.trim() !== (item._origContent ?? "").trim();
+      const idChanged = item.isExisting && !!item._origId && item._origId !== item.mediaId.trim();
+      const typeChanged = item.isExisting && !!item._origType && item._origType !== item.media_type;
+
+      const needsSave = hasNewFile || passageChanged || !item.isExisting || idChanged || typeChanged;
+      if (!needsSave) continue;
+
       let content: string | null = null;
 
-      if (isImageType(item.media_type) && item.file) {
-        const ext = item.file.name.split(".").pop() ?? "jpg";
-        const filePath = `${item.mediaId}.${ext}`;
+      if (hasNewFile) {
+        const ext = item.file!.name.split(".").pop() ?? "jpg";
+        const filePath = `${item.mediaId.trim()}.${ext}`;
         const { error: uploadErr } = await supabase.storage
           .from("images")
-          .upload(filePath, item.file, { upsert: true });
+          .upload(filePath, item.file!, { upsert: true });
         if (uploadErr) {
           setSaveError(`Image upload failed for "${item.mediaId}": ${uploadErr.message}. Question was saved.`);
           setSaving(false);
@@ -640,15 +692,21 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
         }
         const { data: urlData } = supabase.storage.from("images").getPublicUrl(filePath);
         content = urlData.publicUrl;
-      } else if (item.media_type === "passage" && !item.isExisting && item.passageText.trim()) {
-        content = item.passageText.trim();
-      } else if (item.isExisting) {
-        content = item.media_type === "passage" ? item.passageText : item.previewUrl;
+      } else if (item.media_type === "passage") {
+        content = item.passageText.trim() || null;
+      } else {
+        // Image type, no new file (type or ID changed) — keep the existing URL
+        content = item.previewUrl || null;
+      }
+
+      // If the media ID was renamed, remove the old DB record first
+      if (idChanged && item._origId) {
+        await supabase.from("dictionary_of_media").delete().eq("media_id", item._origId);
       }
 
       if (content !== null) {
         const { error: dictErr } = await supabase.from("dictionary_of_media").upsert(
-          { media_id: item.mediaId, question_id: form.uid, media_type: item.media_type, content, index: i },
+          { media_id: item.mediaId.trim(), question_id: form.uid, media_type: item.media_type, content, index: i },
           { onConflict: "media_id" }
         );
         if (dictErr) {
@@ -657,6 +715,13 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
           return;
         }
       }
+    }
+
+    if (modalMode === "edit") {
+      // Immediately reflect the changes in the list without waiting for the network refetch
+      setQuestions(prev => prev.map(q =>
+        q.uid === form.uid! ? { ...q, ...fields } : q
+      ));
     }
 
     setModalMode(null);
@@ -1075,9 +1140,6 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
                               {item.previewUrl && (
                                 <img src={item.previewUrl} alt="preview" className="max-h-36 object-contain rounded-lg border border-zinc-200 bg-zinc-50 p-1" />
                               )}
-                              {item.isExisting && !item.file && (
-                                <p className="text-sm text-zinc-400">Existing image — upload a new file below to replace it.</p>
-                              )}
                               <input type="file" accept="image/*" title="Upload image" placeholder="Upload image"
                                 onChange={e => handleImageFile(idx, e.target.files?.[0])}
                                 className="text-sm text-zinc-500 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-zinc-100 file:text-zinc-700 hover:file:bg-zinc-200 cursor-pointer"
@@ -1085,9 +1147,6 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
                             </div>
                           ) : (
                             <div className="flex flex-col gap-1">
-                              {item.isExisting && !item.passageText && (
-                                <p className="text-sm text-zinc-400 mb-1">Existing passage — edit or replace text below.</p>
-                              )}
                               <textarea value={item.passageText} onChange={e => updateMediaItem(idx, { passageText: e.target.value, isExisting: false })}
                                 placeholder="Paste or type the full passage text…" rows={5}
                                 className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm text-zinc-700 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 transition-colors resize-y"
