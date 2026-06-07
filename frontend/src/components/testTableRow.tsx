@@ -48,19 +48,19 @@ export default function TestTableRow({ id, name, date, completed, score, wasRese
           {/* Reset — only for in-progress non-diagnostic tests */}
           {!completed && !isDiagnostic && onReset && (
             confirmReset ? (
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-slate-500">Reset progress?</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-slate-500 shrink-0">Reset?</span>
                 <button
                   type="button"
                   onClick={() => { onReset(); setConfirmReset(false); }}
-                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-500 hover:bg-rose-600 text-white transition-colors"
+                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-500 hover:bg-rose-600 text-white transition-colors shrink-0"
                 >
                   Yes
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmReset(false)}
-                  className="px-2 py-1 rounded-lg text-xs text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                  className="px-2 py-1 rounded-lg text-xs text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
                 >
                   Cancel
                 </button>

@@ -61,18 +61,39 @@ function makeToken(): string {
   return `${raw.slice(0, 4)}-${raw.slice(4)}`;
 }
 
+const ICON_COPY = (
+  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+  </svg>
+);
+const ICON_CHECK = (
+  <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+  </svg>
+);
+const ICON_DEACTIVATE = (
+  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 115.636 5.636m12.728 12.728L5.636 5.636" />
+  </svg>
+);
+const ICON_SPIN = (
+  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+  </svg>
+);
+
 export default function AdminTokensPanel() {
   const user = useContext(UserContext);
 
-  const [tokens, setTokens]           = useState<TokenRow[]>([]);
-  const [loading, setLoading]          = useState(true);
-  const [generating, setGenerating]    = useState(false);
-  const [copiedId, setCopiedId]        = useState<string | null>(null);
-  const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
-  const [filter, setFilter]            = useState<"all" | TokenStatus>("all");
-  const [, setTick]                    = useState(0); // forces re-render for countdowns
+  const [tokens, setTokens]                   = useState<TokenRow[]>([]);
+  const [loading, setLoading]                 = useState(true);
+  const [generating, setGenerating]           = useState(false);
+  const [copiedId, setCopiedId]               = useState<string | null>(null);
+  const [deactivatingId, setDeactivatingId]   = useState<string | null>(null);
+  const [filter, setFilter]                   = useState<"all" | TokenStatus>("all");
+  const [, setTick]                           = useState(0);
 
-  // ── Fetch tokens ─────────────────────────────────────────────────────────
   const fetchTokens = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -85,20 +106,16 @@ export default function AdminTokensPanel() {
 
   useEffect(() => { fetchTokens(); }, [fetchTokens]);
 
-  // Live countdown — re-render every 30 s
   useEffect(() => {
     const id = setInterval(() => setTick(t => t + 1), 30_000);
     return () => clearInterval(id);
   }, []);
 
-  // ── Generate token ────────────────────────────────────────────────────────
   async function handleGenerate() {
     if (!user) return;
     setGenerating(true);
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-
-    // Find a token that doesn't collide with any token from the last 30 days
     let token = makeToken();
     for (let attempt = 0; attempt < 20; attempt++) {
       const { count } = await supabase
@@ -116,20 +133,16 @@ export default function AdminTokensPanel() {
       .insert({ token, expires_at: expiresAt, created_by: user.id })
       .select("*, used_by_profile:profiles!used_by(first_name, last_name)")
       .single();
-    if (!error && data) {
-      setTokens(prev => [data as TokenRow, ...prev]);
-    }
+    if (!error && data) setTokens(prev => [data as TokenRow, ...prev]);
     setGenerating(false);
   }
 
-  // ── Copy to clipboard ─────────────────────────────────────────────────────
   async function copyToken(id: string, token: string) {
     await navigator.clipboard.writeText(token);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   }
 
-  // ── Deactivate token ──────────────────────────────────────────────────────
   async function handleDeactivate(id: string) {
     if (!confirm("Deactivate this token? It cannot be re-activated.")) return;
     setDeactivatingId(id);
@@ -139,73 +152,65 @@ export default function AdminTokensPanel() {
       .update({ expires_at: now })
       .eq("id", id)
       .is("used_at", null);
-    if (!error) {
-      setTokens(prev => prev.map(t => t.id === id ? { ...t, expires_at: now } : t));
-    }
+    if (!error) setTokens(prev => prev.map(t => t.id === id ? { ...t, expires_at: now } : t));
     setDeactivatingId(null);
   }
 
-  // ── Derived data ──────────────────────────────────────────────────────────
   const counts = {
     valid:   tokens.filter(t => getStatus(t) === "valid").length,
     used:    tokens.filter(t => getStatus(t) === "used").length,
     expired: tokens.filter(t => getStatus(t) === "expired").length,
   };
-
   const visible = filter === "all" ? tokens : tokens.filter(t => getStatus(t) === filter);
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
 
       {/* ── Header ── */}
-      <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between shrink-0">
-        <div>
-          <h2 className="text-lg font-bold text-zinc-900">Signup Tokens</h2>
-          <p className="text-sm text-zinc-400 mt-0.5">
-            {counts.valid} valid · {counts.used} used · {counts.expired} expired
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* Filter tabs */}
-          <div className="flex gap-1.5">
-            {(["all", "valid", "used", "expired"] as const).map(s => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setFilter(s)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors border ${
-                  filter === s
-                    ? "bg-amber-500/15 text-amber-500 border-amber-500/30"
-                    : "text-zinc-500 border-zinc-200 hover:text-zinc-800 hover:border-zinc-300"
-                }`}
-              >
-                {s === "all" ? `All (${tokens.length})` : `${STATUS_LABEL[s]} (${counts[s]})`}
-              </button>
-            ))}
+      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-zinc-200 flex flex-col gap-2.5 shrink-0">
+        {/* Row 1: title + generate */}
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base sm:text-lg font-bold text-zinc-900">Signup Tokens</h2>
+            <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">
+              {counts.valid} valid · {counts.used} used · {counts.expired} expired
+            </p>
           </div>
-          {/* Generate button */}
           <button
             type="button"
             onClick={handleGenerate}
             disabled={generating}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors disabled:opacity-50"
+            className="shrink-0 flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors disabled:opacity-50"
           >
-            {generating ? (
-              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {generating ? ICON_SPIN : (
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
             )}
-            {generating ? "Generating…" : "Generate Token"}
+            <span className="hidden sm:inline">{generating ? "Generating…" : "Generate Token"}</span>
+            <span className="sm:hidden">{generating ? "…" : "Generate"}</span>
           </button>
+        </div>
+        {/* Row 2: filter tabs */}
+        <div className="flex flex-wrap gap-1.5">
+          {(["all", "valid", "used", "expired"] as const).map(s => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setFilter(s)}
+              className={`px-2.5 py-1 rounded-lg text-xs sm:text-sm font-medium capitalize transition-colors border ${
+                filter === s
+                  ? "bg-amber-500/15 text-amber-500 border-amber-500/30"
+                  : "text-zinc-500 border-zinc-200 hover:text-zinc-800 hover:border-zinc-300"
+              }`}
+            >
+              {s === "all" ? `All (${tokens.length})` : `${STATUS_LABEL[s]} (${counts[s]})`}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* ── Table ── */}
+      {/* ── Content ── */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center h-48">
@@ -213,129 +218,174 @@ export default function AdminTokensPanel() {
           </div>
         ) : visible.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-2">
-            <p className="text-base font-medium text-zinc-500">No tokens found</p>
-            <p className="text-sm text-zinc-400">
+            <p className="text-sm font-medium text-zinc-500">No tokens found</p>
+            <p className="text-xs text-zinc-400">
               {filter === "all"
-                ? `Hit "Generate Token" to create the first one`
+                ? `Tap "Generate" to create the first one`
                 : `No ${STATUS_LABEL[filter as TokenStatus].toLowerCase()} tokens`}
             </p>
           </div>
         ) : (
-          <table className="w-full text-base border-collapse">
-            <thead>
-              <tr className="border-b border-zinc-200">
-                {["Token", "Generated", "Expires", "Status", "Used By"].map(h => (
-                  <th key={h} className="text-left text-sm font-semibold text-zinc-400 uppercase tracking-wider px-5 py-3">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
+          <>
+            {/* ── Mobile card list (below md) ── */}
+            <div className="md:hidden divide-y divide-zinc-100">
               {visible.map(row => {
                 const status  = getStatus(row);
                 const profile = row.used_by_profile;
-                const usedBy  = profile
-                  ? `${profile.first_name} ${profile.last_name}`
-                  : null;
-
+                const usedBy  = profile ? `${profile.first_name} ${profile.last_name}` : null;
                 return (
-                  <tr key={row.id} className="hover:bg-zinc-50 transition-colors">
-
-                    {/* Token */}
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-zinc-900 tracking-widest text-base">
-                          {row.token}
-                        </span>
-                        {status === "valid" && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => copyToken(row.id, row.token)}
-                              title="Copy to clipboard"
-                              className="text-zinc-400 hover:text-zinc-700 transition-colors"
-                            >
-                              {copiedId === row.id ? (
-                                <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                                </svg>
-                              ) : (
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                </svg>
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeactivate(row.id)}
-                              disabled={deactivatingId === row.id}
-                              title="Deactivate token"
-                              className="text-zinc-400 hover:text-red-500 transition-colors disabled:opacity-40"
-                            >
-                              {deactivatingId === row.id ? (
-                                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                                </svg>
-                              ) : (
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                                </svg>
-                              )}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Generated */}
-                    <td className="px-5 py-3 text-sm text-zinc-500 whitespace-nowrap">
-                      {fmt(row.created_at)}
-                    </td>
-
-                    {/* Expires */}
-                    <td className="px-5 py-3 text-sm whitespace-nowrap">
+                  <div key={row.id} className="px-4 py-3 flex flex-col gap-2">
+                    {/* Token code + status badge */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="font-mono font-bold text-zinc-900 tracking-widest text-sm shrink-0">
+                        {row.token}
+                      </span>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border whitespace-nowrap ${STATUS_STYLE[status]}`}>
+                        {STATUS_LABEL[status]}
+                      </span>
+                    </div>
+                    {/* Dates */}
+                    <div className="text-xs text-zinc-400 flex flex-wrap gap-x-3 gap-y-0.5">
+                      <span>Generated {fmt(row.created_at)}</span>
                       {status === "valid" ? (
                         <span className="text-emerald-600 font-medium">{relativeTime(row.expires_at)}</span>
                       ) : status === "expired" ? (
-                        <span className="text-zinc-400">{relativeTime(row.expires_at)}</span>
+                        <span>{relativeTime(row.expires_at)}</span>
                       ) : (
-                        <span className="text-zinc-400">{fmt(row.expires_at)}</span>
+                        <span>Expired {fmt(row.expires_at)}</span>
                       )}
-                    </td>
-
-                    {/* Status */}
-                    <td className="px-5 py-3">
-                      <span className={`inline-block text-sm font-semibold px-2.5 py-0.5 rounded-full border ${STATUS_STYLE[status]}`}>
-                        {STATUS_LABEL[status]}
-                      </span>
-                    </td>
-
-                    {/* Used By */}
-                    <td className="px-5 py-3">
-                      {status === "used" && (usedBy || row.used_by_email) ? (
-                        <div className="flex flex-col gap-0.5">
-                          {usedBy && (
-                            <span className="text-sm font-semibold text-zinc-700">{usedBy}</span>
-                          )}
-                          {row.used_by_email && (
-                            <span className="text-xs text-zinc-400">{row.used_by_email}</span>
-                          )}
-                          {row.used_at && (
-                            <span className="text-xs text-zinc-300">{fmt(row.used_at)}</span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-zinc-300 text-sm">—</span>
-                      )}
-                    </td>
-
-                  </tr>
+                    </div>
+                    {/* Used by */}
+                    {status === "used" && (usedBy || row.used_by_email) && (
+                      <div className="text-xs text-zinc-500 flex flex-wrap gap-x-2">
+                        <span>Used by <span className="font-semibold">{usedBy ?? row.used_by_email}</span></span>
+                        {row.used_at && <span className="text-zinc-300">{fmt(row.used_at)}</span>}
+                      </div>
+                    )}
+                    {/* Actions */}
+                    {status === "valid" && (
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => copyToken(row.id, row.token)}
+                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border border-zinc-200 text-zinc-600 hover:bg-zinc-50 transition-colors"
+                        >
+                          {copiedId === row.id ? ICON_CHECK : ICON_COPY}
+                          {copiedId === row.id ? "Copied!" : "Copy"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeactivate(row.id)}
+                          disabled={deactivatingId === row.id}
+                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border border-zinc-200 text-rose-500 hover:bg-rose-50 transition-colors disabled:opacity-40"
+                        >
+                          {deactivatingId === row.id ? ICON_SPIN : ICON_DEACTIVATE}
+                          Deactivate
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+
+            {/* ── Desktop table (md+) ── */}
+            <table className="hidden md:table w-full text-base border-collapse">
+              <thead>
+                <tr className="border-b border-zinc-200">
+                  {["Token", "Generated", "Expires", "Status", "Used By"].map(h => (
+                    <th key={h} className="text-left text-sm font-semibold text-zinc-400 uppercase tracking-wider px-5 py-3">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {visible.map(row => {
+                  const status  = getStatus(row);
+                  const profile = row.used_by_profile;
+                  const usedBy  = profile ? `${profile.first_name} ${profile.last_name}` : null;
+                  return (
+                    <tr key={row.id} className="hover:bg-zinc-50 transition-colors">
+
+                      {/* Token */}
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-zinc-900 tracking-widest text-base whitespace-nowrap">
+                            {row.token}
+                          </span>
+                          {status === "valid" && (
+                            <>
+                              <button type="button" onClick={() => copyToken(row.id, row.token)} title="Copy to clipboard"
+                                className="text-zinc-400 hover:text-zinc-700 transition-colors">
+                                {copiedId === row.id ? (
+                                  <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                ) : (
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                  </svg>
+                                )}
+                              </button>
+                              <button type="button" onClick={() => handleDeactivate(row.id)} disabled={deactivatingId === row.id}
+                                title="Deactivate token" className="text-zinc-400 hover:text-red-500 transition-colors disabled:opacity-40">
+                                {deactivatingId === row.id ? (
+                                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                                  </svg>
+                                ) : (
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 115.636 5.636m12.728 12.728L5.636 5.636" />
+                                  </svg>
+                                )}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Generated */}
+                      <td className="px-5 py-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(row.created_at)}</td>
+
+                      {/* Expires */}
+                      <td className="px-5 py-3 text-sm whitespace-nowrap">
+                        {status === "valid" ? (
+                          <span className="text-emerald-600 font-medium">{relativeTime(row.expires_at)}</span>
+                        ) : status === "expired" ? (
+                          <span className="text-zinc-400">{relativeTime(row.expires_at)}</span>
+                        ) : (
+                          <span className="text-zinc-400">{fmt(row.expires_at)}</span>
+                        )}
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-5 py-3">
+                        <span className={`inline-block text-sm font-semibold px-2.5 py-0.5 rounded-full border ${STATUS_STYLE[status]}`}>
+                          {STATUS_LABEL[status]}
+                        </span>
+                      </td>
+
+                      {/* Used By */}
+                      <td className="px-5 py-3">
+                        {status === "used" && (usedBy || row.used_by_email) ? (
+                          <div className="flex flex-col gap-0.5">
+                            {usedBy && <span className="text-sm font-semibold text-zinc-700">{usedBy}</span>}
+                            {row.used_by_email && <span className="text-xs text-zinc-400">{row.used_by_email}</span>}
+                            {row.used_at && <span className="text-xs text-zinc-300">{fmt(row.used_at)}</span>}
+                          </div>
+                        ) : (
+                          <span className="text-zinc-300 text-sm">—</span>
+                        )}
+                      </td>
+
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>
         )}
       </div>
     </div>

@@ -91,7 +91,7 @@ function LoginPage() {
             <span className="brand-name text-2xl text-slate-900">TestQueens</span>
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">Welcome back</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Welcome back</h2>
             <p className="text-slate-500 mt-1 text-sm">Sign in to continue your practice.</p>
           </div>
           {showForgot ? (
@@ -121,7 +121,7 @@ function LoginPage() {
             ) : (
               <form className="flex flex-col gap-4" onSubmit={sendResetEmail}>
                 <div>
-                  <h2 className="text-2xl font-bold text-slate-900">Forgot password?</h2>
+                  <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Forgot password?</h2>
                   <p className="text-slate-500 mt-1 text-sm">Enter your email and we'll send a reset link.</p>
                 </div>
                 <label className="flex flex-col gap-1.5">

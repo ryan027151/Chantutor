@@ -327,17 +327,19 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved }: 
     <div className="flex flex-col h-full overflow-hidden bg-white">
 
       {/* Header */}
-      <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between shrink-0 gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-zinc-900">Question Reports</h2>
-          <p className="text-sm text-zinc-400 mt-0.5">
-            {counts.pending} pending · {counts.reviewed} reviewed · {counts.resolved} resolved
-          </p>
+      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-zinc-200 flex flex-col gap-2.5 shrink-0">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base sm:text-lg font-bold text-zinc-900">Question Reports</h2>
+            <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">
+              {counts.pending} pending · {counts.reviewed} reviewed · {counts.resolved} resolved
+            </p>
+          </div>
         </div>
-        <div className="flex gap-1.5 flex-wrap justify-end">
+        <div className="flex gap-1.5 flex-wrap">
           {(["all", "pending", "reviewed", "resolved"] as const).map((s) => (
             <button key={s} type="button" onClick={() => setFilterStatus(s)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors border ${
+              className={`px-2.5 py-1 rounded-lg text-xs sm:text-sm font-medium capitalize transition-colors border ${
                 filterStatus === s
                   ? "bg-amber-500/15 text-amber-500 border-amber-500/30"
                   : "text-zinc-500 border-zinc-200 hover:text-zinc-800 hover:border-zinc-300"
@@ -351,31 +353,31 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved }: 
 
       {/* Bulk action bar */}
       {someSelected && (
-        <div className="px-5 py-2.5 bg-blue-50 border-b border-blue-100 flex items-center gap-3 shrink-0">
-          <span className="text-sm font-semibold text-blue-700">{selected.size} selected</span>
-          <div className="flex gap-1.5 ml-2">
+        <div className="px-4 sm:px-5 py-2.5 bg-blue-50 border-b border-blue-100 flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
+          <span className="text-sm font-semibold text-blue-700 shrink-0">{selected.size} selected</span>
+          <div className="flex flex-wrap gap-1.5">
             <button type="button" disabled={bulkWorking} onClick={() => bulkSetStatus("resolved")}
-              className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 border border-emerald-500/20 disabled:opacity-40 transition-colors">
+              className="px-2.5 py-1 rounded-lg text-xs sm:text-sm font-semibold bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 border border-emerald-500/20 disabled:opacity-40 transition-colors whitespace-nowrap">
               Mark Resolved
             </button>
             <button type="button" disabled={bulkWorking} onClick={() => bulkSetStatus("reviewed")}
-              className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-blue-500/10 text-blue-700 hover:bg-blue-500/20 border border-blue-500/20 disabled:opacity-40 transition-colors">
+              className="px-2.5 py-1 rounded-lg text-xs sm:text-sm font-semibold bg-blue-500/10 text-blue-700 hover:bg-blue-500/20 border border-blue-500/20 disabled:opacity-40 transition-colors whitespace-nowrap">
               Mark Reviewed
             </button>
             <button type="button" disabled={bulkWorking} onClick={bulkDeleteReports}
-              className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 border border-rose-500/20 disabled:opacity-40 transition-colors">
-              {bulkWorking ? "Deleting…" : `Delete ${selected.size} Report${selected.size !== 1 ? "s" : ""}`}
+              className="px-2.5 py-1 rounded-lg text-xs sm:text-sm font-semibold bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 border border-rose-500/20 disabled:opacity-40 transition-colors whitespace-nowrap">
+              {bulkWorking ? "Deleting…" : `Delete ${selected.size}`}
             </button>
           </div>
           <button type="button" onClick={() => setSelected(new Set())}
-            className="ml-auto text-sm text-zinc-400 hover:text-zinc-700">
+            className="ml-auto text-xs sm:text-sm text-zinc-400 hover:text-zinc-700 shrink-0">
             Deselect all
           </button>
         </div>
       )}
 
       {/* Table */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-auto">
         {loading ? (
           <div className="flex items-center justify-center h-48">
             <div className="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />

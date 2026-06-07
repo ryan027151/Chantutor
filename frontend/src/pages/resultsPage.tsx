@@ -119,8 +119,8 @@ function SHSATScoreCard({ score }: { score: SHSATScore }) {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 sm:p-6 flex flex-col gap-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="font-bold text-slate-900">Estimated SHSAT Score</h2>
         <span className="text-xs text-slate-400 bg-slate-50 px-2.5 py-1 rounded-full border border-slate-200">
           Difficulty-weighted
@@ -134,7 +134,7 @@ function SHSATScoreCard({ score }: { score: SHSATScore }) {
       </div>
 
       {/* Section ratios */}
-      <div className="flex items-center justify-center gap-4">
+      <div className="flex items-center justify-center flex-wrap gap-3 sm:gap-4">
         <div className="flex flex-col items-center gap-0.5">
           <span className="text-xs font-medium text-slate-400">Rev/Edit</span>
           <span className="text-xl font-bold text-blue-600">{revisingPct}%</span>

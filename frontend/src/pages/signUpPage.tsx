@@ -84,7 +84,7 @@ function SignUpPage() {
             <span className="brand-name text-2xl text-slate-900">TestQueens</span>
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">Create account</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Create account</h2>
             <p className="text-slate-500 mt-1 text-sm">Fill in your details to get started.</p>
           </div>
           <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); signUp(); }}>
@@ -110,7 +110,7 @@ function SignUpPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
               <label className="flex flex-col gap-1.5">
                 <span className="text-sm font-medium text-slate-700">First name</span>
                 <input

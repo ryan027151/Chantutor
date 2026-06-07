@@ -746,7 +746,7 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
       {/* ── Toolbar ── */}
-      <div className="px-6 py-4 border-b border-zinc-200 flex items-center gap-3 flex-wrap shrink-0">
+      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-zinc-200 flex items-center gap-2 sm:gap-3 flex-wrap shrink-0">
         <div className="shrink-0 mr-2">
           <h2 className="text-base font-bold text-zinc-900">Question Bank</h2>
           <p className="text-sm text-zinc-400">{total} questions</p>
@@ -757,18 +757,18 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
           placeholder="Search by UID or question text…"
           value={searchInput}
           onChange={e => handleSearchChange(e.target.value)}
-          className="flex-1 min-w-44 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-700 placeholder-zinc-400 focus:outline-none focus:border-amber-500/40 transition-colors"
+          className="flex-1 min-w-0 bg-zinc-50 border border-zinc-200 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base text-zinc-700 placeholder-zinc-400 focus:outline-none focus:border-amber-500/40 transition-colors"
         />
 
         <select title="Filter by subject" value={filterSubject} onChange={e => { setFilterSubject(e.target.value); setPage(0); }}
-          className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+          className="bg-zinc-50 border border-zinc-200 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
           <option value="">All Subjects</option>
           <option value="english">English</option>
           <option value="math">Math</option>
         </select>
 
         <select title="Filter by type" value={filterType} onChange={e => { setFilterType(e.target.value); setPage(0); }}
-          className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+          className="bg-zinc-50 border border-zinc-200 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
           <option value="">All Types</option>
           <option value="mcq">MCQ</option>
           <option value="grid-in">Grid-in</option>
@@ -776,7 +776,7 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
         </select>
 
         <select title="Filter by source" value={filterSource} onChange={e => { setFilterSource(e.target.value); setPage(0); }}
-          className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+          className="bg-zinc-50 border border-zinc-200 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
           <option value="">All Sources</option>
           <option value="bank">Question Bank</option>
           <option value="ai">AI Generated</option>
@@ -784,7 +784,7 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
 
         <div className="relative">
           <select title="Filter by status" value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(0); }}
-            className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+            className="bg-zinc-50 border border-zinc-200 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
             <option value="">All Statuses</option>
             <option value="approved">Approved</option>
             <option value="pending">Pending Review</option>
@@ -798,22 +798,23 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
         </div>
 
         <select title="Filter by topic" value={filterCategory} onChange={e => { setFilterCategory(e.target.value); setPage(0); }}
-          className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+          className="bg-zinc-50 border border-zinc-200 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
           <option value="">All Topics</option>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
 
         <div className="ml-auto flex items-center gap-2 shrink-0">
           <button type="button" onClick={() => setShowGenerate(true)}
-            className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-500 text-white font-bold text-sm px-4 py-2 rounded-lg transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs sm:text-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg transition-colors">
+            <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-            Generate AI
+            <span className="hidden sm:inline">Generate AI</span>
+            <span className="sm:hidden">AI</span>
           </button>
           <button type="button" onClick={openAdd}
-            className="bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-base px-4 py-2 rounded-lg transition-colors">
-            + Add Question
+            className="bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs sm:text-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg transition-colors whitespace-nowrap">
+            + <span className="hidden sm:inline">Add </span>Question
           </button>
         </div>
       </div>

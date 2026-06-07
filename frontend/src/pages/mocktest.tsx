@@ -1013,8 +1013,8 @@ function MockTest() {
     <div className="flex flex-col w-full min-h-screen bg-slate-50">
       {/* Section transition overlay */}
       {showSectionBreak && (
-        <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center z-50 p-8">
-          <div className="max-w-lg w-full flex flex-col gap-5">
+        <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center z-50 p-4 sm:p-8 overflow-y-auto">
+          <div className="max-w-lg w-full flex flex-col gap-4 sm:gap-5 py-4">
             <div className="text-center">
               <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
                 <svg className="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1061,8 +1061,8 @@ function MockTest() {
 
       {/* Pre-test rules overlay — shown once for new (not resumed) non-diagnostic tests */}
       {testReady && showTestRules && (
-        <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center z-50 p-8">
-          <div className="max-w-lg w-full flex flex-col gap-5">
+        <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center z-50 p-4 sm:p-8 overflow-y-auto">
+          <div className="max-w-lg w-full flex flex-col gap-4 sm:gap-5 py-4">
             <div className="text-center">
               <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-4">
                 <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1157,7 +1157,7 @@ function MockTest() {
       {/* Report modal */}
       {showReportModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 flex flex-col gap-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-4 sm:p-6 flex flex-col gap-4">
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Report a Problem</h3>
