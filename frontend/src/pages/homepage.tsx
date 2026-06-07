@@ -12,10 +12,11 @@ function HomePage() {
   const [mockTestPopUp, setMockTestPopUp] = useState(false);
   const [recentTests, setRecentTests] = useState<Test[] | null>(null);
   const [isTimed, setIsTimed] = useState(false);
-  const [durationHours, setDurationHours] = useState(0);
-  const [durationMinutes, setDurationMinutes] = useState(0);
+  const [durationHours, setDurationHours] = useState("0");
+  const [durationMinutes, setDurationMinutes] = useState("0");
   const user = useContext(UserContext);
-  const [numQuestions, setNumQuestions] = useState(114);
+  const [numQuestions, setNumQuestions] = useState("114");
+  const [startError, setStartError] = useState("");
   const [numPracticeQuestions, setNumPracticeQuestions] = useState(false);
   const [showDiagnosticPrompt, setShowDiagnosticPrompt] = useState(false);
   const [availableTopics, setAvailableTopics] = useState<string[]>([]);
@@ -76,14 +77,31 @@ function HomePage() {
   }
 
   async function startMockTest() {
-    const totalMinutes = isTimed ? durationHours * 60 + durationMinutes : 0;
+    setStartError("");
+    if (numPracticeQuestions) {
+      const n = parseInt(numQuestions, 10);
+      if (!numQuestions.trim() || isNaN(n) || n < 1 || !Number.isInteger(n)) {
+        setStartError("# of questions must be a whole number greater than 0.");
+        return;
+      }
+    }
+    if (isTimed) {
+      const h = parseInt(durationHours, 10) || 0;
+      const m = parseInt(durationMinutes, 10) || 0;
+      if (h === 0 && m === 0) {
+        setStartError("Duration must be greater than 0 minutes.");
+        return;
+      }
+    }
+    const parsedQ = numPracticeQuestions ? parseInt(numQuestions, 10) : 114;
+    const totalMinutes = isTimed ? (parseInt(durationHours, 10) || 0) * 60 + (parseInt(durationMinutes, 10) || 0) : 0;
     const testName = numPracticeQuestions ? "Practice" : "Mock Test";
     const configuration = numPracticeQuestions && selectedTopics.length > 0
       ? { practice_topics: selectedTopics }
       : null;
     const { data, error } = await supabase
       .from("tests")
-      .insert([{ user_id: user!.id, test_name: testName, score: null, duration: totalMinutes, total_questions: numQuestions, configuration }])
+      .insert([{ user_id: user!.id, test_name: testName, score: null, duration: totalMinutes, total_questions: parsedQ, configuration }])
       .select()
       .single();
     if (error) { console.error("Insert failed:", error.message); return; }
@@ -200,8 +218,8 @@ function HomePage() {
               defaultValue="mock"
               className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               onChange={(e) => {
-                if (e.target.value === "mock") { setNumQuestions(114); setNumPracticeQuestions(false); }
-                else { setNumPracticeQuestions(true); setNumQuestions(20); }
+                if (e.target.value === "mock") { setNumQuestions("114"); setNumPracticeQuestions(false); setStartError(""); }
+                else { setNumPracticeQuestions(true); setNumQuestions("20"); setStartError(""); }
               }}
             >
               <option value="mock">Mock Test (114 questions)</option>
@@ -215,12 +233,12 @@ function HomePage() {
               <label htmlFor="practice-q-count" className="text-sm font-medium text-slate-700"># of Questions</label>
               <input
                 id="practice-q-count"
-                type="number"
-                min="1"
+                type="text"
+                inputMode="numeric"
                 value={numQuestions}
                 onFocus={(e) => e.target.select()}
                 className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                onChange={(e) => setNumQuestions(Math.max(1, parseInt(e.target.value) || 1))}
+                onChange={(e) => setNumQuestions(e.target.value)}
               />
             </div>
           )}
@@ -263,8 +281,8 @@ function HomePage() {
             <button
               type="button"
               aria-label="Toggle timed mode"
-              aria-pressed={isTimed}
-              onClick={() => setIsTimed(t => !t)}
+              aria-pressed={isTimed ? "true" : "false"}
+              onClick={() => { setIsTimed(t => !t); setStartError(""); }}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isTimed ? "bg-blue-600" : "bg-slate-200"}`}
             >
               <span
@@ -280,12 +298,13 @@ function HomePage() {
                 <label htmlFor="duration-hours" className="text-sm font-medium text-slate-700">Hours</label>
                 <input
                   id="duration-hours"
-                  type="number" min="0" max="9"
+                  type="text"
+                  inputMode="numeric"
                   value={durationHours}
                   title="Hours"
                   placeholder="0"
                   onFocus={(e) => e.target.select()}
-                  onChange={(e) => setDurationHours(Math.max(0, parseInt(e.target.value) || 0))}
+                  onChange={(e) => setDurationHours(e.target.value)}
                   className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -293,12 +312,13 @@ function HomePage() {
                 <label htmlFor="duration-minutes" className="text-sm font-medium text-slate-700">Minutes</label>
                 <input
                   id="duration-minutes"
-                  type="number" min="0" max="59"
+                  type="text"
+                  inputMode="numeric"
                   value={durationMinutes}
                   title="Minutes"
                   placeholder="0"
                   onFocus={(e) => e.target.select()}
-                  onChange={(e) => setDurationMinutes(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                  onChange={(e) => setDurationMinutes(e.target.value)}
                   className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -306,10 +326,15 @@ function HomePage() {
           )}
         </div>
 
+        {startError && (
+          <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+            {startError}
+          </p>
+        )}
         <button
           type="button"
           className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-semibold transition-colors"
-          onClick={() => { setMockTestPopUp(false); startMockTest(); }}
+          onClick={startMockTest}
         >
           Start Test
         </button>
@@ -331,9 +356,9 @@ function HomePage() {
           <button
             type="button"
             className="bg-blue-600 hover:bg-blue-700 text-white px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg font-medium text-xs sm:text-sm transition-colors shrink-0"
-            onClick={() => setMockTestPopUp(true)}
+            onClick={() => { setStartError(""); setMockTestPopUp(true); }}
           >
-            + New Test
+            + New Test/Practice
           </button>
         </div>
 
