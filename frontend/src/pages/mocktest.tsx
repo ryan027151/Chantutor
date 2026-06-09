@@ -82,15 +82,16 @@ function isMultiQuestionMedia(mediaId: string): boolean {
 }
 
 // Returns true if the media_id is a number-line choice image (e.g. "24A_Q113_NLA").
+// Only NLA, NLB, NLC, NLD are valid choice-image suffixes.
 function isChoiceMedia(mediaId: string): boolean {
   const suffix = mediaId.split("_").pop() ?? "";
-  return suffix.startsWith("NL");
+  return /^NL[ABCD]$/i.test(suffix);
 }
 
 // Extracts the choice letter from a number-line media_id ("24A_Q113_NLA" → "A").
 function choiceLetter(mediaId: string): string {
   const suffix = mediaId.split("_").pop() ?? "";
-  return suffix.slice(2); // remove "NL"
+  return suffix.slice(2).toUpperCase(); // "NLA" → "A", handles any input case
 }
 
 const GRAMMAR_SUBCATEGORIES = [
