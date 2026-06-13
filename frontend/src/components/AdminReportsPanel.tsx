@@ -29,7 +29,7 @@ interface QuestionPreview {
 }
 
 interface Props {
-  onEditQuestion: (uid: string) => void;
+  onEditQuestion: (uid: string, reportId: string) => void;
   onReportResolved: () => void;
 }
 
@@ -543,8 +543,7 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved }: 
                                   <QuestionPreviewCard
                                     q={questionCache[r.question_uid]!}
                                     onEdit={() => {
-                                      setStatus(r.id, "reviewed");
-                                      onEditQuestion(r.question_uid!);
+                                      onEditQuestion(r.question_uid!, r.id);
                                     }}
                                     onDeleteQuestion={() => deleteQuestion(r.question_uid!, r.id)}
                                   />

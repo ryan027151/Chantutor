@@ -70,6 +70,7 @@ export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("students");
   const [pendingReports, setPendingReports] = useState(0);
   const [editQuestionUid, setEditQuestionUid] = useState<string | null>(null);
+  const [editReportId, setEditReportId] = useState<string | null>(null);
   const navigate = useNavigate();
   const user = useContext(UserContext);
 
@@ -81,8 +82,9 @@ export default function AdminPage() {
       .then(({ count }) => setPendingReports(count ?? 0));
   }, []);
 
-  function handleEditQuestion(uid: string) {
+  function handleEditQuestion(uid: string, reportId: string) {
     setEditQuestionUid(uid);
+    setEditReportId(reportId);
     setTab("questions");
   }
 
@@ -140,7 +142,8 @@ export default function AdminPage() {
         {tab === "questions" && (
           <AdminQuestionsPanel
             initialEditUid={editQuestionUid}
-            onEditHandled={() => setEditQuestionUid(null)}
+            initialReportId={editReportId}
+            onEditHandled={() => { setEditQuestionUid(null); setEditReportId(null); }}
           />
         )}
         {tab === "reports"  && (

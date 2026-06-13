@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../supabase-client";
+import { parseFormattedText } from "../utils/textParser";
 
 type MediaType = "passage" | "graph" | "table" | "equation";
 type QuestionType = "mcq" | "grid-in" | "linear_graphing";
@@ -120,6 +121,18 @@ function Select({
       {children}
     </select>
   );
+}
+
+// ── Preview helpers ────────────────────────────────────────────────────────────
+
+function previewExtractLetter(text: string | undefined, fallback: string): string {
+  if (!text) return fallback;
+  const m = text.match(/^([A-Ha-h])[).:\s]/);
+  return m ? m[1].toUpperCase() : fallback;
+}
+
+function previewStripPrefix(text: string): string {
+  return text.replace(/^[A-Ha-h][).:\s]\s*/, "");
 }
 
 // ── Type badge helper ──────────────────────────────────────────────────────────
@@ -330,10 +343,11 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
 
 interface AdminQuestionsPanelProps {
   initialEditUid?: string | null;
+  initialReportId?: string | null;
   onEditHandled?: () => void;
 }
 
-export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: AdminQuestionsPanelProps = {}) {
+export default function AdminQuestionsPanel({ initialEditUid, initialReportId, onEditHandled }: AdminQuestionsPanelProps = {}) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -351,6 +365,7 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
   const [pendingCount, setPendingCount] = useState(0);
 
   const [modalMode, setModalMode] = useState<"add" | "edit" | null>(null);
+  const [activeReportId, setActiveReportId] = useState<string | null>(null);
   const [showGenerate, setShowGenerate] = useState(false);
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
   const [originalSubCategory, setOriginalSubCategory] = useState<string | null>(null);
@@ -360,6 +375,7 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [originalForm, setOriginalForm] = useState<FormData | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<Question | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -390,8 +406,8 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
     setPendingCount(count ?? 0);
   }, []);
 
-  const fetchQuestions = useCallback(async () => {
-    setLoading(true);
+  const fetchQuestions = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setFetchError(null);
     let q = supabase
       .from("all_questions")
@@ -460,7 +476,10 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
         .select("uid, type, text, choice_1, choice_2, choice_3, choice_4, answer, subject, sub_category, difficulty, media_refs, source, status")
         .eq("uid", initialEditUid)
         .single();
-      if (data) openEdit(data as Question);
+      if (data) {
+        openEdit(data as Question);
+        setActiveReportId(initialReportId ?? null);
+      }
       onEditHandled?.();
     })();
   // openEdit is stable (defined with plain function, not useCallback) — intentionally omitted from deps
@@ -501,6 +520,7 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
     setNewTopicName("");
     setMediaItems([]);
     setSaveError(null);
+    setShowPreview(false);
     setModalMode("add");
   }
 
@@ -512,6 +532,7 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
     setNewTopicName("");
     setMediaItems([]);
     setSaveError(null);
+    setShowPreview(false);
     setModalMode("edit");
 
     const { data } = await supabase
@@ -534,10 +555,19 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
       })));
     } else if (q.media_refs?.trim()) {
       setMediaItems(q.media_refs.split(/[,\s]+/).filter(Boolean).map(id => ({
-        mediaId: id.trim(), media_type: "graph" as MediaType,
+        mediaId: id.trim().replace(/^\[(.+)\]$/, "$1"), // strip [brackets] if present
+        media_type: "graph" as MediaType,
         file: null, passageText: "", previewUrl: "", isExisting: true,
       })));
     }
+  }
+
+  function closeModal() {
+    if (activeReportId) {
+      void supabase.from("question_reports").update({ status: "reviewed" }).eq("id", activeReportId);
+      setActiveReportId(null);
+    }
+    setModalMode(null);
   }
 
   async function save() {
@@ -666,12 +696,14 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
 
     for (let i = 0; i < mediaItems.length; i++) {
       const item = mediaItems[i];
+      // Strip any accidental [brackets] — e.g. copied from choice text like [25A_Q86_NLA]
+      const cleanId = item.mediaId.trim().replace(/^\[(.+)\]$/, "$1");
 
       // Determine what changed
       const hasNewFile = isImageType(item.media_type) && item.file !== null;
       const passageChanged = item.media_type === "passage" &&
         item.passageText.trim() !== (item._origContent ?? "").trim();
-      const idChanged = item.isExisting && !!item._origId && item._origId !== item.mediaId.trim();
+      const idChanged = item.isExisting && !!item._origId && item._origId !== cleanId;
       const typeChanged = item.isExisting && !!item._origType && item._origType !== item.media_type;
 
       const needsSave = hasNewFile || passageChanged || !item.isExisting || idChanged || typeChanged;
@@ -681,12 +713,17 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
 
       if (hasNewFile) {
         const ext = item.file!.name.split(".").pop() ?? "jpg";
-        const filePath = `${item.mediaId.trim()}.${ext}`;
+        const filePath = `${cleanId}.${ext}`;
         const { error: uploadErr } = await supabase.storage
           .from("images")
           .upload(filePath, item.file!, { upsert: true });
         if (uploadErr) {
-          setSaveError(`Image upload failed for "${item.mediaId}": ${uploadErr.message}. Question was saved.`);
+          const isBucketMissing = uploadErr.message.toLowerCase().includes("bucket");
+          setSaveError(
+            isBucketMissing
+              ? `Storage bucket "images" not found. Go to Supabase Dashboard → Storage → New bucket → name it "images" → enable Public → Create. Then try again. Question was saved.`
+              : `Image upload failed for "${cleanId}": ${uploadErr.message}. Question was saved.`
+          );
           setSaving(false);
           return;
         }
@@ -706,11 +743,11 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
 
       if (content !== null) {
         const { error: dictErr } = await supabase.from("dictionary_of_media").upsert(
-          { media_id: item.mediaId.trim(), question_id: form.uid, media_type: item.media_type, content, index: i },
+          { media_id: cleanId, question_id: form.uid, media_type: item.media_type, content, index: i },
           { onConflict: "media_id" }
         );
         if (dictErr) {
-          setSaveError(`Media record failed for "${item.mediaId}": ${dictErr.message}. Question was saved.`);
+          setSaveError(`Media record failed for "${cleanId}": ${dictErr.message}. Question was saved.`);
           setSaving(false);
           return;
         }
@@ -724,8 +761,15 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
       ));
     }
 
+    if (modalMode === "edit" && activeReportId) {
+      const reportStatus = Object.keys(changedFields).length > 0 ? "resolved" : "reviewed";
+      void supabase.from("question_reports").update({ status: reportStatus }).eq("id", activeReportId);
+      setActiveReportId(null);
+    }
+
     setModalMode(null);
-    fetchQuestions();
+    // silent = true: skip the loading flash so scroll position is preserved after edit
+    fetchQuestions(modalMode === "edit");
     setSaving(false);
   }
 
@@ -740,6 +784,42 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
     fetchQuestions();
     setDeleting(false);
   }
+
+  // ── Preview derived data (mirrors mocktest.tsx choice-image logic) ─────────────
+  const previewChoiceImages: Record<string, string> = {};
+  const previewChoiceMediaIds = new Set<string>();
+
+  // Pattern 1: NLA/NLB/NLC/NLD suffix → mapped to choice letter A/B/C/D
+  for (const item of mediaItems) {
+    const cleanId = item.mediaId.trim().replace(/^\[(.+)\]$/, "$1");
+    const suffix = cleanId.split("_").pop() ?? "";
+    if (/^NL[ABCD]$/i.test(suffix) && item.previewUrl) {
+      const letter = suffix.slice(2).toUpperCase();
+      previewChoiceImages[letter] = item.previewUrl;
+      previewChoiceMediaIds.add(cleanId);
+    }
+  }
+
+  // Pattern 2: choice value IS a media_id (with or without [brackets])
+  const previewMediaByCleanId = new Map(
+    mediaItems
+      .filter(item => item.previewUrl)
+      .map(item => [item.mediaId.trim().replace(/^\[(.+)\]$/, "$1"), item.previewUrl])
+  );
+  (["choice_1", "choice_2", "choice_3", "choice_4"] as const).forEach((key, i) => {
+    const raw = (form[key] as string ?? "").trim();
+    const val = raw.replace(/^\[(.+)\]$/, "$1");
+    if (val && previewMediaByCleanId.has(val)) {
+      previewChoiceImages["ABCD"[i]] = previewMediaByCleanId.get(val)!;
+      previewChoiceMediaIds.add(val);
+    }
+  });
+
+  // Display media = media items not consumed as choice images
+  const previewDisplayMedia = mediaItems.filter(item => {
+    const cleanId = item.mediaId.trim().replace(/^\[(.+)\]$/, "$1");
+    return !previewChoiceMediaIds.has(cleanId);
+  });
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
@@ -958,7 +1038,7 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
                   <p className="text-sm text-zinc-400 font-mono mt-0.5">{form.uid}</p>
                 )}
               </div>
-              <button type="button" onClick={() => setModalMode(null)}
+              <button type="button" onClick={closeModal}
                 className="w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors text-base">
                 ✕
               </button>
@@ -1161,6 +1241,109 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
                 </div>
               )}
 
+              {/* ── Test Preview ── */}
+              <div className="border border-zinc-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(v => !v)}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-zinc-50 hover:bg-zinc-100 transition-colors"
+                >
+                  <span className="text-sm font-bold text-zinc-600 uppercase tracking-widest">Test Preview</span>
+                  <svg className={`w-4 h-4 text-zinc-400 transition-transform ${showPreview ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {showPreview && (
+                  <div className="bg-slate-50 border-t border-zinc-200 p-4 flex flex-col gap-4">
+                    {/* display media (passages + non-choice images) */}
+                    {previewDisplayMedia.length > 0 && (
+                      <div className="flex flex-col gap-3">
+                        {previewDisplayMedia.map((item, idx) => (
+                          item.media_type === "passage" ? (
+                            <div key={idx} className="bg-white rounded-lg border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed">
+                              {parseFormattedText(item.passageText)}
+                            </div>
+                          ) : item.previewUrl ? (
+                            <div key={idx} className="bg-white rounded-lg border border-slate-200 p-2 text-center">
+                              <img src={item.previewUrl} alt={item.mediaId} className="max-w-full h-auto mx-auto" />
+                            </div>
+                          ) : (
+                            <div key={idx} className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700 font-mono">
+                              {item.mediaId} — no image uploaded yet
+                            </div>
+                          )
+                        ))}
+                      </div>
+                    )}
+
+                    {/* question text */}
+                    <div className="text-base leading-relaxed text-slate-800">
+                      {form.text?.trim()
+                        ? parseFormattedText(form.text)
+                        : <span className="text-zinc-400 italic text-sm">No question text yet.</span>}
+                    </div>
+
+                    {/* MCQ choices */}
+                    {form.type === "mcq" && (
+                      <div className="flex flex-col gap-2">
+                        {(["choice_1", "choice_2", "choice_3", "choice_4"] as const).map((key, i) => {
+                          const choiceText = (form[key] as string) ?? "";
+                          const letter = previewExtractLetter(choiceText, "ABCD"[i]);
+                          const image = previewChoiceImages[letter];
+                          const stripped = previewStripPrefix(choiceText);
+                          const isMediaRef = /^\[.+\]$/.test(stripped.trim());
+                          const isCorrect = form.answer === letter;
+                          return (
+                            <div key={key} className={`flex items-start gap-3 border rounded-xl p-3 ${
+                              isCorrect ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
+                            }`}>
+                              <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border mt-0.5 ${
+                                isCorrect ? "bg-blue-600 text-white border-blue-600" : "border-slate-300 text-slate-500"
+                              }`}>
+                                {letter}
+                              </span>
+                              <div className="flex-1 min-w-0 pt-0.5">
+                                {image ? (
+                                  <img src={image} alt={`Choice ${letter}`} className="max-h-24 h-auto" />
+                                ) : isMediaRef ? (
+                                  <span className="text-xs font-mono text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                                    ⚠ {stripped.trim().slice(1, -1)} — media not loaded
+                                  </span>
+                                ) : (
+                                  <span className={`text-sm leading-relaxed ${isCorrect ? "text-blue-900" : "text-slate-700"}`}>
+                                    {parseFormattedText(stripped || choiceText)}
+                                  </span>
+                                )}
+                              </div>
+                              {isCorrect && (
+                                <span className="text-xs font-bold text-blue-600 shrink-0 mt-1">✓ Correct</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Grid-in */}
+                    {form.type === "grid-in" && (
+                      <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-500 italic">
+                        Grid-in — student enters a number.{" "}
+                        <span className="not-italic font-medium text-slate-700">Answer: <span className="font-mono">{form.answer || "—"}</span></span>
+                      </div>
+                    )}
+
+                    {/* Linear graphing */}
+                    {form.type === "linear_graphing" && (
+                      <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-500 italic">
+                        Linear graphing — student drags two points onto the coordinate grid.{" "}
+                        <span className="not-italic font-medium text-slate-700">Answer: <span className="font-mono">{form.answer || "—"}</span></span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <p className="text-sm text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2">
                 Saves to <span className="text-zinc-700 font-mono">all_questions</span> and topic table{" "}
                 <span className="text-amber-500/80 font-mono">{form.sub_category || "<sub_category>"}</span>.
@@ -1172,7 +1355,7 @@ export default function AdminQuestionsPanel({ initialEditUid, onEditHandled }: A
             </div>
 
             <div className="px-6 py-4 border-t border-zinc-200 flex items-center justify-between shrink-0">
-              <button type="button" onClick={() => setModalMode(null)}
+              <button type="button" onClick={closeModal}
                 className="px-4 py-2 rounded-lg text-base text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors">
                 Cancel
               </button>

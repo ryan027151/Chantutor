@@ -215,11 +215,13 @@ function MockTest() {
       choiceMediaIdSet.add(m.media_id);
     });
 
-  // Pattern 2: choice value IS a media_id (e.g. choice_1 = "25A_Q5_A")
+  // Pattern 2: choice value IS a media_id, with or without [bracket] wrapping
+  // e.g. choice_1 = "25A_Q5_A"  or  choice_1 = "[25A_Q86_NLA]"
   if (questionData) {
     const mediaById = new Map(mediaItems.map((m) => [m.media_id, m.content]));
     (["choice_1", "choice_2", "choice_3", "choice_4"] as const).forEach((key, i) => {
-      const val = (questionData as Record<string, string | null>)[key]?.trim();
+      const raw = (questionData as Record<string, string | null>)[key]?.trim() ?? "";
+      const val = raw.replace(/^\[(.+)\]$/, "$1"); // strip surrounding [brackets] if present
       if (val && mediaById.has(val)) {
         choiceImages["ABCD"[i]] = mediaById.get(val)!;
         choiceMediaIdSet.add(val);
