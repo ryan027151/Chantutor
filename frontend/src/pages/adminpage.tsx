@@ -144,6 +144,7 @@ export default function AdminPage() {
             initialEditUid={editQuestionUid}
             initialReportId={editReportId}
             onEditHandled={() => { setEditQuestionUid(null); setEditReportId(null); }}
+            onReturnToReports={() => setTab("reports")}
           />
         )}
         {tab === "reports"  && (

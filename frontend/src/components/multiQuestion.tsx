@@ -43,7 +43,7 @@ function MCQuestion({
     return {
       value: letter,          // backend answer key — original DB letter
       label: opt,
-      image: choiceImages[letter],
+      image: choiceImages[letter] ?? choiceImages[fallbackLetters[i]],
       letter,                 // bubble display — same original DB letter
     };
   });

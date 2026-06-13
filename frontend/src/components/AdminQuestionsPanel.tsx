@@ -345,9 +345,10 @@ interface AdminQuestionsPanelProps {
   initialEditUid?: string | null;
   initialReportId?: string | null;
   onEditHandled?: () => void;
+  onReturnToReports?: () => void;
 }
 
-export default function AdminQuestionsPanel({ initialEditUid, initialReportId, onEditHandled }: AdminQuestionsPanelProps = {}) {
+export default function AdminQuestionsPanel({ initialEditUid, initialReportId, onEditHandled, onReturnToReports }: AdminQuestionsPanelProps = {}) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -532,7 +533,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
     setNewTopicName("");
     setMediaItems([]);
     setSaveError(null);
-    setShowPreview(false);
+    setShowPreview(true);
     setModalMode("edit");
 
     const { data } = await supabase
@@ -563,11 +564,13 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
   }
 
   function closeModal() {
+    const wasFromReport = activeReportId !== null;
     if (activeReportId) {
       void supabase.from("question_reports").update({ status: "reviewed" }).eq("id", activeReportId);
       setActiveReportId(null);
     }
     setModalMode(null);
+    if (wasFromReport) onReturnToReports?.();
   }
 
   async function save() {
@@ -694,6 +697,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
       setCategories(prev => [...prev, form.sub_category!].sort());
     }
 
+    let mediaChanged = false;
     for (let i = 0; i < mediaItems.length; i++) {
       const item = mediaItems[i];
       // Strip any accidental [brackets] — e.g. copied from choice text like [25A_Q86_NLA]
@@ -708,26 +712,42 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
 
       const needsSave = hasNewFile || passageChanged || !item.isExisting || idChanged || typeChanged;
       if (!needsSave) continue;
+      mediaChanged = true;
 
       let content: string | null = null;
 
       if (hasNewFile) {
         const ext = item.file!.name.split(".").pop() ?? "jpg";
         const filePath = `${cleanId}.${ext}`;
-        const { error: uploadErr } = await supabase.storage
-          .from("images")
+        let { error: uploadErr } = await supabase.storage
+          .from("Images")
           .upload(filePath, item.file!, { upsert: true });
         if (uploadErr) {
-          const isBucketMissing = uploadErr.message.toLowerCase().includes("bucket");
+          const isBucketMissing =
+            uploadErr.message.toLowerCase().includes("bucket") ||
+            uploadErr.message.toLowerCase().includes("not found");
+          if (isBucketMissing) {
+            // Bucket doesn't exist — try to create it, then retry upload
+            await supabase.storage.createBucket("Images", { public: true });
+            const retry = await supabase.storage
+              .from("Images")
+              .upload(filePath, item.file!, { upsert: true });
+            uploadErr = retry.error;
+          }
+        }
+        if (uploadErr) {
+          const isBucketMissing =
+            uploadErr.message.toLowerCase().includes("bucket") ||
+            uploadErr.message.toLowerCase().includes("not found");
           setSaveError(
             isBucketMissing
-              ? `Storage bucket "images" not found. Go to Supabase Dashboard → Storage → New bucket → name it "images" → enable Public → Create. Then try again. Question was saved.`
+              ? `Storage bucket "Images" not found. In the Supabase Dashboard go to Storage → New bucket → name it "Images" → enable Public → Create. Question was saved.`
               : `Image upload failed for "${cleanId}": ${uploadErr.message}. Question was saved.`
           );
           setSaving(false);
           return;
         }
-        const { data: urlData } = supabase.storage.from("images").getPublicUrl(filePath);
+        const { data: urlData } = supabase.storage.from("Images").getPublicUrl(filePath);
         content = urlData.publicUrl;
       } else if (item.media_type === "passage") {
         content = item.passageText.trim() || null;
@@ -736,16 +756,30 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
         content = item.previewUrl || null;
       }
 
-      // If the media ID was renamed, remove the old DB record first
+      // If the media ID was renamed, delete the old record — but only if this question owns it
+      // (maybeSingle returns null when multiple rows share the id, so shared records are safe)
       if (idChanged && item._origId) {
-        await supabase.from("dictionary_of_media").delete().eq("media_id", item._origId);
+        const { data: oldRecord } = await supabase
+          .from("dictionary_of_media")
+          .select("question_id")
+          .eq("media_id", item._origId)
+          .maybeSingle();
+        if (oldRecord?.question_id === form.uid) {
+          await supabase.from("dictionary_of_media").delete().eq("media_id", item._origId);
+        }
       }
 
       if (content !== null) {
-        const { error: dictErr } = await supabase.from("dictionary_of_media").upsert(
-          { media_id: cleanId, question_id: form.uid, media_type: item.media_type, content, index: i },
-          { onConflict: "media_id" }
-        );
+        // Try INSERT first; if the row already exists (code 23505), fall back to UPDATE
+        let { error: dictErr } = await supabase.from("dictionary_of_media")
+          .insert({ media_id: cleanId, question_id: form.uid, media_type: item.media_type, content, index: i });
+
+        if (dictErr?.code === "23505") {
+          ({ error: dictErr } = await supabase.from("dictionary_of_media")
+            .update({ media_type: item.media_type, content, index: i })
+            .eq("media_id", cleanId));
+        }
+
         if (dictErr) {
           setSaveError(`Media record failed for "${cleanId}": ${dictErr.message}. Question was saved.`);
           setSaving(false);
@@ -761,13 +795,15 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
       ));
     }
 
+    const wasFromReport = modalMode === "edit" && activeReportId !== null;
     if (modalMode === "edit" && activeReportId) {
-      const reportStatus = Object.keys(changedFields).length > 0 ? "resolved" : "reviewed";
+      const reportStatus = (Object.keys(changedFields).length > 0 || mediaChanged) ? "resolved" : "reviewed";
       void supabase.from("question_reports").update({ status: reportStatus }).eq("id", activeReportId);
       setActiveReportId(null);
     }
 
     setModalMode(null);
+    if (wasFromReport) onReturnToReports?.();
     // silent = true: skip the loading flash so scroll position is preserved after edit
     fetchQuestions(modalMode === "edit");
     setSaving(false);
@@ -1028,7 +1064,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
       {/* ── Add / Edit Modal ── */}
       {modalMode && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+          <div className="bg-white border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col">
             <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between shrink-0">
               <div>
                 <h3 className="text-lg font-bold text-zinc-900">
@@ -1044,7 +1080,9 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
               </button>
             </div>
 
-            <div className="overflow-y-auto flex-1 p-6 flex flex-col gap-5">
+            <div className="flex flex-1 overflow-hidden min-h-0">
+            {/* ── Left: form ── */}
+            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-5 border-r border-zinc-200 min-w-0">
               <div className="grid grid-cols-3 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <Label>UID</Label>
@@ -1241,109 +1279,6 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                 </div>
               )}
 
-              {/* ── Test Preview ── */}
-              <div className="border border-zinc-200 rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setShowPreview(v => !v)}
-                  className="w-full flex items-center justify-between px-4 py-3 bg-zinc-50 hover:bg-zinc-100 transition-colors"
-                >
-                  <span className="text-sm font-bold text-zinc-600 uppercase tracking-widest">Test Preview</span>
-                  <svg className={`w-4 h-4 text-zinc-400 transition-transform ${showPreview ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-
-                {showPreview && (
-                  <div className="bg-slate-50 border-t border-zinc-200 p-4 flex flex-col gap-4">
-                    {/* display media (passages + non-choice images) */}
-                    {previewDisplayMedia.length > 0 && (
-                      <div className="flex flex-col gap-3">
-                        {previewDisplayMedia.map((item, idx) => (
-                          item.media_type === "passage" ? (
-                            <div key={idx} className="bg-white rounded-lg border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed">
-                              {parseFormattedText(item.passageText)}
-                            </div>
-                          ) : item.previewUrl ? (
-                            <div key={idx} className="bg-white rounded-lg border border-slate-200 p-2 text-center">
-                              <img src={item.previewUrl} alt={item.mediaId} className="max-w-full h-auto mx-auto" />
-                            </div>
-                          ) : (
-                            <div key={idx} className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700 font-mono">
-                              {item.mediaId} — no image uploaded yet
-                            </div>
-                          )
-                        ))}
-                      </div>
-                    )}
-
-                    {/* question text */}
-                    <div className="text-base leading-relaxed text-slate-800">
-                      {form.text?.trim()
-                        ? parseFormattedText(form.text)
-                        : <span className="text-zinc-400 italic text-sm">No question text yet.</span>}
-                    </div>
-
-                    {/* MCQ choices */}
-                    {form.type === "mcq" && (
-                      <div className="flex flex-col gap-2">
-                        {(["choice_1", "choice_2", "choice_3", "choice_4"] as const).map((key, i) => {
-                          const choiceText = (form[key] as string) ?? "";
-                          const letter = previewExtractLetter(choiceText, "ABCD"[i]);
-                          const image = previewChoiceImages[letter];
-                          const stripped = previewStripPrefix(choiceText);
-                          const isMediaRef = /^\[.+\]$/.test(stripped.trim());
-                          const isCorrect = form.answer === letter;
-                          return (
-                            <div key={key} className={`flex items-start gap-3 border rounded-xl p-3 ${
-                              isCorrect ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
-                            }`}>
-                              <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border mt-0.5 ${
-                                isCorrect ? "bg-blue-600 text-white border-blue-600" : "border-slate-300 text-slate-500"
-                              }`}>
-                                {letter}
-                              </span>
-                              <div className="flex-1 min-w-0 pt-0.5">
-                                {image ? (
-                                  <img src={image} alt={`Choice ${letter}`} className="max-h-24 h-auto" />
-                                ) : isMediaRef ? (
-                                  <span className="text-xs font-mono text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
-                                    ⚠ {stripped.trim().slice(1, -1)} — media not loaded
-                                  </span>
-                                ) : (
-                                  <span className={`text-sm leading-relaxed ${isCorrect ? "text-blue-900" : "text-slate-700"}`}>
-                                    {parseFormattedText(stripped || choiceText)}
-                                  </span>
-                                )}
-                              </div>
-                              {isCorrect && (
-                                <span className="text-xs font-bold text-blue-600 shrink-0 mt-1">✓ Correct</span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Grid-in */}
-                    {form.type === "grid-in" && (
-                      <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-500 italic">
-                        Grid-in — student enters a number.{" "}
-                        <span className="not-italic font-medium text-slate-700">Answer: <span className="font-mono">{form.answer || "—"}</span></span>
-                      </div>
-                    )}
-
-                    {/* Linear graphing */}
-                    {form.type === "linear_graphing" && (
-                      <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-500 italic">
-                        Linear graphing — student drags two points onto the coordinate grid.{" "}
-                        <span className="not-italic font-medium text-slate-700">Answer: <span className="font-mono">{form.answer || "—"}</span></span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
               <p className="text-sm text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2">
                 Saves to <span className="text-zinc-700 font-mono">all_questions</span> and topic table{" "}
                 <span className="text-amber-500/80 font-mono">{form.sub_category || "<sub_category>"}</span>.
@@ -1352,7 +1287,104 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
               {saveError && (
                 <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{saveError}</p>
               )}
-            </div>
+            </div>{/* end left form column */}
+
+            {/* ── Right: live preview ── */}
+            <div className="w-80 shrink-0 flex flex-col overflow-hidden bg-slate-50">
+              <div className="px-4 py-3 border-b border-zinc-200 bg-white shrink-0 flex items-center gap-2">
+                <svg className="w-4 h-4 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-bold text-zinc-700">Live Preview</p>
+                  <p className="text-xs text-zinc-400">What students see</p>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+                {/* display media: passages + non-choice images */}
+                {previewDisplayMedia.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    {previewDisplayMedia.map((item, idx) => (
+                      item.media_type === "passage" ? (
+                        <div key={idx} className="bg-white rounded-lg border border-slate-200 p-3 text-sm text-slate-700 leading-relaxed">
+                          {parseFormattedText(item.passageText)}
+                        </div>
+                      ) : item.previewUrl ? (
+                        <div key={idx} className="bg-white rounded-lg border border-slate-200 p-2 text-center">
+                          <img src={item.previewUrl} alt={item.mediaId} className="max-w-full h-auto mx-auto" />
+                        </div>
+                      ) : (
+                        <div key={idx} className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700 font-mono">
+                          ⚠ {item.mediaId} — not uploaded yet
+                        </div>
+                      )
+                    ))}
+                  </div>
+                )}
+
+                {/* question text */}
+                <div className="text-sm leading-relaxed text-slate-800">
+                  {form.text?.trim()
+                    ? parseFormattedText(form.text)
+                    : <span className="text-zinc-400 italic">No question text yet.</span>}
+                </div>
+
+                {/* MCQ choices */}
+                {form.type === "mcq" && (
+                  <div className="flex flex-col gap-2">
+                    {(["choice_1", "choice_2", "choice_3", "choice_4"] as const).map((key, i) => {
+                      const choiceText = (form[key] as string) ?? "";
+                      const letter = previewExtractLetter(choiceText, "ABCD"[i]);
+                      const image = previewChoiceImages[letter] ?? previewChoiceImages["ABCD"[i]];
+                      const stripped = previewStripPrefix(choiceText);
+                      const isMediaRef = /^\[.+\]$/.test(stripped.trim());
+                      const isCorrect = form.answer === letter;
+                      return (
+                        <div key={key} className={`flex items-start gap-2.5 border rounded-xl p-2.5 ${
+                          isCorrect ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white"
+                        }`}>
+                          <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border mt-0.5 ${
+                            isCorrect ? "bg-blue-600 text-white border-blue-600" : "border-slate-300 text-slate-500"
+                          }`}>{letter}</span>
+                          <div className="flex-1 min-w-0 pt-0.5">
+                            {image ? (
+                              <img src={image} alt={`Choice ${letter}`} className="max-h-20 h-auto" />
+                            ) : isMediaRef ? (
+                              <span className="text-xs font-mono text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                                ⚠ {stripped.trim().slice(1, -1)} — not loaded
+                              </span>
+                            ) : (
+                              <span className={`text-xs leading-relaxed ${isCorrect ? "text-blue-900" : "text-slate-700"}`}>
+                                {parseFormattedText(stripped || choiceText)}
+                              </span>
+                            )}
+                          </div>
+                          {isCorrect && <span className="text-xs font-bold text-blue-600 shrink-0">✓</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Grid-in */}
+                {form.type === "grid-in" && (
+                  <div className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-500 italic">
+                    Grid-in — student types a number.{" "}
+                    <span className="not-italic font-semibold text-slate-700">Answer: <span className="font-mono">{form.answer || "—"}</span></span>
+                  </div>
+                )}
+
+                {/* Linear graphing */}
+                {form.type === "linear_graphing" && (
+                  <div className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-500 italic">
+                    Student draws a line on a graph.{" "}
+                    <span className="not-italic font-semibold text-slate-700">Answer: <span className="font-mono">{form.answer || "—"}</span></span>
+                  </div>
+                )}
+              </div>
+            </div>{/* end right preview column */}
+            </div>{/* end two-column row */}
 
             <div className="px-6 py-4 border-t border-zinc-200 flex items-center justify-between shrink-0">
               <button type="button" onClick={closeModal}
