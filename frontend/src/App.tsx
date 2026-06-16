@@ -84,11 +84,13 @@ function App() {
     getUser();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // Silent background events — never disrupt the current page:
-      // TOKEN_REFRESHED: JWT silently renewed (fires on every tab focus when near expiry)
-      // SIGNED_IN for the same user: Supabase re-emits this after a token refresh in some
-      //   SDK versions; if our profile is already loaded for this user, skip the reload.
+      // TOKEN_REFRESHED: JWT silently renewed; session user is unchanged.
+      // Any event for the same user (SIGNED_IN, USER_UPDATED, etc.): the profile hasn't
+      //   changed, so re-fetching is unnecessary and dangerous — the RLS SELECT uses
+      //   auth.uid() which can transiently return null during JWT exchange, causing
+      //   getUser() to find zero rows and call setUser(null), logging the user out mid-test.
       if (event === 'TOKEN_REFRESHED') return;
-      if (event === 'SIGNED_IN' && session && loadedUserIdRef.current === session.user.id) return;
+      if (session && loadedUserIdRef.current === session.user.id) return;
 
       if (session) {
         setUser(undefined); // show loading spinner while profile fetch completes

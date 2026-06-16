@@ -1,5 +1,5 @@
 import { supabase } from "../supabase-client";
-import { useEffect, useState, useContext, useRef } from "react";
+import { useEffect, useState, useContext, useRef, useCallback } from "react";
 import { icons } from "../assets/icons.tsx";
 import { useNavigate } from "react-router-dom";
 import QuestionRenderer from "../components/questionRenderer.tsx";
@@ -92,6 +92,12 @@ function isChoiceMedia(mediaId: string): boolean {
 function choiceLetter(mediaId: string): string {
   const suffix = mediaId.split("_").pop() ?? "";
   return suffix.slice(2).toUpperCase(); // "NLA" → "A", handles any input case
+}
+
+interface PendingSave {
+  id: string; test_id: string; user_id: string;
+  student_answer: string; is_correct: boolean;
+  time_spent: number; order_index: number;
 }
 
 const GRAMMAR_SUBCATEGORIES = [
@@ -196,6 +202,22 @@ function MockTest() {
   // Set to a uid when media was applied synchronously from pre-fetch cache,
   // so the async media useEffect knows to skip the redundant DB fetch.
   const mediaSetForRef = useRef<string | null>(null);
+
+  // Network resilience
+  const [isOnline, setIsOnline]         = useState(() => navigator.onLine);
+  const isOnlineRef                     = useRef(navigator.onLine);
+  // Separate from isOnline: DB may be unreachable even when the network is up.
+  const [isDbReachable, setIsDbReachable] = useState(true);
+  const isDbReachableRef                = useRef(true);
+  const pendingSavesRef                 = useRef<PendingSave[]>([]);
+  const isFlushingRef                   = useRef(false);
+  // pendingCount drives the save-status indicator in the UI (refs don't trigger re-render).
+  const [pendingCount, setPendingCount] = useState(0);
+  // Set when the test is blocked from completing because queued saves haven't flushed.
+  const [saveError, setSaveError]       = useState<string | null>(null);
+  // Stores a retry thunk when a question fetch failed due to DB being down.
+  // Executed automatically by the DB-recovery ping when the server comes back.
+  const pendingQuestionRetryRef         = useRef<(() => Promise<void>) | null>(null);
 
   const navigate = useNavigate();
   const user = useContext(UserContext);
@@ -514,6 +536,70 @@ function MockTest() {
     practiceQueuePosRef.current = 0;
   };
 
+  // ─── Network resilience helpers ─────────────────────────────────────────────
+
+  // Retries all queued saves that failed while offline or during a transient DB error.
+  // Stable (useCallback with []) so it can be used safely in event listeners and effects.
+  // Syncs pendingCount state so the UI reflects the current queue length.
+  const flushPendingSaves = useCallback(async () => {
+    if (isFlushingRef.current || pendingSavesRef.current.length === 0) return;
+    isFlushingRef.current = true;
+    const batch = [...pendingSavesRef.current];
+    const results = await Promise.allSettled(
+      batch.map(save =>
+        supabase.from("questions").upsert(save, { onConflict: "test_id, user_id, id" })
+      )
+    );
+    const failed: PendingSave[] = [];
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled" && !r.value.error) {
+        localStorage.removeItem(`draft_${batch[i].test_id}_q${batch[i].order_index}`);
+      } else {
+        failed.push(batch[i]);
+      }
+    });
+    pendingSavesRef.current = failed;
+    setPendingCount(failed.length);
+    if (failed.length === 0) {
+      // All saves confirmed — DB is reachable again
+      isDbReachableRef.current = true;
+      setIsDbReachable(true);
+      setSaveError(null);
+    }
+    isFlushingRef.current = false;
+  }, []);
+
+  // On test init: replay any localStorage drafts left over from a previous session
+  // that was interrupted before saves could be flushed (e.g. page closed while offline).
+  // Drafts that still fail (DB unreachable at init time) are promoted into pendingSavesRef
+  // so they are automatically retried by the periodic flush effect.
+  const flushLocalStorageDrafts = async (userId: string) => {
+    const prefix = `draft_${testID}_q`;
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(prefix));
+    if (keys.length === 0) return;
+    const stillFailed: PendingSave[] = [];
+    await Promise.allSettled(
+      keys.map(async key => {
+        try {
+          const save = JSON.parse(localStorage.getItem(key) ?? "") as PendingSave;
+          if (!save || save.user_id !== userId) return;
+          const { error } = await supabase
+            .from("questions")
+            .upsert(save, { onConflict: "test_id, user_id, id" });
+          if (!error) {
+            localStorage.removeItem(key);
+          } else {
+            stillFailed.push(save);
+          }
+        } catch { /* malformed draft — ignore */ }
+      })
+    );
+    if (stillFailed.length > 0) {
+      pendingSavesRef.current = [...pendingSavesRef.current, ...stillFailed];
+      setPendingCount(pendingSavesRef.current.length);
+    }
+  };
+
   // ─── Data fetching ──────────────────────────────────────────────────────────
 
   const getQuestion = async (test: Test | null, questionIndex: number): Promise<Record<string, string> | null> => {
@@ -790,11 +876,35 @@ function MockTest() {
 
     // ── Last question: save then complete (must be sequential) ─────────────────
     if (currentTest && Number(currentTest.total_questions) === Number(currentQuestion)) {
-      const { error } = await supabase.from("questions").upsert(
-        { id: questionData.uid, test_id: testID, user_id: user.id, student_answer: chosenAnswer, is_correct, time_spent, order_index: currentQuestion },
+      const lastDraftPayload: PendingSave = { id: questionData.uid, test_id: testID!, user_id: user.id, student_answer: chosenAnswer, is_correct, time_spent, order_index: currentQuestion };
+      const lastDraftKey = `draft_${testID}_q${currentQuestion}`;
+      localStorage.setItem(lastDraftKey, JSON.stringify(lastDraftPayload));
+
+      const { error: lastError } = await supabase.from("questions").upsert(
+        lastDraftPayload,
         { onConflict: "test_id, user_id, id" }
       );
-      if (error) { console.error("Answer not submitted:", error); setSubmitting(false); return; }
+      if (lastError) {
+        // Last answer failed — queue it so the periodic retry can save it, then block.
+        pendingSavesRef.current.push(lastDraftPayload);
+        setPendingCount(pendingSavesRef.current.length);
+        setSaveError("Your last answer couldn't be saved. Please check your connection and tap Finish again.");
+        setSubmitting(false);
+        return;
+      }
+      localStorage.removeItem(lastDraftKey);
+
+      // Flush every answer that was queued earlier before calculating score.
+      // If anything is still unsaved, block navigation — completing with missing answers
+      // would produce a wrong score and the student would have no way to know.
+      await flushPendingSaves();
+      if (pendingSavesRef.current.length > 0) {
+        setSaveError(`${pendingSavesRef.current.length} answer${pendingSavesRef.current.length > 1 ? "s" : ""} couldn't be saved yet. Your progress is safe — tap Finish again once the connection restores.`);
+        setSubmitting(false);
+        return;
+      }
+
+      setSaveError(null);
       localStorage.removeItem(`timerRemaining_${testID}`);
       await markTestComplete();
       navigate(`/results/${testID}`);
@@ -803,21 +913,31 @@ function MockTest() {
 
     const nextIndex = currentQuestion + 1;
 
+    // ── Save draft to localStorage before attempting DB write ─────────────────
+    // This is a safety net: if the page is closed while offline before the in-memory
+    // queue can be flushed, flushLocalStorageDrafts() replays these on next load.
+    const draftKey = `draft_${testID}_q${currentQuestion}`;
+    const draftPayload: PendingSave = { id: questionData.uid, test_id: testID!, user_id: user.id, student_answer: chosenAnswer, is_correct, time_spent, order_index: currentQuestion };
+    localStorage.setItem(draftKey, JSON.stringify(draftPayload));
+
     // ── Save + fetch in parallel — main perf improvement ──────────────────────
     // The DB write and the next question fetch are independent; running them
     // together cuts perceived latency roughly in half.
     const [upsertResult, nextQuestion] = await Promise.all([
-      supabase.from("questions").upsert(
-        { id: questionData.uid, test_id: testID, user_id: user.id, student_answer: chosenAnswer, is_correct, time_spent, order_index: currentQuestion },
-        { onConflict: "test_id, user_id, id" }
-      ),
+      supabase.from("questions").upsert(draftPayload, { onConflict: "test_id, user_id, id" }),
       getQuestion(currentTest, nextIndex),
     ]);
 
     if (upsertResult.error) {
-      console.error("Answer not submitted:", upsertResult.error);
-      setSubmitting(false);
-      return;
+      // DB or network failure: queue for automatic retry and pause the test.
+      // The draft in localStorage is the last-resort backup if the page closes before reconnect.
+      pendingSavesRef.current.push(draftPayload);
+      setPendingCount(pendingSavesRef.current.length);
+      isDbReachableRef.current = false;
+      setIsDbReachable(false);
+      console.warn("Answer queued for retry:", draftPayload.order_index, upsertResult.error.message);
+    } else {
+      localStorage.removeItem(draftKey);
     }
 
     // ── Diagnostic: scan forward if a question slot is missing ────────────────
@@ -833,6 +953,28 @@ function MockTest() {
     }
 
     if (!finalQuestion) {
+      // If the upsert also failed in this batch, or answers are queued from earlier
+      // questions, the null return from getQuestion is almost certainly a DB connectivity
+      // failure — NOT a genuine end of the test.  Navigating to results with incomplete
+      // data would produce a wrong score and a confusing experience.
+      if (upsertResult.error || pendingSavesRef.current.length > 0) {
+        const capturedTest = currentTest;
+        const capturedIndex = finalIndex;
+        pendingQuestionRetryRef.current = async () => {
+          const q = await getQuestion(capturedTest, capturedIndex);
+          if (q) {
+            setLatestQuestion(capturedIndex);
+            setCurrentQuestion(capturedIndex);
+            const subj = (q.subject ?? "").toLowerCase();
+            currentSubjectRef.current = subj;
+            setSubmitting(false);
+          }
+        };
+        setSaveError("Server connection lost — test paused. Your progress is safe. Reconnecting…");
+        setSubmitting(false);
+        return;
+      }
+      // DB is healthy and there genuinely are no more questions — complete the test.
       localStorage.removeItem(`timerRemaining_${testID}`);
       await markTestComplete();
       navigate(`/results/${testID}`);
@@ -921,6 +1063,10 @@ function MockTest() {
     hasInitialized.current = true;
 
     const init = async () => {
+      // Replay any answers that were saved to localStorage during a previous offline session
+      // before fetching lastAnswered — so the DB is current before we compute startIndex.
+      await flushLocalStorageDrafts(user.id);
+
       const [test, lastAnswered] = await Promise.all([
         getCurrenTest(),
         getLastAnsweredIndex(),
@@ -1013,6 +1159,8 @@ function MockTest() {
     setTimeRemaining(remaining);
 
     timerRef.current = setInterval(() => {
+      // Pause when offline or when the DB is unreachable — both refs avoid stale closures.
+      if (!isOnlineRef.current || !isDbReachableRef.current) return;
       remaining -= 1;
       localStorage.setItem(storageKey, remaining.toString());
       setTimeRemaining(remaining);
@@ -1036,10 +1184,79 @@ function MockTest() {
     }
   }, [timeRemaining]);
 
+  // Online/offline detection: updates isOnlineRef (used inside timer tick) and
+  // isOnline state (drives banner + button disabled). On reconnect, immediately
+  // retries any answers that were queued while offline.
+  useEffect(() => {
+    const handleOffline = () => {
+      isOnlineRef.current = false;
+      setIsOnline(false);
+    };
+    const handleOnline = () => {
+      isOnlineRef.current = true;
+      setIsOnline(true);
+      flushPendingSaves();
+    };
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online",  handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online",  handleOnline);
+    };
+  }, [flushPendingSaves]);
+
+  // Periodic retry: when answers are queued (pendingCount > 0), retry every 10 seconds.
+  // This handles DB-down-while-online scenarios — not just network offline events.
+  // Stops automatically once the queue drains (pendingCount returns to 0).
+  useEffect(() => {
+    if (pendingCount === 0) return;
+    const id = setInterval(flushPendingSaves, 10_000);
+    return () => clearInterval(id);
+  }, [pendingCount, flushPendingSaves]);
+
+  // DB recovery ping — runs every 5 s when the DB is marked unreachable.
+  // Handles the case where pendingCount is 0 but a question fetch failed (e.g.
+  // the upsert happened to succeed but the parallel question fetch did not).
+  // On recovery: marks DB reachable, flushes any queued saves, and executes the
+  // stored question-fetch retry so the test resumes automatically.
+  useEffect(() => {
+    if (isDbReachable || !isOnline) return;
+    const id = setInterval(async () => {
+      const { error } = await supabase
+        .from("tests").select("id").eq("id", testID).maybeSingle();
+      if (error) return; // still down
+      // DB is back
+      isDbReachableRef.current = true;
+      setIsDbReachable(true);
+      setSaveError(null);
+      await flushPendingSaves();
+      if (pendingQuestionRetryRef.current) {
+        const retry = pendingQuestionRetryRef.current;
+        pendingQuestionRetryRef.current = null;
+        await retry();
+      }
+    }, 5_000);
+    return () => clearInterval(id);
+  }, [isDbReachable, isOnline, flushPendingSaves, testID]);
+
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col w-full min-h-screen bg-slate-50">
+      {/* Pause banner — shown when network is down OR when DB is unreachable.
+          Both cases stop the timer and disable Submit. The message tells the student
+          their progress is safe so they don't panic and close the tab. */}
+      {(!isOnline || !isDbReachable) && (
+        <div className="fixed inset-x-0 top-0 z-60 flex items-center justify-center gap-2.5 bg-amber-500 text-white text-sm font-semibold py-3 px-4 shadow-lg">
+          <svg className="w-4 h-4 shrink-0 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M4.929 4.929l14.142 14.142" />
+          </svg>
+          {!isOnline
+            ? "No internet connection — your test and timer are paused. Reconnect to continue."
+            : "Server connection lost — your test and timer are paused. Your progress is safe. Reconnecting…"}
+        </div>
+      )}
+
       {/* Section transition overlay */}
       {showSectionBreak && (
         <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center z-50 p-4 sm:p-8 overflow-y-auto">
@@ -1184,6 +1401,19 @@ function MockTest() {
           )}
         </div>
       </div>
+
+      {/* Pending-saves indicator — fixed bottom-left, mirrors Flag button.
+          Visible whenever answers are queued and not yet confirmed by the DB.
+          Disappears automatically once all answers have been saved. */}
+      {pendingCount > 0 && (
+        <div className="fixed bottom-6 left-6 z-20 flex items-center gap-2 bg-amber-50 border border-amber-300 shadow-md rounded-full px-3.5 py-2 text-xs font-medium text-amber-800">
+          <svg className="w-3.5 h-3.5 animate-spin text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          {pendingCount} answer{pendingCount > 1 ? "s" : ""} not saved — retrying…
+        </div>
+      )}
 
       {/* Flag button — fixed bottom-right, only when a live question is shown */}
       {questionData && !isReadOnly && (
@@ -1333,6 +1563,14 @@ function MockTest() {
                     Select an answer before continuing.
                   </p>
                 )}
+                {saveError && (
+                  <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5">
+                    <svg className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                    </svg>
+                    <p className="text-xs text-amber-800 font-medium">{saveError}</p>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <div>
                     {showBackButton && (
@@ -1350,7 +1588,7 @@ function MockTest() {
                   <div>
                   <button
                     type="button"
-                    disabled={submitting}
+                    disabled={submitting || !isOnline || !isDbReachable}
                     className="bg-blue-600 hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed text-white px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl font-semibold text-xs sm:text-sm transition-colors flex items-center gap-2"
                     onClick={handleForward}
                   >
