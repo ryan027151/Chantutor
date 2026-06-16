@@ -5,10 +5,11 @@ import { useContext } from "react";
 import { UserContext } from "./userContext";
 import QuestionDetailModal from "./QuestionDetailModal";
 import { exportResultsPDF } from "../utils/exportResultsPDF";
+import { SUBCAT_TW, SCORE_BAND_TW, fmtSubEN, type Lang } from "../utils/translations";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface QuestionResult { id: string; order_index: number; is_correct: boolean | null; student_answer: string | null; sub_category: string | null; }
+interface QuestionResult { id: string; order_index: number; is_correct: boolean | null; student_answer: string | null; sub_category: string | null; subject: string | null; }
 interface SelectedQuestion { uid: string; studentAnswer: string | null; isCorrect: boolean | null; questionNumber: number; }
 interface AIAnalysis { strengths: string[]; improvements: string[]; recommendations: string[]; }
 interface TestInfo {
@@ -18,8 +19,6 @@ interface TestInfo {
 }
 
 // ── Language ──────────────────────────────────────────────────────────────────
-
-type Lang = "en" | "zh-TW";
 
 interface LangStrings {
   saveAsPDF: string; pdfGenerating: string;
@@ -39,74 +38,6 @@ interface LangStrings {
   fallbackRecs: () => string[];
 }
 
-const SCORE_BAND_TW: Record<string, string> = {
-  "Top-school competitive range":                   "頂尖學校競爭水準",
-  "Competitive range for specialized schools":      "特色學校競爭水準",
-  "Approaching competitive — keep going!":          "接近競爭水準，繼續加油！",
-  "Keep practicing — you're building real skills!": "持續練習，你正在穩步提升！",
-};
-
-const SUBCAT_TW: Record<string, string> = {
-  Authors_Perspective: "作者的觀點立場", "Author's Perspective": "作者的觀點立場",
-  Authors_Point_of_View: "作者的敘述視角", "Author's Point of View": "作者的敘述視角",
-  Authors_Purpose: "作者的寫作目的", "Author's Purpose": "作者的寫作目的",
-  "Author's Purpose & Tone": "作者目的與語氣", Authors_Purpose_and_Tone: "作者目的與語氣",
-  Central_Idea: "中心思想", "Central Idea": "中心思想",
-  Comma_Usage: "逗號用法", "Comma Usage": "逗號用法",
-  Figurative_Language: "修辭手法", "Figurative Language": "修辭手法",
-  Inference: "推理",
-  Inference_and_Implied_Ideas: "推理與隱含含義", "Inference and Implied Ideas": "推理與隱含含義",
-  Main_Idea: "段落主旨", "Main Idea": "段落主旨",
-  "Organization-Concluding_Sentence": "段落組織：結尾句",
-  "Organization-Logical_Placement": "段落組織：邏輯排列",
-  "Organization-Paragraph_Unity": "段落組織：段落統一",
-  "Organization-Topic_Sentence": "段落組織：主題句",
-  "Organization-Transitions": "段落組織：過渡語",
-  Plot_Development: "情節發展", "Plot Development": "情節發展",
-  Poetic_Technique: "詩歌技巧", "Poetic Technique": "詩歌技巧",
-  Point_of_View: "敘述視角", "Point of View": "敘述視角",
-  Pronoun_Agreement: "代詞一致性", "Pronoun Agreement": "代詞一致性",
-  Punctuation: "標點符號",
-  Sentence_Combining: "句子合併", "Sentence Combining": "句子合併",
-  Sentence_Structure: "句子結構", "Sentence Structure": "句子結構",
-  Setting: "場景與背景",
-  "Style-Word_Choice": "寫作風格：用詞選擇",
-  "Subject-Verb_Agreement": "主謂一致性", "Subject Verb Agreement": "主謂一致性",
-  Summarization: "文章概括",
-  Supporting_Details: "支持性細節", "Supporting Details": "支持性細節",
-  Text_Feature: "文本特徵", "Text Feature": "文本特徵",
-  Text_Organization: "文章組織", "Text Organization": "文章組織",
-  Text_Structure: "文章結構", "Text Structure": "文章結構",
-  Textual_Evidence: "文本依據", "Textual Evidence": "文本依據",
-  Textual_Evidence_and_Reasoning: "文本依據與推理", "Textual Evidence and Reasoning": "文本依據與推理",
-  Theme: "文章主題", Tone: "文章語氣",
-  "Usage_&_Grammar": "語言用法與語法", "Usage & Grammar": "語言用法與語法",
-  Verb_Tense: "動詞時態", "Verb Tense": "動詞時態",
-  Vocabulary_in_Context: "語境詞彙", "Vocabulary in Context": "語境詞彙",
-  Word_Choice: "詞語選擇", "Word Choice": "詞語選擇",
-  Algebra_and_Equations: "代數與方程式", "Algebra and Equations": "代數與方程式", "Algebra & Equations": "代數與方程式",
-  Algebraic_Expressions: "代數式", "Algebraic Expressions": "代數式",
-  Arithmetic: "基礎算術",
-  Fraction_Word_Problems: "分數應用題", "Fraction Word Problems": "分數應用題",
-  Geometry: "幾何", Inequalities: "不等式",
-  "Linear_Eq._Formula": "線性方程式", "Linear Eq. Formula": "線性方程式",
-  Percentage: "百分比", Probability: "機率",
-  "Rate-Unit_Rate": "速率／單位速率", "Rate / Unit Rate": "速率／單位速率", "Rate/Unit Rate": "速率／單位速率",
-  Ratios_and_Proportions: "比例關係", "Ratios and Proportions": "比例關係", "Ratios & Proportions": "比例關係",
-  Sequence: "數列規律",
-  Stats_and_Data_Analysis: "統計與資料分析", "Stats and Data Analysis": "統計與資料分析", "Stats & Data Analysis": "統計與資料分析",
-  Statistics: "統計",
-  General: "綜合", Uncategorized: "未分類",
-};
-
-function fmtSubEN(raw: string): string {
-  return raw
-    .replace(/_/g, " ")
-    .replace(/^Organization-/, "Org: ")
-    .replace(/^Style-/, "Style: ")
-    .replace(/\bEq\b\.?/g, "Eq.")
-    .replace(/\band\b/g, "&");
-}
 
 const T: Record<Lang, LangStrings> = {
   en: {
@@ -366,7 +297,7 @@ export default function ResultsModal({ testID, userID, studentName, onClose }: R
           const allTests = (res.tests ?? []) as EdgeTest[];
           resolvedQs = allQs.filter(q => q.test_id === testID).map(q => ({
             id: q.id, order_index: q.order_index, is_correct: q.is_correct, student_answer: q.student_answer ?? null,
-            sub_category: q.sub_category ?? null,
+            sub_category: q.sub_category ?? null, subject: q.subject ?? null,
           }));
           resolvedTest = allTests.find(t => t.id === testID) ?? null;
           detailMap = Object.fromEntries(
@@ -396,43 +327,66 @@ export default function ResultsModal({ testID, userID, studentName, onClose }: R
             (detailData ?? []).map((q: Detail) => [q.uid, q])
           );
           resolvedQs = resolvedQs.map(q => ({
-            ...q, sub_category: detailMap[q.id]?.sub_category ?? null,
+            ...q,
+            sub_category: detailMap[q.id]?.sub_category ?? null,
+            subject: detailMap[q.id]?.subject ?? null,
           }));
         }
       }
 
-      if (resolvedTest) setTest(resolvedTest);
-      setQuestions(resolvedQs);
-      setLoading(false);
-
+      // Compute SHSAT score synchronously before setting any state so all
+      // data is ready in a single React render (no SHSAT card flicker).
+      let shsat: SHSATScore | null = null;
       if (resolvedTest && resolvedQs.length > 0) {
-        const englishCnt: number =
-          resolvedTest.configuration?.english?.count ?? Math.floor(resolvedTest.total_questions / 2);
+        // Use actual subject field as primary source for the ELA/Math boundary;
+        // fall back to configuration only when subject data is missing.
+        const subjectEngCnt = resolvedQs.filter(q => q.subject === "english").length;
+        const englishCnt: number = subjectEngCnt > 0
+          ? subjectEngCnt
+          : (resolvedTest.configuration?.english?.count ?? Math.floor(resolvedTest.total_questions / 2));
         const scored: ScoredQuestion[] = resolvedQs.map(q => {
           const d = detailMap[q.id];
           return {
             order_index:  q.order_index,
             is_correct:   q.is_correct,
             difficulty:   (d?.difficulty as Difficulty) ?? "medium",
-            sub_category: d?.sub_category,
-            subject:      d?.subject,
+            sub_category: d?.sub_category ?? q.sub_category ?? undefined,
+            subject:      d?.subject ?? q.subject ?? undefined,
           };
         });
-        setShsatScore(computeSHSATScore(scored, englishCnt));
+        shsat = computeSHSATScore(scored, englishCnt);
       }
+
+      // Batch all state updates — React 18 auto-batches these in async context,
+      // so the UI renders once with everything ready.
+      if (resolvedTest) setTest(resolvedTest);
+      setQuestions(resolvedQs);
+      if (shsat) setShsatScore(shsat);
+      setLoading(false);
     })();
   }, [testID, userID]);
 
-  const englishCount = test?.configuration?.english?.count ?? Math.floor((test?.total_questions ?? 0) / 2);
-  const mathCount    = test?.configuration?.math?.count    ?? Math.ceil((test?.total_questions  ?? 0) / 2);
+  // Use subject field as the primary ELA/Math split; fall back to configuration
+  // only when subject data is absent (older test records may lack it).
+  const englishQs    = questions.filter(q => q.subject === "english");
+  const mathQs       = questions.filter(q => q.subject === "math");
+  const hasSubjects  = englishQs.length > 0 || mathQs.length > 0;
+  const englishCount = hasSubjects
+    ? englishQs.length
+    : (test?.configuration?.english?.count ?? Math.floor((test?.total_questions ?? 0) / 2));
+  const mathCount    = hasSubjects
+    ? mathQs.length
+    : (test?.configuration?.math?.count ?? Math.ceil((test?.total_questions ?? 0) / 2));
   const totalQ       = test?.total_questions ?? 0;
 
   const totalCorrect = questions.filter(q => q.is_correct === true).length;
-  const engCorrect   = questions.filter(q => q.order_index <= englishCount && q.is_correct === true).length;
-  const mathCorrect  = questions.filter(q => q.order_index > englishCount && q.is_correct === true).length;
+  const engCorrect   = (hasSubjects ? englishQs : questions.filter(q => q.order_index <= englishCount))
+    .filter(q => q.is_correct === true).length;
+  const mathCorrect  = (hasSubjects ? mathQs : questions.filter(q => q.order_index > englishCount))
+    .filter(q => q.is_correct === true).length;
 
-  const engGood  = engCorrect >= englishCount * 0.7;
-  const mathGood = mathCorrect >= mathCount * 0.7;
+  const engGood  = englishCount > 0 ? engCorrect >= englishCount * 0.7 : false;
+  const mathGood = mathCount    > 0 ? mathCorrect >= mathCount    * 0.7 : false;
 
   const analysis: AIAnalysis = {
     strengths:       t.fallbackStrengths(engGood, mathGood, questions.length, totalQ),
@@ -455,6 +409,7 @@ export default function ResultsModal({ testID, userID, studentName, onClose }: R
       mathCorrect,
       mathTotal: mathCount,
       studentName,
+
       lang,
       shsatScore: shsatScore && sl ? {
         total: shsatScore.total,
@@ -470,7 +425,7 @@ export default function ResultsModal({ testID, userID, studentName, onClose }: R
       questions: questions.map(q => ({
         orderIndex: q.order_index,
         isCorrect: q.is_correct,
-        isEnglish: q.order_index <= englishCount,
+        isEnglish: q.subject === "english",
       })),
     }).finally(() => setPdfLoading(false));
   }
@@ -552,16 +507,16 @@ export default function ResultsModal({ testID, userID, studentName, onClose }: R
               <ScoreCircle correct={totalCorrect} total={totalQ} t={t} />
               <div className="flex flex-col gap-3">
                 {(() => {
-                  const engQs   = questions.filter(q => q.order_index <= englishCount);
+                  const engQs   = hasSubjects ? englishQs : questions.filter(q => q.order_index <= englishCount);
                   const revQs   = engQs.filter(q => isRevisingEditing(q.sub_category));
                   const rcQs    = engQs.filter(q => !isRevisingEditing(q.sub_category));
                   const revCorr = revQs.filter(q => q.is_correct === true).length;
                   const rcCorr  = rcQs.filter(q => q.is_correct === true).length;
                   return (
                     <>
-                      <SectionBar label={t.revisingEditing}      correct={revCorr}     total={revQs.length} colorClass="bg-blue-500" />
-                      <SectionBar label={t.readingComprehension} correct={rcCorr}      total={rcQs.length}  colorClass="bg-sky-500"  />
-                      <SectionBar label={t.math}                 correct={mathCorrect} total={mathCount}    colorClass="bg-violet-500" />
+                      {revQs.length > 0 && <SectionBar label={t.revisingEditing}      correct={revCorr}     total={revQs.length} colorClass="bg-blue-500" />}
+                      {rcQs.length  > 0 && <SectionBar label={t.readingComprehension} correct={rcCorr}      total={rcQs.length}  colorClass="bg-sky-500"  />}
+                      {mathCount    > 0 && <SectionBar label={t.math}                 correct={mathCorrect} total={mathCount}    colorClass="bg-violet-500" />}
                     </>
                   );
                 })()}
@@ -618,7 +573,7 @@ export default function ResultsModal({ testID, userID, studentName, onClose }: R
               <div className="divide-y divide-zinc-800/60 max-h-72 overflow-y-auto">
                 {Array.from({ length: totalQ }, (_, i) => {
                   const q = questions.find(qr => qr.order_index === i + 1);
-                  const isEng = i + 1 <= englishCount;
+                  const isEng = q ? q.subject === "english" : i + 1 <= englishCount;
                   const correct = q?.is_correct;
                   const clickable = !!q;
                   const rowCls = `w-full text-left flex items-center gap-3 px-4 py-2.5 border-l-[3px] ${

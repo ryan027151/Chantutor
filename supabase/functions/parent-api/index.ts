@@ -247,6 +247,30 @@ Deno.serve(async (req) => {
       return ok({ success: true });
     }
 
+    // ── GET_ASSIGNMENTS ──────────────────────────────────────────────────────
+    // Returns all assignments for a linked student with test score
+    if (action === "get_assignments") {
+      const { student_id } = body;
+      if (!student_id) return fail(400, "Missing student_id");
+
+      // Ownership check
+      const { data: link } = await db
+        .from("student_parents")
+        .select("id")
+        .eq("parent_id", caller.id)
+        .eq("student_id", student_id)
+        .maybeSingle();
+      if (!link) return fail(403, "Not linked to this student");
+
+      const { data: assignments } = await db
+        .from("assignments")
+        .select("id, test_type, num_questions, difficulties, categories, due_date, duration_minutes, note, status, test_id, created_at, tests(score)")
+        .eq("student_id", student_id)
+        .order("created_at", { ascending: false });
+
+      return ok({ assignments: assignments ?? [] });
+    }
+
     return fail(400, "Unknown action");
   } catch (e) {
     console.error(e);

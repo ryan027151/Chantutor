@@ -187,7 +187,7 @@ Deno.serve(async (req) => {
       test_name: testData.test_name,
       total_questions: testData.total_questions,
       total_answered: perQuestion.length,
-      overall_score_pct: Math.round((totalCorrect / testData.total_questions) * 100),
+      overall_score_pct: testData.total_questions > 0 ? Math.round((totalCorrect / testData.total_questions) * 100) : 0,
       english: {
         total: englishCount,
         answered: englishQs.length,
@@ -241,7 +241,7 @@ Rules:
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-4-6",
         max_tokens: 1500,
         system: systemPrompt,
         messages: [{ role: "user", content: userPrompt }],

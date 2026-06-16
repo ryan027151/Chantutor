@@ -97,10 +97,20 @@ export function parseFormattedText(raw: string, keyPrefix: string = ""): ReactNo
       result.push(<sub key={`${keyPrefix}sub-${idx}`}>{parseFormattedText(inner, `${keyPrefix}sub-${idx}-`)}</sub>);
 
     } else {
-      // Plain text — convert \n to <br />
+      // Plain text — convert \n to <br />, caret notation to <sup> (e.g. x^2 → x²)
       const lines = part.split("\n");
       lines.forEach((line, li) => {
-        if (line) result.push(line);
+        if (line) {
+          const caretRe = /([^\s^]+)\^([^\s^]+)/g;
+          let m: RegExpExecArray | null;
+          let lastIdx = 0;
+          while ((m = caretRe.exec(line)) !== null) {
+            if (m.index > lastIdx) result.push(line.slice(lastIdx, m.index));
+            result.push(<span key={`${keyPrefix}cr-${idx}-${li}-${m.index}`}>{m[1]}<sup>{m[2]}</sup></span>);
+            lastIdx = m.index + m[0].length;
+          }
+          if (lastIdx < line.length) result.push(line.slice(lastIdx));
+        }
         if (li < lines.length - 1) {
           result.push(<br key={`${keyPrefix}br-${idx}-${li}`} />);
         }

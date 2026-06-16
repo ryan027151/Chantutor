@@ -7,6 +7,21 @@ import { useContext, useEffect, useState } from "react";
 import { UserContext } from "../components/userContext";
 import { Test } from "../components/types";
 
+interface AssignmentWithTest {
+  id: string;
+  test_type: "mock" | "practice";
+  num_questions: number | null;
+  difficulties: string[] | null;
+  categories: string[] | null;
+  due_date: string | null;
+  duration_minutes: number | null;
+  note: string | null;
+  status: string;
+  test_id: string | null;
+  created_at: string;
+  tests: { score: number | null } | null;
+}
+
 function HomePage() {
   const navigate = useNavigate();
   const [mockTestPopUp, setMockTestPopUp] = useState(false);
@@ -20,10 +35,12 @@ function HomePage() {
   const [numPracticeQuestions, setNumPracticeQuestions] = useState(false);
   const [showDiagnosticPrompt, setShowDiagnosticPrompt] = useState(false);
   const [availableTopics, setAvailableTopics] = useState<string[]>([]);
+  const [topicsBySubject, setTopicsBySubject] = useState<Record<string, string[]>>({});
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [filterType, setFilterType] = useState<"all" | "mock" | "practice">("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [resetIds, setResetIds] = useState<Set<string>>(new Set());
+  const [assignments, setAssignments] = useState<AssignmentWithTest[]>([]);
 
   async function getTests() {
     const { data, error } = await supabase
@@ -116,19 +133,73 @@ function HomePage() {
     getTests();
   }
 
+  async function getAssignments() {
+    if (!user) return;
+    const { data } = await supabase
+      .from("assignments")
+      .select("*, tests(score)")
+      .eq("student_id", user.id)
+      .order("created_at", { ascending: false });
+    setAssignments((data as AssignmentWithTest[]) ?? []);
+  }
+
+  async function startAssignment(a: AssignmentWithTest) {
+    if (a.test_id) {
+      if (a.test_type === "practice" && a.categories && a.categories.length > 0) {
+        await supabase
+          .from("tests")
+          .update({ configuration: { assignment_id: a.id, practice_topics: a.categories } })
+          .eq("id", a.test_id);
+      }
+      navigate(`/mock/${a.test_id}`);
+      return;
+    }
+    const testName = a.test_type === "mock" ? "Mock Test" : "Practice";
+    const totalQ = a.num_questions ?? 114;
+    const totalMin = a.duration_minutes ?? 0;
+    const config: Record<string, unknown> = { assignment_id: a.id };
+    if (a.test_type === "practice" && a.categories && a.categories.length > 0) {
+      config.practice_topics = a.categories;
+    }
+    const { data: testData, error } = await supabase
+      .from("tests")
+      .insert({ user_id: user!.id, test_name: testName, score: null, duration: totalMin, total_questions: totalQ, configuration: config })
+      .select().single();
+    if (error || !testData) return;
+    await supabase.from("assignments").update({ test_id: testData.id }).eq("id", a.id);
+    navigate(`/mock/${testData.id}`);
+  }
+
+  async function loadTopics() {
+    const { data } = await supabase.from("all_questions").select("sub_category, subject").not("sub_category", "is", null).limit(10000);
+    const grouped: Record<string, Set<string>> = {};
+    for (const q of (data ?? []) as { sub_category: string; subject: string | null }[]) {
+      if (!q.sub_category) continue;
+      const subj = q.subject ?? "Other";
+      if (!grouped[subj]) grouped[subj] = new Set();
+      grouped[subj].add(q.sub_category);
+    }
+    const result: Record<string, string[]> = {};
+    const order = Object.keys(grouped).sort((a, b) => {
+      const ai = a.toLowerCase().includes("english") ? 0 : a.toLowerCase().includes("math") ? 1 : 2;
+      const bi = b.toLowerCase().includes("english") ? 0 : b.toLowerCase().includes("math") ? 1 : 2;
+      return ai - bi;
+    });
+    for (const subj of order) result[subj] = [...grouped[subj]].sort();
+    setTopicsBySubject(result);
+    setAvailableTopics(Object.values(result).flat());
+  }
+
   useEffect(() => {
     if (!user) return;
     if (user.role === "student") checkDiagnosticTest();
     getTests();
+    getAssignments();
+    loadTopics();
   }, [user]);
 
   useEffect(() => {
-    if (!numPracticeQuestions) { setSelectedTopics([]); return; }
-    (async () => {
-      const { data } = await supabase.from("all_questions").select("sub_category").not("sub_category", "is", null);
-      const unique = [...new Set((data ?? []).map((q: { sub_category: string }) => q.sub_category).filter(Boolean))].sort() as string[];
-      setAvailableTopics(unique);
-    })();
+    if (!numPracticeQuestions) setSelectedTopics([]);
   }, [numPracticeQuestions]);
 
   const hour = new Date().getHours();
@@ -204,19 +275,19 @@ function HomePage() {
       {/* New test modal */}
       <MockTextPopUp appear={mockTestPopUp} setAppear={setMockTestPopUp}>
         <div>
-          <h3 className="text-lg font-bold text-slate-900">New Test</h3>
-          <p className="text-sm text-slate-500 mt-0.5">Configure your test settings below.</p>
+          <h3 className="text-2xl font-bold text-slate-900">New Test</h3>
+          <p className="text-base text-slate-500 mt-1">Configure your test settings below.</p>
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-5">
           {/* Mode */}
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="test-mode" className="text-sm font-medium text-slate-700">Mode</label>
+          <div className="flex flex-col gap-2">
+            <label htmlFor="test-mode" className="text-base font-medium text-slate-700">Mode</label>
             <select
               id="test-mode"
               title="Test mode"
-              defaultValue="mock"
-              className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={numPracticeQuestions ? "practice" : "mock"}
+              className="border border-slate-300 rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
               onChange={(e) => {
                 if (e.target.value === "mock") { setNumQuestions("114"); setNumPracticeQuestions(false); setStartError(""); }
                 else { setNumPracticeQuestions(true); setNumQuestions("20"); setStartError(""); }
@@ -229,47 +300,70 @@ function HomePage() {
 
           {/* Custom question count */}
           {numPracticeQuestions && (
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="practice-q-count" className="text-sm font-medium text-slate-700"># of Questions</label>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="practice-q-count" className="text-base font-medium text-slate-700"># of Questions</label>
               <input
                 id="practice-q-count"
                 type="text"
                 inputMode="numeric"
                 value={numQuestions}
                 onFocus={(e) => e.target.select()}
-                className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="border border-slate-300 rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 onChange={(e) => setNumQuestions(e.target.value)}
               />
             </div>
           )}
 
           {/* Topic filter — practice mode only */}
-          {numPracticeQuestions && availableTopics.length > 0 && (
-            <div className="flex flex-col gap-1.5">
+          {numPracticeQuestions && Object.keys(topicsBySubject).length > 0 && (
+            <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-700">Topics</span>
-                <div className="flex gap-2 text-xs text-slate-400">
+                <span className="text-base font-medium text-slate-700">Topics</span>
+                <div className="flex gap-2 text-sm text-slate-400">
                   <button type="button" onClick={() => setSelectedTopics(availableTopics)} className="hover:text-blue-600 transition-colors">All</button>
                   <span>·</span>
                   <button type="button" onClick={() => setSelectedTopics([])} className="hover:text-blue-600 transition-colors">None</button>
                 </div>
               </div>
-              <div className="border border-slate-200 rounded-lg overflow-y-auto max-h-40 divide-y divide-slate-50">
-                {availableTopics.map(topic => (
-                  <label key={topic} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={selectedTopics.includes(topic)}
-                      onChange={() => setSelectedTopics(prev =>
-                        prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]
-                      )}
-                      className="accent-blue-600"
-                    />
-                    <span className="text-sm text-slate-700">{topic}</span>
-                  </label>
-                ))}
+              <div className="grid grid-cols-2 gap-3">
+                {Object.entries(topicsBySubject).map(([subject, topics]) => {
+                  const isEnglish = subject.toLowerCase().includes("english");
+                  const headerColor = isEnglish ? "text-blue-700 bg-blue-50 border-blue-200" : "text-violet-700 bg-violet-50 border-violet-200";
+                  const accentClass = isEnglish ? "accent-blue-600" : "accent-violet-600";
+                  const subjectTopicsSelected = topics.filter(t => selectedTopics.includes(t)).length;
+                  return (
+                    <div key={subject} className="border border-slate-200 rounded-lg overflow-hidden">
+                      <div className={`flex items-center justify-between px-3 py-2 border-b text-sm font-semibold ${headerColor}`}>
+                        <span>{subject}</span>
+                        <div className="flex gap-1.5">
+                          <button type="button" onClick={() => setSelectedTopics(prev => [...new Set([...prev, ...topics])])} className="opacity-60 hover:opacity-100 transition-opacity">All</button>
+                          <span className="opacity-40">·</span>
+                          <button type="button" onClick={() => setSelectedTopics(prev => prev.filter(t => !topics.includes(t)))} className="opacity-60 hover:opacity-100 transition-opacity">None</button>
+                        </div>
+                      </div>
+                      <div className="overflow-y-auto max-h-52 divide-y divide-slate-50">
+                        {topics.map(topic => (
+                          <label key={topic} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-slate-50">
+                            <input
+                              type="checkbox"
+                              checked={selectedTopics.includes(topic)}
+                              onChange={() => setSelectedTopics(prev =>
+                                prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]
+                              )}
+                              className={accentClass}
+                            />
+                            <span className="text-sm text-slate-700 leading-snug">{topic}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <div className={`px-3 py-1.5 text-sm border-t ${isEnglish ? "text-blue-500 border-blue-100" : "text-violet-500 border-violet-100"}`}>
+                        {subjectTopicsSelected === 0 ? "All included" : `${subjectTopicsSelected} selected`}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-sm text-slate-400">
                 {selectedTopics.length === 0 ? "All topics included" : `${selectedTopics.length} topic${selectedTopics.length > 1 ? "s" : ""} selected`}
               </p>
             </div>
@@ -277,25 +371,25 @@ function HomePage() {
 
           {/* Timed toggle */}
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-700">Timed</span>
+            <span className="text-base font-medium text-slate-700">Timed</span>
             <button
               type="button"
               aria-label="Toggle timed mode"
-              aria-pressed={isTimed ? "true" : "false"}
+              aria-pressed={isTimed}
               onClick={() => { setIsTimed(t => !t); setStartError(""); }}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isTimed ? "bg-blue-600" : "bg-slate-200"}`}
+              className={`relative inline-flex h-7 w-13 items-center rounded-full transition-colors focus:outline-none ${isTimed ? "bg-blue-600" : "bg-slate-200"}`}
             >
               <span
-                className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${isTimed ? "translate-x-5.5" : "translate-x-0.5"}`}
+                className={`inline-block h-6 w-6 rounded-full bg-white shadow transition-transform ${isTimed ? "translate-x-6.5" : "translate-x-0.5"}`}
               />
             </button>
           </div>
 
           {/* Duration */}
           {isTimed && (
-            <div className="flex gap-3">
-              <div className="flex flex-col gap-1.5 flex-1">
-                <label htmlFor="duration-hours" className="text-sm font-medium text-slate-700">Hours</label>
+            <div className="flex gap-4">
+              <div className="flex flex-col gap-2 flex-1">
+                <label htmlFor="duration-hours" className="text-base font-medium text-slate-700">Hours</label>
                 <input
                   id="duration-hours"
                   type="text"
@@ -305,11 +399,11 @@ function HomePage() {
                   placeholder="0"
                   onFocus={(e) => e.target.select()}
                   onChange={(e) => setDurationHours(e.target.value)}
-                  className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="border border-slate-300 rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <div className="flex flex-col gap-1.5 flex-1">
-                <label htmlFor="duration-minutes" className="text-sm font-medium text-slate-700">Minutes</label>
+              <div className="flex flex-col gap-2 flex-1">
+                <label htmlFor="duration-minutes" className="text-base font-medium text-slate-700">Minutes</label>
                 <input
                   id="duration-minutes"
                   type="text"
@@ -319,7 +413,7 @@ function HomePage() {
                   placeholder="0"
                   onFocus={(e) => e.target.select()}
                   onChange={(e) => setDurationMinutes(e.target.value)}
-                  className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="border border-slate-300 rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             </div>
@@ -327,13 +421,13 @@ function HomePage() {
         </div>
 
         {startError && (
-          <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+          <p className="text-base text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-4 py-3">
             {startError}
           </p>
         )}
         <button
           type="button"
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-semibold transition-colors"
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-semibold text-base transition-colors"
           onClick={startMockTest}
         >
           Start Test
@@ -356,7 +450,7 @@ function HomePage() {
           <button
             type="button"
             className="bg-blue-600 hover:bg-blue-700 text-white px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg font-medium text-xs sm:text-sm transition-colors shrink-0"
-            onClick={() => { setStartError(""); setMockTestPopUp(true); }}
+            onClick={() => { setStartError(""); setNumPracticeQuestions(false); setNumQuestions("114"); setSelectedTopics([]); setMockTestPopUp(true); }}
           >
             + New Test/Practice
           </button>
@@ -390,6 +484,149 @@ function HomePage() {
               <p className="text-3xl font-bold text-slate-900">{completedTests.length}</p>
             </div>
           </div>
+
+          {/* Assigned Work */}
+          {(() => {
+            const activeAssignments = assignments.filter(a => {
+              const s = a.tests?.score;
+              return s === null || s === undefined;
+            });
+            const completedAssignments = assignments.filter(a => {
+              const s = a.tests?.score;
+              return s !== null && s !== undefined;
+            });
+            return (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-bold text-slate-900">Assigned Work</h2>
+                  {activeAssignments.length > 0 && (
+                    <span className="text-xs font-bold bg-rose-500 text-white rounded-full px-1.5 py-0.5 leading-none">
+                      {activeAssignments.length}
+                    </span>
+                  )}
+                </div>
+
+                {assignments.length === 0 ? (
+                  <div className="bg-white rounded-xl border border-slate-100 shadow-sm px-5 py-8 text-center text-slate-400 text-sm">
+                    No assignments yet. Your teacher will assign work here.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {/* Active / In-Progress assignments */}
+                    {activeAssignments.length > 0 && (
+                      <div className="flex flex-col gap-2.5">
+                        {activeAssignments.map(a => {
+                          const isInProgress = !!a.test_id;
+                          const isOverdue = !isInProgress && a.due_date && new Date(a.due_date) < new Date();
+                          const dueSoon = !isOverdue && !isInProgress && a.due_date && new Date(a.due_date).getTime() - Date.now() < 86400000;
+                          const dueLabel = (() => {
+                            if (!a.due_date) return null;
+                            const d = new Date(a.due_date);
+                            const diffMs = d.getTime() - Date.now();
+                            const diffDays = Math.ceil(diffMs / 86400000);
+                            if (diffMs < 0) return `Overdue by ${Math.abs(diffDays)} day${Math.abs(diffDays) !== 1 ? "s" : ""}`;
+                            if (diffDays === 0) return "Due today";
+                            if (diffDays === 1) return "Due tomorrow";
+                            return `Due in ${diffDays} days`;
+                          })();
+                          return (
+                            <div key={a.id} className={`bg-white rounded-xl border p-4 flex flex-col sm:flex-row sm:items-center gap-3 shadow-sm ${isOverdue ? "border-rose-200" : dueSoon ? "border-amber-200" : "border-slate-100"}`}>
+                              <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${a.test_type === "mock" ? "bg-violet-50 text-violet-700 border-violet-200" : "bg-blue-50 text-blue-700 border-blue-200"}`}>
+                                    {a.test_type === "mock" ? "Mock Test" : "Practice"}
+                                  </span>
+                                  {isInProgress && (
+                                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">In Progress</span>
+                                  )}
+                                  {dueLabel && (
+                                    <span className={`text-xs font-medium ${isOverdue ? "text-rose-500" : dueSoon ? "text-amber-500" : "text-slate-400"}`}>
+                                      {dueLabel}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-slate-600">
+                                  <span>{a.test_type === "mock" ? "114 questions" : `${a.num_questions ?? "?"} questions`}</span>
+                                  {a.duration_minutes ? (
+                                    <span className="text-slate-400">· {Math.floor(a.duration_minutes / 60) > 0 ? `${Math.floor(a.duration_minutes / 60)}h ` : ""}{a.duration_minutes % 60 > 0 ? `${a.duration_minutes % 60}m` : ""} limit</span>
+                                  ) : null}
+                                  {a.difficulties && a.difficulties.length > 0 && (
+                                    <span className="text-slate-400">· {a.difficulties.join(", ")}</span>
+                                  )}
+                                </div>
+                                {a.categories && a.categories.length > 0 && (
+                                  <p className="text-xs text-slate-400 truncate">Topics: {a.categories.join(", ")}</p>
+                                )}
+                                {a.note && (
+                                  <p className="text-xs text-slate-500 italic">"{a.note}"</p>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => startAssignment(a)}
+                                className={`shrink-0 px-5 py-2 rounded-lg text-sm font-semibold transition-colors ${isInProgress ? "bg-amber-500 hover:bg-amber-400 text-zinc-950" : "bg-blue-600 hover:bg-blue-700 text-white"}`}
+                              >
+                                {isInProgress ? "Continue" : "Start"}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Completed assignments subsection */}
+                    {completedAssignments.length > 0 && (
+                      <div className="flex flex-col gap-2">
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                          Completed
+                        </p>
+                        <div className="flex flex-col gap-2">
+                          {completedAssignments.map(a => (
+                            <div key={a.id} className="bg-white rounded-xl border border-emerald-100 p-4 flex flex-col sm:flex-row sm:items-center gap-3 shadow-sm opacity-85">
+                              <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${a.test_type === "mock" ? "bg-violet-50 text-violet-700 border-violet-200" : "bg-blue-50 text-blue-700 border-blue-200"}`}>
+                                    {a.test_type === "mock" ? "Mock Test" : "Practice"}
+                                  </span>
+                                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    Completed
+                                  </span>
+                                  <span className="text-xs font-bold text-emerald-600">
+                                    {a.tests?.score}%
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-slate-500">
+                                  <span>{a.test_type === "mock" ? "114 questions" : `${a.num_questions ?? "?"} questions`}</span>
+                                  {a.difficulties && a.difficulties.length > 0 && (
+                                    <span className="text-slate-400">· {a.difficulties.join(", ")}</span>
+                                  )}
+                                </div>
+                                {a.categories && a.categories.length > 0 && (
+                                  <p className="text-xs text-slate-400 truncate">Topics: {a.categories.join(", ")}</p>
+                                )}
+                                {a.note && (
+                                  <p className="text-xs text-slate-400 italic">"{a.note}"</p>
+                                )}
+                              </div>
+                              {a.test_id && (
+                                <button
+                                  type="button"
+                                  onClick={() => navigate(`/results/${a.test_id}`)}
+                                  className="shrink-0 px-5 py-2 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                                >
+                                  View Results
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Recent tests */}
           <div className="flex flex-col gap-3">

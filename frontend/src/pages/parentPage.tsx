@@ -46,6 +46,21 @@ interface TestResults {
 
 interface AIAnalysis { strengths: string[]; improvements: string[]; recommendations: string[]; }
 
+interface AssignmentRecord {
+  id: string;
+  test_type: "mock" | "practice";
+  num_questions: number | null;
+  difficulties: string[] | null;
+  categories: string[] | null;
+  due_date: string | null;
+  duration_minutes: number | null;
+  note: string | null;
+  status: string;
+  test_id: string | null;
+  created_at: string;
+  tests: { score: number | null } | null;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const invoke = (action: string, extra?: object) =>
@@ -310,7 +325,8 @@ function ResultsModal({
       setData(res as TestResults);
 
       const { test, questions } = res as TestResults;
-      const englishCnt = test.configuration?.english?.count ?? Math.floor(test.total_questions / 2);
+      const subjectBasedCnt = (questions as QuestionResult[]).filter(q => q.subject === "english").length;
+      const englishCnt = subjectBasedCnt > 0 ? subjectBasedCnt : (test.configuration?.english?.count ?? Math.floor(test.total_questions / 2));
       const scored: ScoredQuestion[] = questions.map((q: QuestionResult) => ({
         order_index:  q.order_index,
         is_correct:   q.is_correct,
@@ -329,15 +345,17 @@ function ResultsModal({
   const test = data?.test;
   const questions = data?.questions ?? [];
   const englishCount = test?.configuration?.english?.count ?? Math.floor((test?.total_questions ?? 0) / 2);
+  const englishQs = questions.filter(q => q.subject === "english");
+  const mathQs    = questions.filter(q => q.subject === "math");
   const totalCorrect = questions.filter(q => q.is_correct === true).length;
-  const engCorrect   = questions.filter(q => q.order_index <= englishCount && q.is_correct === true).length;
-  const mathCorrect  = questions.filter(q => q.order_index > englishCount  && q.is_correct === true).length;
+  const engCorrect   = englishQs.filter(q => q.is_correct === true).length;
+  const mathCorrect  = mathQs.filter(q => q.is_correct === true).length;
   const totalQ       = test?.total_questions ?? 0;
   const pct          = totalQ > 0 ? Math.round((totalCorrect / totalQ) * 100) : 0;
   const pctColor     = pct >= 70 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444";
 
-  const engGood  = engCorrect >= englishCount * 0.7;
-  const mathGood = mathCorrect >= (totalQ - englishCount) * 0.7;
+  const engGood  = engCorrect >= englishQs.length * 0.7;
+  const mathGood = mathCorrect >= mathQs.length * 0.7;
   const analysis: AIAnalysis = {
     strengths:       t.fallbackStrengths(engGood, mathGood, questions.length, totalQ),
     improvements:    t.fallbackImprovements(engGood, mathGood),
@@ -354,9 +372,9 @@ function ResultsModal({
       totalCorrect,
       totalQuestions: totalQ,
       englishCorrect: engCorrect,
-      englishTotal: englishCount,
+      englishTotal: englishQs.length,
       mathCorrect,
-      mathTotal: totalQ - englishCount,
+      mathTotal: mathQs.length,
       studentName,
       lang,
       shsatScore: shsat && shsatLabel ? {
@@ -373,7 +391,7 @@ function ResultsModal({
       questions: questions.map(q => ({
         orderIndex: q.order_index,
         isCorrect: q.is_correct,
-        isEnglish: q.order_index <= englishCount,
+        isEnglish: q.subject === "english",
       })),
     }).finally(() => setPdfLoading(false));
   }
@@ -463,16 +481,16 @@ function ResultsModal({
               </div>
               {/* Section bars */}
               {(() => {
-                const engQs   = questions.filter(q => q.order_index <= englishCount);
+                const engQs   = questions.filter(q => q.subject === "english");
                 const revQs   = engQs.filter(q => isRevisingEditing(q.sub_category));
                 const rcQs    = engQs.filter(q => !isRevisingEditing(q.sub_category));
                 const revCorr = revQs.filter(q => q.is_correct === true).length;
                 const rcCorr  = rcQs.filter(q => q.is_correct === true).length;
                 const bars = [
-                  { label: t.revisingEditing,      correct: revCorr,    total: revQs.length,          color: "bg-blue-500"   },
-                  { label: t.readingComprehension,  correct: rcCorr,     total: rcQs.length,           color: "bg-sky-500"    },
-                  { label: t.math,                  correct: mathCorrect, total: totalQ - englishCount, color: "bg-violet-500" },
-                ];
+                  { label: t.revisingEditing,      correct: revCorr,    total: revQs.length,  color: "bg-blue-500"   },
+                  { label: t.readingComprehension,  correct: rcCorr,     total: rcQs.length,   color: "bg-sky-500"    },
+                  { label: t.math,                  correct: mathCorrect, total: mathQs.length, color: "bg-violet-500" },
+                ].filter(b => b.total > 0);
                 return (
                   <div className="w-full flex flex-col gap-2.5">
                     {bars.map(s => {
@@ -620,7 +638,7 @@ function ResultsModal({
               <div className="divide-y divide-slate-50 max-h-72 overflow-y-auto">
                 {Array.from({ length: totalQ }, (_, i) => {
                   const q = questions.find(qr => qr.order_index === i + 1);
-                  const isEng = i + 1 <= englishCount;
+                  const isEng = q ? q.subject === "english" : i + 1 <= englishCount;
                   const correct = q?.is_correct;
                   const clickable = !!q;
                   const rowCls = `w-full text-left flex items-center gap-3 px-5 py-3 border-l-[3px] ${
@@ -708,6 +726,8 @@ function ParentPage() {
   const [tests,          setTests]          = useState<TestRecord[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [loadingTests,   setLoadingTests]   = useState(false);
+  const [assignments,    setAssignments]    = useState<AssignmentRecord[]>([]);
+  const [loadingAssignments, setLoadingAssignments] = useState(false);
 
   // Results modal
   const [viewResult, setViewResult] = useState<{ testID: string; studentID: string; studentName: string; duration: number } | null>(null);
@@ -745,10 +765,17 @@ function ParentPage() {
   async function selectStudent(s: Student) {
     setSelectedStudent(s);
     setTests([]);
+    setAssignments([]);
     setLoadingTests(true);
-    const { data, error } = await invoke("get_tests", { student_id: s.id });
-    if (!error && data?.tests) setTests(data.tests as TestRecord[]);
+    setLoadingAssignments(true);
+    const [testsRes, assignRes] = await Promise.all([
+      invoke("get_tests", { student_id: s.id }),
+      invoke("get_assignments", { student_id: s.id }),
+    ]);
+    if (!testsRes.error && testsRes.data?.tests) setTests(testsRes.data.tests as TestRecord[]);
+    if (!assignRes.error && assignRes.data?.assignments) setAssignments(assignRes.data.assignments as AssignmentRecord[]);
     setLoadingTests(false);
+    setLoadingAssignments(false);
   }
 
   // ── Add child ────────────────────────────────────────────────────────────
@@ -951,6 +978,98 @@ function ParentPage() {
                   <span className="hidden sm:inline">View Performance</span>
                   <span className="sm:hidden">Performance</span>
                 </button>
+              </div>
+
+              {/* Assigned Work */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400">Assigned Work</h2>
+                  {(() => {
+                    const active = assignments.filter(a => { const s = a.tests?.score; return s === null || s === undefined; });
+                    return active.length > 0 ? (
+                      <span className="text-xs font-bold bg-rose-500 text-white rounded-full px-1.5 py-0.5 leading-none">{active.length}</span>
+                    ) : null;
+                  })()}
+                </div>
+
+                {loadingAssignments ? (
+                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 flex items-center justify-center">
+                    <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : assignments.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 text-center text-sm text-slate-400">
+                    No assignments yet.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2.5">
+                    {assignments.map(a => {
+                      const score = a.tests?.score;
+                      const isCompleted = score !== null && score !== undefined;
+                      const isInProgress = !!a.test_id && !isCompleted;
+                      const isOverdue = !isCompleted && !isInProgress && !!a.due_date && new Date(a.due_date) < new Date();
+                      const dueLabel = (() => {
+                        if (!a.due_date) return null;
+                        const d = new Date(a.due_date);
+                        const diffMs = d.getTime() - Date.now();
+                        const diffDays = Math.ceil(diffMs / 86400000);
+                        if (diffMs < 0) return `Overdue by ${Math.abs(diffDays)} day${Math.abs(diffDays) !== 1 ? "s" : ""}`;
+                        if (diffDays === 0) return "Due today";
+                        if (diffDays === 1) return "Due tomorrow";
+                        return `Due in ${diffDays} days`;
+                      })();
+                      return (
+                        <div
+                          key={a.id}
+                          className={`bg-white rounded-2xl border px-4 py-3 sm:px-5 sm:py-4 flex flex-wrap items-center gap-3 shadow-sm ${isCompleted ? "border-emerald-100 opacity-90" : isOverdue ? "border-rose-200" : "border-slate-100"}`}
+                        >
+                          <div className="flex-1 min-w-32 flex flex-col gap-1.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${a.test_type === "mock" ? "bg-violet-50 text-violet-700 border-violet-200" : "bg-blue-50 text-blue-700 border-blue-200"}`}>
+                                {a.test_type === "mock" ? "Mock Test" : "Practice"}
+                              </span>
+                              {isCompleted ? (
+                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Completed</span>
+                              ) : isInProgress ? (
+                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">In Progress</span>
+                              ) : (
+                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">Assigned</span>
+                              )}
+                              {isCompleted && <ScoreBadge score={score ?? null} />}
+                              {!isCompleted && dueLabel && (
+                                <span className={`text-xs font-medium ${isOverdue ? "text-rose-500" : "text-slate-400"}`}>{dueLabel}</span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-x-3 text-xs text-slate-500">
+                              <span>{a.test_type === "mock" ? "114 questions" : `${a.num_questions ?? "?"} questions`}</span>
+                              {a.duration_minutes ? (
+                                <span>· {Math.floor(a.duration_minutes / 60) > 0 ? `${Math.floor(a.duration_minutes / 60)}h ` : ""}{a.duration_minutes % 60 > 0 ? `${a.duration_minutes % 60}m` : ""} limit</span>
+                              ) : null}
+                              {a.difficulties && a.difficulties.length > 0 && <span>· {a.difficulties.join(", ")}</span>}
+                            </div>
+                            {a.categories && a.categories.length > 0 && (
+                              <p className="text-xs text-slate-400 truncate">Topics: {a.categories.join(", ")}</p>
+                            )}
+                            {a.note && <p className="text-xs text-slate-400 italic">"{a.note}"</p>}
+                          </div>
+                          {isCompleted && a.test_id && (
+                            <button
+                              type="button"
+                              onClick={() => setViewResult({
+                                testID: a.test_id!,
+                                studentID: selectedStudent.id,
+                                studentName: `${selectedStudent.first_name} ${selectedStudent.last_name}`,
+                                duration: a.duration_minutes ?? 0,
+                              })}
+                              className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors shrink-0"
+                            >
+                              View Results
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Tests list */}

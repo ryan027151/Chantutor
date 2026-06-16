@@ -187,6 +187,8 @@ function MockTest() {
   // Practice queue: pre-built at test start (avoids 2-step UID-then-fetch per question)
   const practiceQueueRef    = useRef<string[]>([]);
   const practiceQueuePosRef = useRef<number>(0);
+  // Resolved practice topics — set once in initPracticeQueue, read by getQuestion and adaptive inits
+  const practiceTopicsRef   = useRef<string[]>([]);
 
   // Pre-fetch cache: stores the next question AND its media so both can be applied instantly
   const prefetchedRef  = useRef<{ uid: string; data: Record<string, string>; media: MediaItem[] } | null>(null);
@@ -286,9 +288,8 @@ function MockTest() {
 
   const initEnglishAdaptive = async (test: Test) => {
     if (!user || test.test_name === "Diagnostic Test") return;
+    if (practiceTopicsRef.current.length > 0) return;
     const config = test.configuration as Record<string, unknown> | null;
-    if ((config?.practice_topics as string[] ?? []).length > 0) return;
-
     const englishCfg = config?.english as { count?: number } | null;
     const englishCount = englishCfg?.count ?? Math.floor(test.total_questions / 2);
 
@@ -371,8 +372,8 @@ function MockTest() {
 
   const initMathAdaptive = async (test: Test) => {
     if (!user || test.test_name === "Diagnostic Test") return;
+    if (practiceTopicsRef.current.length > 0) return;
     const config = test.configuration as Record<string, unknown> | null;
-    if ((config?.practice_topics as string[] ?? []).length > 0) return;
 
     // Fetch pool and historical θ in parallel
     const [{ data: pool }, { data: thetaRaw }] = await Promise.all([
@@ -481,7 +482,21 @@ function MockTest() {
   const initPracticeQueue = async (test: Test) => {
     if (!user || test.test_name === "Diagnostic Test") return;
     const config = test.configuration as Record<string, unknown> | null;
-    const topics = config?.practice_topics as string[] ?? [];
+    let topics = (config?.practice_topics as string[] | undefined) ?? [];
+
+    // If topics not in config, look them up directly from the assignments table.
+    // This is robust against any test-configuration storage issues.
+    if (topics.length === 0) {
+      const assignId = config?.assignment_id as string | undefined;
+      const { data: asgn } = await (
+        assignId
+          ? supabase.from("assignments").select("categories").eq("id", assignId).maybeSingle()
+          : supabase.from("assignments").select("categories").eq("test_id", test.id).maybeSingle()
+      );
+      topics = (asgn as { categories: string[] | null } | null)?.categories ?? [];
+    }
+
+    practiceTopicsRef.current = topics;
     if (topics.length === 0) return;
 
     const { data } = await supabase
@@ -518,10 +533,15 @@ function MockTest() {
 
       // Fetch pool of available UIDs — only approved questions, filtered by subject or topics
       const config = test.configuration as unknown as Record<string, unknown> | null;
-      const topics: string[] = config?.practice_topics as string[] ?? [];
+      const topics: string[] = practiceTopicsRef.current.length > 0
+        ? practiceTopicsRef.current
+        : (config?.practice_topics as string[] ?? []);
       const englishCfg = config?.english as { count?: number } | null | undefined;
       const englishCount = englishCfg?.count ?? Math.floor(test.total_questions / 2);
-      const isEnglishSlot = topics.length === 0 && questionIndex <= englishCount;
+      // Only topic-filtered tests bypass the English/Math adaptive split.
+      // Practice tests with no topics follow the same adaptive structure as mock tests.
+      const isPractice = topics.length > 0;
+      const isEnglishSlot = !isPractice && questionIndex <= englishCount;
 
       // ── Adaptive English ─────────────────────────────────────────────────────
       // Passages served atomically; difficulty re-evaluated at every passage boundary.
@@ -573,7 +593,7 @@ function MockTest() {
 
       // ── Adaptive math ─────────────────────────────────────────────────────────
       // Groups served atomically; difficulty re-evaluated at every group boundary.
-      const isMathSlot = topics.length === 0 && !isEnglishSlot;
+      const isMathSlot = !isPractice && !isEnglishSlot;
       if (isMathSlot && mathGroupsRef.current.length > 0) {
         while (currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length &&
                answeredIds.has(currentMathGroupUidsRef.current[currentMathGroupPosRef.current])) {
@@ -626,7 +646,8 @@ function MockTest() {
       let uidQuery = supabase.from("all_questions").select("uid").eq("status", "approved");
       if (topics.length > 0) {
         uidQuery = uidQuery.in("sub_category", topics);
-      } else {
+      } else if (!isPractice) {
+        // Mock/Diagnostic tests filter by subject slot; practice tests serve any subject
         uidQuery = uidQuery.ilike("subject", expectedSubject);
       }
       const { data: uidPool } = await uidQuery;
@@ -649,7 +670,7 @@ function MockTest() {
       // Hard subject guard: never let a question from the wrong section through,
       // even if DB data has incorrect subject values.
       const returnedSubject = ((qData as Record<string, string>).subject ?? "").toLowerCase();
-      if (topics.length === 0 && returnedSubject !== expectedSubject) {
+      if (!isPractice && topics.length === 0 && returnedSubject !== expectedSubject) {
         console.warn(`Subject mismatch: expected ${expectedSubject}, got ${returnedSubject} for uid ${(qData as Record<string, string>).uid}`);
         return null;
       }
@@ -733,6 +754,8 @@ function MockTest() {
       ? Math.round((correct / currentTest.total_questions) * 100)
       : 0;
     await supabase.from("tests").update({ score: pct }).eq("id", testID).is("score", null);
+    // Mark any linked assignment as completed
+    await supabase.from("assignments").update({ status: "completed" }).eq("test_id", testID).eq("status", "pending");
   };
 
   // Submit the current answer and advance to the next question.
@@ -911,8 +934,11 @@ function MockTest() {
         return;
       }
 
-      // Build all question pools in parallel before first question loads
-      if (test) await Promise.all([initEnglishAdaptive(test), initMathAdaptive(test), initPracticeQueue(test)]);
+      // Build all question pools — practice queue first so adaptive inits can see resolved topics
+      if (test) {
+        await initPracticeQueue(test);
+        await Promise.all([initEnglishAdaptive(test), initMathAdaptive(test)]);
+      }
 
       setLatestQuestion(startIndex);
       setCurrentQuestion(startIndex);
@@ -1090,6 +1116,22 @@ function MockTest() {
                 <p className="text-sm text-amber-800 font-medium">
                   If a question has an issue, use the <span className="font-bold">Flag</span> button at the bottom-right to report it, then fill in any answer to move on.
                 </p>
+              </div>
+              <div className="flex items-start gap-3 p-3.5 bg-teal-50 border border-teal-200 rounded-xl">
+                <svg className="w-5 h-5 text-teal-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+                </svg>
+                <div className="text-sm text-teal-800">
+                  <span className="font-bold">Mixed numbers:</span> A number like <span className="font-semibold">1 and 1/2</span> or <span className="font-semibold">3 and 4/5</span> means a whole number combined with a fraction — so "2 and 3/4" is the same as 2¾. The word "and" separates the whole part from the fraction part.
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3.5 bg-violet-50 border border-violet-200 rounded-xl">
+                <svg className="w-5 h-5 text-violet-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="text-sm text-violet-800">
+                  <span className="font-bold">Repeating decimals:</span> A decimal written as <span className="font-semibold">0.333...</span> or <span className="font-semibold">0.142857...</span> means the digits after the "..." keep repeating in the same pattern forever — the three dots tell you the pattern continues without end.
+                </div>
               </div>
             </div>
 

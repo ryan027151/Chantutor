@@ -536,19 +536,23 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
     setShowPreview(true);
     setModalMode("edit");
 
-    const { data } = await supabase
-      .from("dictionary_of_media")
-      .select("media_id, media_type, content, index")
-      .eq("question_id", q.uid)
-      .order("index");
+    // Use the SECURITY DEFINER RPC to bypass RLS on dictionary_of_media SELECT
+    const { data } = await supabase.rpc("get_media_for_question", { p_question_id: q.uid });
 
-    if (data && data.length > 0) {
-      setMediaItems(data.map((m: { media_id: string; media_type: MediaType; content: string; index: number }) => ({
+    if (data && (data as unknown[]).length > 0) {
+      // Deduplicate by media_id in case the DB has stale duplicate rows
+      const seenMediaIds = new Set<string>();
+      const dedupedMedia = (data as { media_id: string; media_type: MediaType; content: string }[])
+        .filter(m => { if (seenMediaIds.has(m.media_id)) return false; seenMediaIds.add(m.media_id); return true; });
+      // Strip any stale ?t= cache-buster suffixes baked in by earlier saves.
+      const cleanContentUrl = (url: string | null) =>
+        url ? url.split("?")[0] : "";
+      setMediaItems(dedupedMedia.map(m => ({
         mediaId: m.media_id,
         media_type: m.media_type ?? "graph",
         file: null,
         passageText: m.media_type === "passage" ? (m.content ?? "") : "",
-        previewUrl: m.media_type !== "passage" ? (m.content ?? "") : "",
+        previewUrl: m.media_type !== "passage" ? cleanContentUrl(m.content) : "",
         isExisting: true,
         _origId: m.media_id,
         _origType: m.media_type ?? "graph",
@@ -556,17 +560,17 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
       })));
     } else if (q.media_refs?.trim()) {
       setMediaItems(q.media_refs.split(/[,\s]+/).filter(Boolean).map(id => ({
-        mediaId: id.trim().replace(/^\[(.+)\]$/, "$1"), // strip [brackets] if present
+        mediaId: id.trim().replace(/^\[(.+)\]$/, "$1"),
         media_type: "graph" as MediaType,
         file: null, passageText: "", previewUrl: "", isExisting: true,
       })));
     }
   }
 
-  function closeModal() {
+  async function closeModal() {
     const wasFromReport = activeReportId !== null;
     if (activeReportId) {
-      void supabase.from("question_reports").update({ status: "reviewed" }).eq("id", activeReportId);
+      await supabase.from("question_reports").update({ status: "reviewed" }).eq("id", activeReportId);
       setActiveReportId(null);
     }
     setModalMode(null);
@@ -582,8 +586,8 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
     setSaving(true);
     setSaveError(null);
 
-    // Duplicate media ID check — warn if two different items share the same ID
-    const nonEmptyIds = mediaItems.map(m => m.mediaId.trim()).filter(Boolean);
+    // Duplicate media ID check — warn if two different items share the same ID (after bracket-stripping)
+    const nonEmptyIds = mediaItems.map(m => m.mediaId.trim().replace(/^\[(.+)\]$/, "$1")).filter(Boolean);
     const seen = new Set<string>();
     for (const id of nonEmptyIds) {
       if (seen.has(id)) {
@@ -603,7 +607,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
       }
     }
 
-    const mediaRefsStr = mediaItems.map(m => m.mediaId.trim()).filter(Boolean).join(", ") || null;
+    const mediaRefsStr = mediaItems.map(m => m.mediaId.trim().replace(/^\[(.+)\]$/, "$1")).filter(Boolean).join(", ") || null;
 
     // Fields for all_questions — uid only used for INSERT, not in UPDATE SET
     const fields = {
@@ -756,32 +760,23 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
         content = item.previewUrl || null;
       }
 
-      // If the media ID was renamed, delete the old record — but only if this question owns it
-      // (maybeSingle returns null when multiple rows share the id, so shared records are safe)
+      // If the media ID was renamed, delete the old record via RPC (bypasses RLS)
       if (idChanged && item._origId) {
-        const { data: oldRecord } = await supabase
-          .from("dictionary_of_media")
-          .select("question_id")
-          .eq("media_id", item._origId)
-          .maybeSingle();
-        if (oldRecord?.question_id === form.uid) {
-          await supabase.from("dictionary_of_media").delete().eq("media_id", item._origId);
-        }
+        await supabase.rpc("delete_media_record", { p_media_id: item._origId });
       }
 
       if (content !== null) {
-        // Try INSERT first; if the row already exists (code 23505), fall back to UPDATE
-        let { error: dictErr } = await supabase.from("dictionary_of_media")
-          .insert({ media_id: cleanId, question_id: form.uid, media_type: item.media_type, content, index: i });
-
-        if (dictErr?.code === "23505") {
-          ({ error: dictErr } = await supabase.from("dictionary_of_media")
-            .update({ media_type: item.media_type, content, index: i })
-            .eq("media_id", cleanId));
-        }
+        // SECURITY DEFINER RPC bypasses RLS — works for both insert and update
+        const { error: dictErr } = await supabase.rpc("upsert_media_record", {
+          p_media_id:    cleanId,
+          p_question_id: form.uid,
+          p_media_type:  item.media_type,
+          p_content:     content,
+          p_index:       0,  // unused by INSERT path; index PK is auto-assigned by DB
+        });
 
         if (dictErr) {
-          setSaveError(`Media record failed for "${cleanId}": ${dictErr.message}. Question was saved.`);
+          setSaveError(`Media record failed for "${cleanId}": ${dictErr.message}. Run media_rpc_functions.sql in the Supabase SQL Editor.`);
           setSaving(false);
           return;
         }
@@ -798,7 +793,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
     const wasFromReport = modalMode === "edit" && activeReportId !== null;
     if (modalMode === "edit" && activeReportId) {
       const reportStatus = (Object.keys(changedFields).length > 0 || mediaChanged) ? "resolved" : "reviewed";
-      void supabase.from("question_reports").update({ status: reportStatus }).eq("id", activeReportId);
+      await supabase.from("question_reports").update({ status: reportStatus }).eq("id", activeReportId);
       setActiveReportId(null);
     }
 
@@ -1257,7 +1252,15 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                           {isImageType(item.media_type) ? (
                             <div className="flex flex-col gap-2">
                               {item.previewUrl && (
-                                <img src={item.previewUrl} alt="preview" className="max-h-36 object-contain rounded-lg border border-zinc-200 bg-zinc-50 p-1" />
+                                <img src={item.previewUrl} alt="preview"
+                                  className="max-h-36 object-contain rounded-lg border border-zinc-200 bg-zinc-50 p-1"
+                                  onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty("display", "block"); }}
+                                />
+                              )}
+                              {item.previewUrl && (
+                                <p className="hidden text-xs text-red-500 bg-red-50 border border-red-200 rounded px-2 py-1 break-all">
+                                  Image failed to load — re-upload the file. URL: {item.previewUrl}
+                                </p>
                               )}
                               <input type="file" accept="image/*" title="Upload image" placeholder="Upload image"
                                 onChange={e => handleImageFile(idx, e.target.files?.[0])}
@@ -1312,7 +1315,10 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                         </div>
                       ) : item.previewUrl ? (
                         <div key={idx} className="bg-white rounded-lg border border-slate-200 p-2 text-center">
-                          <img src={item.previewUrl} alt={item.mediaId} className="max-w-full h-auto mx-auto" />
+                          <img src={item.previewUrl} alt={item.mediaId} className="max-w-full h-auto mx-auto"
+                            onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty("display", "block"); }}
+                          />
+                          <p className="hidden text-xs text-red-500 mt-1">⚠ Image failed — re-upload via Edit</p>
                         </div>
                       ) : (
                         <div key={idx} className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700 font-mono">

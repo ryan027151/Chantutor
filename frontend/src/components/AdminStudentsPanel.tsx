@@ -32,6 +32,40 @@ interface ProfileForm {
   role: string;
 }
 
+interface Assignment {
+  id: string;
+  test_type: "mock" | "practice";
+  num_questions: number | null;
+  difficulties: string[] | null;
+  categories: string[] | null;
+  due_date: string | null;
+  duration_minutes: number | null;
+  note: string | null;
+  status: "pending" | "completed";
+  test_id: string | null;
+  created_at: string;
+  tests: { score: number | null } | null;
+}
+
+interface AssignForm {
+  test_type: "mock" | "practice";
+  num_questions: string;
+  difficulties: string[];
+  categories: string[];
+  due_date: string;
+  due_time: string;
+  timed: boolean;
+  dur_h: string;
+  dur_m: string;
+  note: string;
+}
+
+const DIFFICULTIES = ["Easy", "Medium", "Hard"] as const;
+const DEFAULT_ASSIGN: AssignForm = {
+  test_type: "mock", num_questions: "20", difficulties: [], categories: [],
+  due_date: "", due_time: "23:59", timed: false, dur_h: "0", dur_m: "0", note: "",
+};
+
 function formatDuration(min: number) {
   if (min === 0) return "Untimed";
   const h = Math.floor(min / 60);
@@ -90,6 +124,16 @@ export default function AdminStudentsPanel() {
   // Results modal
   const [resultsModal, setResultsModal] = useState<{ testID: string; userID: string; studentName: string } | null>(null);
 
+  // Assignments
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [assignTopics, setAssignTopics] = useState<Record<string, string[]>>({});
+  const [assignForm, setAssignForm] = useState<AssignForm>(DEFAULT_ASSIGN);
+  const [assignSaving, setAssignSaving] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const [assignWarning, setAssignWarning] = useState<string | null>(null);
+  const [confirmDeleteAssign, setConfirmDeleteAssign] = useState<string | null>(null);
+
   async function loadStudents() {
     setLoading(true);
     const { data, error } = await supabase.rpc("get_all_profiles");
@@ -104,6 +148,7 @@ export default function AdminStudentsPanel() {
   async function selectStudent(s: Student) {
     setSelected(s);
     setTests([]);
+    setAssignments([]);
     setExpandedTest(null);
     setQuestionStats({});
     setConfirmDeleteStudent(false);
@@ -111,7 +156,7 @@ export default function AdminStudentsPanel() {
     setLinkedParents([]);
     setLoadingTests(true);
 
-    const [{ data: testsData }, { data: parentLinks }] = await Promise.all([
+    const [{ data: testsData }, { data: parentLinks }, { data: assignData }] = await Promise.all([
       supabase
         .from("tests")
         .select("id, test_name, created_at, score, duration, total_questions, configuration")
@@ -121,9 +166,15 @@ export default function AdminStudentsPanel() {
         .from("student_parents")
         .select("parent_id")
         .eq("student_id", s.id),
+      supabase
+        .from("assignments")
+        .select("*, tests(score)")
+        .eq("student_id", s.id)
+        .order("created_at", { ascending: false }),
     ]);
 
     setTests((testsData as TestRecord[]) ?? []);
+    setAssignments((assignData as Assignment[]) ?? []);
 
     const parentIds = (parentLinks ?? []).map((l: { parent_id: string }) => l.parent_id);
     if (parentIds.length > 0) {
@@ -215,6 +266,90 @@ export default function AdminStudentsPanel() {
     }
     setTestConfirm(null);
     setProcessingTest(false);
+  }
+
+  async function openAssignModal() {
+    setAssignForm(DEFAULT_ASSIGN);
+    setAssignError(null);
+    setAssignWarning(null);
+    if (Object.keys(assignTopics).length === 0) {
+      const { data } = await supabase.from("all_questions").select("sub_category, subject").not("sub_category", "is", null).limit(10000);
+      const grouped: Record<string, Set<string>> = {};
+      for (const q of (data ?? []) as { sub_category: string; subject: string | null }[]) {
+        if (!q.sub_category) continue;
+        const subj = q.subject ?? "Other";
+        if (!grouped[subj]) grouped[subj] = new Set();
+        grouped[subj].add(q.sub_category);
+      }
+      const result: Record<string, string[]> = {};
+      const order = Object.keys(grouped).sort((a, b) => {
+        const ai = a.toLowerCase().includes("english") ? 0 : a.toLowerCase().includes("math") ? 1 : 2;
+        const bi = b.toLowerCase().includes("english") ? 0 : b.toLowerCase().includes("math") ? 1 : 2;
+        return ai - bi;
+      });
+      for (const subj of order) result[subj] = [...grouped[subj]].sort();
+      setAssignTopics(result);
+    }
+    setShowAssignModal(true);
+  }
+
+  async function saveAssignment() {
+    if (!selected) return;
+    const numQ = assignForm.test_type === "practice" ? parseInt(assignForm.num_questions, 10) : 114;
+    if (assignForm.test_type === "practice" && (isNaN(numQ) || numQ < 1 || !Number.isInteger(numQ))) {
+      setAssignError("# of questions must be a positive whole number.");
+      return;
+    }
+    const durMin = assignForm.timed ? parseInt(assignForm.dur_h, 10) * 60 + parseInt(assignForm.dur_m, 10) : null;
+    if (assignForm.timed && (!durMin || durMin <= 0)) {
+      setAssignError("Duration must be greater than 0 minutes.");
+      return;
+    }
+    // Warn if selected categories don't have enough approved questions
+    if (assignForm.test_type === "practice" && assignForm.categories.length > 0) {
+      const { count } = await supabase
+        .from("all_questions")
+        .select("uid", { count: "exact", head: true })
+        .eq("status", "approved")
+        .in("sub_category", assignForm.categories);
+      const available = count ?? 0;
+      if (available === 0) {
+        setAssignError("No approved questions found for the selected categories. Choose different categories.");
+        return;
+      }
+      if (available < numQ) {
+        setAssignWarning(`Only ${available} approved question${available === 1 ? "" : "s"} available in these categories (you requested ${numQ}). The test will end when questions run out.`);
+      } else {
+        setAssignWarning(null);
+      }
+    } else {
+      setAssignWarning(null);
+    }
+
+    setAssignSaving(true);
+    setAssignError(null);
+    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    const { data, error } = await supabase.from("assignments").insert({
+      student_id: selected.id,
+      assigned_by: adminUser!.id,
+      test_type: assignForm.test_type,
+      num_questions: numQ,
+      difficulties: assignForm.difficulties.length > 0 ? assignForm.difficulties : null,
+      categories: assignForm.test_type === "practice" && assignForm.categories.length > 0 ? assignForm.categories : null,
+      due_date: assignForm.due_date ? new Date(`${assignForm.due_date}T${assignForm.due_time || "23:59"}:00`).toISOString() : null,
+      duration_minutes: durMin,
+      note: assignForm.note.trim() || null,
+    }).select().single();
+    if (error) { setAssignError(error.message); setAssignSaving(false); return; }
+    setAssignments(prev => [data as Assignment, ...prev]);
+    setShowAssignModal(false);
+    setAssignSaving(false);
+  }
+
+  async function deleteAssignment(id: string) {
+    await supabase.from("assignments").delete().eq("id", id);
+    setAssignments(prev => prev.filter(a => a.id !== id));
+    setConfirmDeleteAssign(null);
   }
 
   const filtered = students.filter(s =>
@@ -346,6 +481,16 @@ export default function AdminStudentsPanel() {
                   </svg>
                   View Performance
                 </button>
+                <button
+                  type="button"
+                  onClick={openAssignModal}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-blue-600 bg-blue-500/8 hover:bg-blue-500/15 border border-blue-500/20 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Assign Work
+                </button>
                 {!confirmDeleteStudent ? (
                   <button
                     type="button"
@@ -397,6 +542,104 @@ export default function AdminStudentsPanel() {
                 </div>
               </div>
             )}
+
+            {/* ── Assigned Work ── */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-bold uppercase tracking-widest text-zinc-400">Assigned Work</p>
+                <button
+                  type="button"
+                  onClick={openAssignModal}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-blue-600 bg-blue-500/8 hover:bg-blue-500/15 border border-blue-500/20 transition-colors"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Assign
+                </button>
+              </div>
+              {assignments.length === 0 ? (
+                <div className="bg-zinc-50 rounded-xl border border-zinc-200 px-5 py-6 text-center text-sm text-zinc-400">
+                  No assignments yet. Click "Assign" to create one.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {assignments.map(a => {
+                    const isDue = a.due_date && new Date(a.due_date) < new Date();
+                    const isConfirmingDelete = confirmDeleteAssign === a.id;
+                    const score = a.tests?.score ?? null;
+                    const isCompleted = a.status === "completed" || score !== null;
+                    const isInProgress = !isCompleted && a.test_id !== null;
+                    const statusLabel = isCompleted ? "Completed" : isInProgress ? "In Progress" : isDue ? "Overdue" : "Pending";
+                    const statusCls = isCompleted
+                      ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                      : isInProgress
+                        ? "bg-blue-500/10 text-blue-600 border-blue-500/20"
+                        : isDue
+                          ? "bg-rose-500/10 text-rose-500 border-rose-500/20"
+                          : "bg-amber-500/10 text-amber-600 border-amber-500/20";
+                    const cardCls = `rounded-xl border px-4 py-3 flex flex-col gap-1.5 ${
+                      isCompleted ? "border-emerald-200 bg-emerald-50/30" :
+                      isInProgress ? "border-blue-200 bg-blue-50/30" :
+                      isDue ? "border-rose-200 bg-rose-50/40" :
+                      "border-zinc-200 bg-zinc-50"
+                    }`;
+                    return (
+                      <div key={a.id} className={cardCls}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-col gap-1 min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${a.test_type === "mock" ? "bg-violet-500/10 text-violet-600 border-violet-500/20" : "bg-blue-500/10 text-blue-600 border-blue-500/20"}`}>
+                                {a.test_type === "mock" ? "Mock Test" : "Practice"}
+                              </span>
+                              <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${statusCls}`}>
+                                {statusLabel}
+                              </span>
+                              {isCompleted && score !== null && (
+                                <span className="text-xs font-bold text-emerald-700">{score}%</span>
+                              )}
+                            </div>
+                            <div className="text-sm text-zinc-600 flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                              <span>{a.test_type === "mock" ? "114 questions" : `${a.num_questions ?? "?"} questions`}</span>
+                              {a.duration_minutes && <span>· {Math.floor(a.duration_minutes / 60) > 0 ? `${Math.floor(a.duration_minutes / 60)}h ` : ""}{a.duration_minutes % 60 > 0 ? `${a.duration_minutes % 60}m` : ""} limit</span>}
+                              {a.due_date && <span className={isDue && !isCompleted ? "text-rose-500 font-medium" : "text-zinc-400"}>· Due {new Date(a.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>}
+                            </div>
+                            {a.categories && a.categories.length > 0 && (
+                              <p className="text-xs text-zinc-400 truncate">Topics: {a.categories.join(", ")}</p>
+                            )}
+                            {a.difficulties && a.difficulties.length > 0 && (
+                              <p className="text-xs text-zinc-400">Difficulty: {a.difficulties.join(", ")}</p>
+                            )}
+                            {a.note && (
+                              <p className="text-xs text-zinc-500 italic">"{a.note}"</p>
+                            )}
+                          </div>
+                          <div className="shrink-0 flex flex-col items-end gap-1">
+                            {isCompleted && a.test_id && (
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/results/${a.test_id}?studentId=${selected!.id}`)}
+                                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                              >
+                                View Results
+                              </button>
+                            )}
+                            {isConfirmingDelete ? (
+                              <div className="flex items-center gap-1">
+                                <button type="button" onClick={() => deleteAssignment(a.id)} className="px-2 py-0.5 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-500 text-white transition-colors">Delete</button>
+                                <button type="button" onClick={() => setConfirmDeleteAssign(null)} className="px-1.5 py-0.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors">✕</button>
+                              </div>
+                            ) : (
+                              <button type="button" onClick={() => setConfirmDeleteAssign(a.id)} className="text-xs text-zinc-300 hover:text-red-400 transition-colors px-1 py-1">✕</button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* ── Test history ── */}
             <div>
@@ -556,6 +799,198 @@ export default function AdminStudentsPanel() {
           studentName={resultsModal.studentName}
           onClose={() => setResultsModal(null)}
         />
+      )}
+
+      {/* ── Assign Work Modal ── */}
+      {showAssignModal && selected && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-white border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col overflow-y-auto max-h-[92vh]">
+            <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-base font-bold text-zinc-900">Assign Work</h3>
+                <p className="text-sm text-zinc-400 mt-0.5">For {selected.first_name} {selected.last_name}</p>
+              </div>
+              <button type="button" onClick={() => setShowAssignModal(false)} className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors">✕</button>
+            </div>
+            <div className="p-6 flex flex-col gap-5">
+              {/* Test type */}
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">Test Type</span>
+                <div className="flex gap-2">
+                  {(["mock", "practice"] as const).map(t => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setAssignForm(f => ({ ...f, test_type: t }))}
+                      className={`flex-1 py-2.5 rounded-lg text-sm font-semibold border transition-colors ${assignForm.test_type === t ? "bg-amber-500 text-zinc-950 border-amber-500" : "bg-zinc-50 text-zinc-500 border-zinc-200 hover:border-zinc-300"}`}
+                    >
+                      {t === "mock" ? "Mock Test (114 Qs)" : "Practice"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {assignForm.test_type === "practice" && (
+                <>
+                  {/* # of Questions */}
+                  <AdminInput
+                    label="# of Questions"
+                    value={assignForm.num_questions}
+                    onChange={v => setAssignForm(f => ({ ...f, num_questions: v }))}
+                    placeholder="20"
+                  />
+
+                  {/* Topics */}
+                  {Object.keys(assignTopics).length > 0 && (
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">Topics <span className="text-zinc-300 font-normal normal-case tracking-normal">(optional)</span></span>
+                        <div className="flex gap-2 text-xs text-zinc-400">
+                          <button type="button" onClick={() => setAssignForm(f => ({ ...f, categories: Object.values(assignTopics).flat() }))} className="px-2.5 py-1 rounded-md bg-zinc-100 hover:bg-blue-50 hover:text-blue-600 transition-colors">Select All</button>
+                          <button type="button" onClick={() => setAssignForm(f => ({ ...f, categories: [] }))} className="px-2.5 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 transition-colors">Clear</button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-5">
+                        {Object.entries(assignTopics).map(([subject, topics]) => {
+                          const isEng = subject.toLowerCase().includes("english");
+                          const headerCls = isEng
+                            ? "text-blue-700 bg-blue-50 border-blue-200"
+                            : "text-violet-700 bg-violet-50 border-violet-200";
+                          const selectedCount = topics.filter(t => assignForm.categories.includes(t)).length;
+                          return (
+                            <div key={subject} className="border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
+                              <div className={`flex items-center justify-between px-4 py-3 border-b ${headerCls}`}>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-bold capitalize">{subject}</span>
+                                  {selectedCount > 0 && (
+                                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${isEng ? "bg-blue-100 text-blue-700" : "bg-violet-100 text-violet-700"}`}>
+                                      {selectedCount}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex gap-2 text-xs">
+                                  <button type="button" onClick={() => setAssignForm(f => ({ ...f, categories: [...new Set([...f.categories, ...topics])] }))} className="font-medium opacity-70 hover:opacity-100 transition-opacity">All</button>
+                                  <span className="opacity-30">·</span>
+                                  <button type="button" onClick={() => setAssignForm(f => ({ ...f, categories: f.categories.filter(c => !topics.includes(c)) }))} className="font-medium opacity-70 hover:opacity-100 transition-opacity">None</button>
+                                </div>
+                              </div>
+                              <div className="overflow-y-auto max-h-72 divide-y divide-zinc-50">
+                                {topics.map(topic => {
+                                  const checked = assignForm.categories.includes(topic);
+                                  return (
+                                    <label key={topic} className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${checked ? isEng ? "bg-blue-50/60" : "bg-violet-50/60" : "hover:bg-zinc-50"}`}>
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => setAssignForm(f => ({ ...f, categories: checked ? f.categories.filter(c => c !== topic) : [...f.categories, topic] }))}
+                                        className={isEng ? "accent-blue-600 w-4 h-4" : "accent-violet-600 w-4 h-4"}
+                                      />
+                                      <span className="text-sm text-zinc-700">{topic.replace(/_/g, " ")}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Difficulty */}
+                  <div className="flex flex-col gap-2">
+                    <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">Difficulty <span className="text-zinc-300 font-normal normal-case tracking-normal">(optional)</span></span>
+                    <div className="flex gap-2">
+                      {DIFFICULTIES.map(d => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setAssignForm(f => ({ ...f, difficulties: f.difficulties.includes(d) ? f.difficulties.filter(x => x !== d) : [...f.difficulties, d] }))}
+                          className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${assignForm.difficulties.includes(d) ? d === "Easy" ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/30" : d === "Medium" ? "bg-amber-500/15 text-amber-700 border-amber-500/30" : "bg-red-500/15 text-red-600 border-red-500/30" : "bg-zinc-50 text-zinc-400 border-zinc-200 hover:border-zinc-300"}`}
+                        >
+                          {d}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Due date */}
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">Due Date <span className="text-zinc-300 font-normal normal-case tracking-normal">(optional)</span></span>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    title="Due date"
+                    value={assignForm.due_date}
+                    onChange={e => setAssignForm(f => ({ ...f, due_date: e.target.value }))}
+                    className="flex-1 bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors"
+                  />
+                  {assignForm.due_date && (
+                    <input
+                      type="time"
+                      title="Due time"
+                      value={assignForm.due_time}
+                      onChange={e => setAssignForm(f => ({ ...f, due_time: e.target.value }))}
+                      className="w-32 bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors"
+                    />
+                  )}
+                </div>
+                {assignForm.due_date && (
+                  <p className="text-xs text-zinc-400">Time defaults to 11:59 PM if not changed.</p>
+                )}
+              </div>
+
+              {/* Time limit */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">Time Limit <span className="text-zinc-300 font-normal normal-case tracking-normal">(optional)</span></span>
+                  <button
+                    type="button"
+                    aria-label="Toggle time limit"
+                    aria-pressed={assignForm.timed ? "true" : "false"}
+                    onClick={() => setAssignForm(f => ({ ...f, timed: !f.timed }))}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${assignForm.timed ? "bg-amber-500" : "bg-zinc-200"}`}
+                  >
+                    <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${assignForm.timed ? "translate-x-5.5" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+                {assignForm.timed && (
+                  <div className="flex gap-3">
+                    <AdminInput label="Hours" value={assignForm.dur_h} onChange={v => setAssignForm(f => ({ ...f, dur_h: v }))} placeholder="0" />
+                    <AdminInput label="Minutes" value={assignForm.dur_m} onChange={v => setAssignForm(f => ({ ...f, dur_m: v }))} placeholder="0" />
+                  </div>
+                )}
+              </div>
+
+              {/* Note */}
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">Note for Student <span className="text-zinc-300 font-normal normal-case tracking-normal">(optional)</span></span>
+                <textarea
+                  value={assignForm.note}
+                  onChange={e => setAssignForm(f => ({ ...f, note: e.target.value }))}
+                  placeholder="e.g. Focus on word problems…"
+                  rows={2}
+                  className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 resize-none transition-colors"
+                />
+              </label>
+
+              {assignWarning && (
+                <p className="text-sm text-amber-700 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">⚠ {assignWarning}</p>
+              )}
+              {assignError && (
+                <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{assignError}</p>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-zinc-200 flex items-center justify-between shrink-0">
+              <button type="button" onClick={() => setShowAssignModal(false)} className="px-4 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors">Cancel</button>
+              <button type="button" onClick={saveAssignment} disabled={assignSaving} className="px-5 py-2 rounded-lg text-sm font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors disabled:opacity-50">
+                {assignSaving ? "Assigning…" : "Assign"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Edit Profile Modal ── */}
