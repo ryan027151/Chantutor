@@ -30,4 +30,5 @@ export interface Test {
   duration: number;
   configuration: TestConfiguration;
   total_questions: number;
+  time_elapsed: number | null;
 }

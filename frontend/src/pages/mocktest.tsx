@@ -152,6 +152,7 @@ function MockTest() {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [testReady, setTestReady] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [showSectionBreak, setShowSectionBreak] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState("wrong_answer_key");
@@ -777,25 +778,29 @@ function MockTest() {
 
   // Returns the highest order_index already answered for this test session.
   // Returns 0 if no questions have been answered yet.
+  // Throws on DB error so the caller can surface a retry prompt rather than
+  // silently restarting the student from Q1.
   const getLastAnsweredIndex = async (): Promise<number> => {
     if (!user) return 0;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("questions")
       .select("order_index")
       .eq("test_id", testID)
       .eq("user_id", user.id)
       .order("order_index", { ascending: false })
       .limit(1);
+    if (error) throw error;
     return data?.[0]?.order_index ?? 0;
   };
 
   const initAnsweredIds = async () => {
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("questions")
       .select("id")
       .eq("test_id", testID)
       .eq("user_id", user.id);
+    if (error) throw error;
     answeredIdsRef.current = new Set((data ?? []).map((q: { id: string }) => q.id));
   };
 
@@ -839,7 +844,10 @@ function MockTest() {
     const pct = currentTest.total_questions > 0
       ? Math.round((correct / currentTest.total_questions) * 100)
       : 0;
+    // Score update is the critical operation — always awaited.
     await supabase.from("tests").update({ score: pct }).eq("id", testID).is("score", null);
+    // Clear elapsed timer — fire-and-forget so a missing column never blocks the score write.
+    supabase.from("tests").update({ time_elapsed: null }).eq("id", testID);
     // Mark any linked assignment as completed
     await supabase.from("assignments").update({ status: "completed" }).eq("test_id", testID).eq("status", "pending");
   };
@@ -1067,11 +1075,21 @@ function MockTest() {
       // before fetching lastAnswered — so the DB is current before we compute startIndex.
       await flushLocalStorageDrafts(user.id);
 
-      const [test, lastAnswered] = await Promise.all([
-        getCurrenTest(),
-        getLastAnsweredIndex(),
-        initAnsweredIds(),
-      ]);
+      let test: Test | null;
+      let lastAnswered: number;
+      try {
+        const results = await Promise.all([
+          getCurrenTest(),
+          getLastAnsweredIndex(),
+          initAnsweredIds(),
+        ]);
+        test = results[0];
+        lastAnswered = results[1];
+      } catch (e) {
+        console.error("Failed to load test progress:", e);
+        setLoadError(true);
+        return;
+      }
       const startIndex = lastAnswered + 1;
 
       // If the test was already fully completed, go home
@@ -1148,7 +1166,17 @@ function MockTest() {
 
     const storageKey = `timerRemaining_${testID}`;
     const stored = localStorage.getItem(storageKey);
-    let remaining = stored ? parseInt(stored, 10) : currentTest.duration * 60;
+    const durationSeconds = currentTest.duration * 60;
+    // localStorage is the primary source (same device, updated every second).
+    // Fall back to DB time_elapsed for cross-device resume (new device / cleared browser).
+    let remaining: number;
+    if (stored) {
+      remaining = parseInt(stored, 10);
+    } else if (currentTest.time_elapsed != null && currentTest.time_elapsed > 0) {
+      remaining = Math.max(0, durationSeconds - currentTest.time_elapsed);
+    } else {
+      remaining = durationSeconds;
+    }
 
     if (remaining <= 0) {
       localStorage.removeItem(storageKey);
@@ -1164,6 +1192,10 @@ function MockTest() {
       remaining -= 1;
       localStorage.setItem(storageKey, remaining.toString());
       setTimeRemaining(remaining);
+      // Persist elapsed time to DB every 60 s so a new device can resume with the correct timer.
+      if (remaining % 60 === 0 && remaining > 0) {
+        supabase.from("tests").update({ time_elapsed: durationSeconds - remaining }).eq("id", testID);
+      }
       if (remaining <= 0) {
         if (timerRef.current) clearInterval(timerRef.current);
       }
@@ -1254,6 +1286,29 @@ function MockTest() {
           {!isOnline
             ? "No internet connection — your test and timer are paused. Reconnect to continue."
             : "Server connection lost — your test and timer are paused. Your progress is safe. Reconnecting…"}
+        </div>
+      )}
+
+      {/* Init error overlay — shown when progress load fails (DB error, auth issue, etc.).
+          Prevents silent restart from Q1 by making the failure visible and actionable. */}
+      {loadError && (
+        <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center z-50 p-8 gap-5">
+          <div className="w-14 h-14 rounded-full bg-rose-100 flex items-center justify-center">
+            <svg className="w-7 h-7 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+          </div>
+          <div className="text-center max-w-sm">
+            <h2 className="text-lg font-bold text-slate-900 mb-1">Couldn't load your progress</h2>
+            <p className="text-sm text-slate-500">There was a connection problem retrieving your answers. Your progress is safe — please refresh the page to try again.</p>
+          </div>
+          <button
+            type="button"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-xl transition-colors"
+            onClick={() => window.location.reload()}
+          >
+            Refresh page
+          </button>
         </div>
       )}
 

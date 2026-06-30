@@ -71,6 +71,7 @@ function HomePage() {
       .select("*")
       .eq("user_id", user!.id)
       .eq("test_name", "Diagnostic Test")
+      .order("created_at", { ascending: false })
       .limit(1);
     if (error) { console.error("Diagnostic check failed:", error); return; }
     if (!diagnosticTests || diagnosticTests.length === 0) {
