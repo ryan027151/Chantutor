@@ -37,7 +37,15 @@ Deno.serve(async (req) => {
     let linkedStudentId: string | null = null;
     let signupTokenId: string | null = null;
 
-    if (accountType === "parent") {
+    if (accountType === "tutor") {
+      // ── Tutor path: fixed access code from TUTOR_CODE env var ─────────────
+      const tutorCode = Deno.env.get("TUTOR_CODE");
+      if (!tutorCode || code.trim() !== tutorCode.trim()) {
+        return fail(400, "Invalid tutor access code.");
+      }
+      role = "tutor";
+
+    } else if (accountType === "parent") {
       // ── Parent path: code is the student's email ──────────────────────────
       const studentEmail = code.trim().toLowerCase();
 

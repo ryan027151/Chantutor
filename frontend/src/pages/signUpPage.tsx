@@ -5,7 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCrown } from "@fortawesome/free-solid-svg-icons";
 
 function SignUpPage() {
-  const [accountType, setAccountType] = useState<"student" | "parent">("student");
+  const [accountType, setAccountType] = useState<"student" | "parent" | "tutor">("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -38,7 +38,7 @@ function SignUpPage() {
       const { data: { user: newUser } } = await supabase.auth.getUser();
       if (newUser) {
         const { data: profile } = await supabase.from("profiles").select("role").eq("id", newUser.id).single();
-        navigate(profile?.role === "parent" ? "/parent" : "/home");
+        navigate(profile?.role === "parent" ? "/parent" : profile?.role === "tutor" ? "/tutor" : "/home");
       } else {
         navigate("/home");
       }
@@ -92,8 +92,8 @@ function SignUpPage() {
             {/* Account type toggle */}
             <div>
               <span className="text-sm font-medium text-slate-700 block mb-1.5">I am a</span>
-              <div className="grid grid-cols-2 gap-2">
-                {(["student", "parent"] as const).map((type) => (
+              <div className="grid grid-cols-3 gap-2">
+                {(["student", "parent", "tutor"] as const).map((type) => (
                   <button
                     key={type}
                     type="button"
@@ -150,7 +150,7 @@ function SignUpPage() {
             </label>
             <label className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-slate-700">
-                {accountType === "parent" ? "Student's email address" : "Access code"}
+                {accountType === "parent" ? "Student's email address" : accountType === "tutor" ? "Tutor access code" : "Access code"}
               </span>
               <input
                 type={accountType === "parent" ? "email" : "password"}
