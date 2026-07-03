@@ -5,6 +5,7 @@ import HomePage from './pages/homepage'
 import MockTest from './pages/mocktest'
 import SignUpPage from './pages/signUpPage'
 import AdminPage from './pages/adminpage'
+import TutorPage from './pages/tutorpage'
 import ResultsPage from './pages/resultsPage'
 import ParentPage from './pages/parentPage'
 import PerformancePage from './pages/performancePage'
@@ -29,8 +30,8 @@ function AuthChangeHandler() {
   return null;
 }
 
-function ProtectedRoute({ children, adminOnly = false, studentOnly = false }: {
-  children: ReactNode; adminOnly?: boolean; studentOnly?: boolean;
+function ProtectedRoute({ children, adminOnly = false, tutorOnly = false, studentOnly = false }: {
+  children: ReactNode; adminOnly?: boolean; tutorOnly?: boolean; studentOnly?: boolean;
 }) {
   const user = useContext(UserContext);
   if (user === undefined) {
@@ -42,7 +43,9 @@ function ProtectedRoute({ children, adminOnly = false, studentOnly = false }: {
   }
   if (user === null) return <Navigate to="/" replace />;
   if (adminOnly && user.role !== 'admin') return <Navigate to="/home" replace />;
+  if (tutorOnly && user.role !== 'tutor') return <Navigate to="/home" replace />;
   if (studentOnly && user.role === 'admin') return <Navigate to="/admin" replace />;
+  if (studentOnly && user.role === 'tutor') return <Navigate to="/tutor" replace />;
   if (studentOnly && user.role === 'parent') return <Navigate to="/parent" replace />;
   return <>{children}</>;
 }
@@ -122,6 +125,9 @@ function App() {
 
           {/* Admin-only route */}
           <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPage /></ProtectedRoute>} />
+
+          {/* Tutor-only route */}
+          <Route path="/tutor" element={<ProtectedRoute tutorOnly><TutorPage /></ProtectedRoute>} />
 
           {/* Parent-only route */}
           <Route path="/parent" element={<ProtectedRoute><ParentPage /></ProtectedRoute>} />

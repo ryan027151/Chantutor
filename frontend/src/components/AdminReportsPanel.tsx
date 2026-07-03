@@ -31,6 +31,7 @@ interface QuestionPreview {
 interface Props {
   onEditQuestion: (uid: string, reportId: string) => void;
   onReportResolved: () => void;
+  isAdmin?: boolean;
 }
 
 const REASON_LABEL: Record<string, string> = {
@@ -53,11 +54,12 @@ const LETTERS = ["A", "B", "C", "D"];
 // ── Question preview card ──────────────────────────────────────────────────────
 
 function QuestionPreviewCard({
-  q, onEdit, onDeleteQuestion,
+  q, onEdit, onDeleteQuestion, isAdmin = true,
 }: {
   q: QuestionPreview;
   onEdit: () => void;
   onDeleteQuestion: () => void;
+  isAdmin?: boolean;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isGraphing = q.type === "linear_graphing";
@@ -94,7 +96,7 @@ function QuestionPreviewCard({
             </svg>
             Edit
           </button>
-          {!confirmDelete ? (
+          {isAdmin && (!confirmDelete ? (
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
@@ -119,7 +121,7 @@ function QuestionPreviewCard({
                 className="text-xs font-semibold text-white bg-rose-500 hover:bg-rose-600 px-2 py-0.5 rounded transition-colors"
               >Delete</button>
             </div>
-          )}
+          ))}
         </div>
       </div>
 
@@ -172,7 +174,7 @@ function QuestionPreviewCard({
 
 // ── Main panel ─────────────────────────────────────────────────────────────────
 
-export default function AdminReportsPanel({ onEditQuestion, onReportResolved }: Props) {
+export default function AdminReportsPanel({ onEditQuestion, onReportResolved, isAdmin = true }: Props) {
   const [reports, setReports]             = useState<Report[]>([]);
   const [loading, setLoading]             = useState(true);
   const [filterStatus, setFilterStatus]   = useState<"all" | "pending" | "reviewed" | "resolved">("all");
@@ -364,10 +366,12 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved }: 
               className="px-2.5 py-1 rounded-lg text-xs sm:text-sm font-semibold bg-blue-500/10 text-blue-700 hover:bg-blue-500/20 border border-blue-500/20 disabled:opacity-40 transition-colors whitespace-nowrap">
               Mark Reviewed
             </button>
+            {isAdmin && (
             <button type="button" disabled={bulkWorking} onClick={bulkDeleteReports}
               className="px-2.5 py-1 rounded-lg text-xs sm:text-sm font-semibold bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 border border-rose-500/20 disabled:opacity-40 transition-colors whitespace-nowrap">
               {bulkWorking ? "Deleting…" : `Delete ${selected.size}`}
             </button>
+            )}
           </div>
           <button type="button" onClick={() => setSelected(new Set())}
             className="ml-auto text-xs sm:text-sm text-zinc-400 hover:text-zinc-700 shrink-0">
@@ -499,8 +503,8 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved }: 
                             Reopen
                           </button>
                         )}
-                        {/* Delete log */}
-                        {confirmDeleteLog === r.id ? (
+                        {/* Delete log — admin only */}
+                        {isAdmin && (confirmDeleteLog === r.id ? (
                           <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 rounded px-2 py-0.5">
                             <span className="text-xs text-rose-700 font-semibold">Delete log?</span>
                             <button type="button" onClick={() => setConfirmDeleteLog(null)}
@@ -514,7 +518,7 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved }: 
                             title="Delete this report log">
                             Delete log
                           </button>
-                        )}
+                        ))}
                       </div>
                     </td>
                   </tr>
@@ -546,6 +550,7 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved }: 
                                       onEditQuestion(r.question_uid!, r.id);
                                     }}
                                     onDeleteQuestion={() => deleteQuestion(r.question_uid!, r.id)}
+                                    isAdmin={isAdmin}
                                   />
                                 ) : (
                                   <span className="text-sm text-zinc-400 italic">

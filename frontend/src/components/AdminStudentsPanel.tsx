@@ -93,7 +93,7 @@ function AdminInput({
   );
 }
 
-export default function AdminStudentsPanel() {
+export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boolean }) {
   const navigate = useNavigate();
   const [students, setStudents] = useState<Student[]>([]);
   const [search, setSearch] = useState("");
@@ -461,6 +461,7 @@ export default function AdminStudentsPanel() {
               </div>
               {/* Actions row */}
               <div className="flex flex-wrap items-center gap-2 mt-3">
+                {isAdmin && (
                 <button
                   type="button"
                   onClick={openEditProfile}
@@ -471,6 +472,7 @@ export default function AdminStudentsPanel() {
                   </svg>
                   Edit Profile
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={() => navigate(`/performance/${selected.id}`)}
@@ -491,7 +493,7 @@ export default function AdminStudentsPanel() {
                   </svg>
                   Assign Work
                 </button>
-                {!confirmDeleteStudent ? (
+                {isAdmin && (!confirmDeleteStudent ? (
                   <button
                     type="button"
                     onClick={() => setConfirmDeleteStudent(true)}
@@ -521,7 +523,7 @@ export default function AdminStudentsPanel() {
                       ✕
                     </button>
                   </div>
-                )}
+                ))}
               </div>
             </div>
 
@@ -703,7 +705,7 @@ export default function AdminStudentsPanel() {
                             </button>
                           )}
 
-                          {isConfirming ? (
+                          {isAdmin && (isConfirming ? (
                             <div className="flex items-center gap-1.5 shrink-0">
                               <span className="text-xs text-zinc-500">
                                 {testConfirm.action === "delete" ? "Delete?" : "Reset?"}
@@ -743,7 +745,7 @@ export default function AdminStudentsPanel() {
                                 Delete
                               </button>
                             </div>
-                          )}
+                          ))}
                           </div>
                         </div>
 
@@ -1030,6 +1032,7 @@ export default function AdminStudentsPanel() {
                 >
                   <option value="student">Student</option>
                   <option value="parent">Parent</option>
+                  <option value="tutor">Tutor</option>
                 </select>
               </label>
               {profileError && (
