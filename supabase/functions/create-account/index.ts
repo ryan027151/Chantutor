@@ -38,9 +38,9 @@ Deno.serve(async (req) => {
     let signupTokenId: string | null = null;
 
     if (accountType === "tutor") {
-      // ── Tutor path: fixed access code from TUTOR_CODE env var ─────────────
-      const tutorCode = Deno.env.get("TUTOR_CODE");
-      if (!tutorCode || code.trim() !== tutorCode.trim()) {
+      // ── Tutor path: TUTOR_CODE env var, with hardcoded fallback ───────────
+      const tutorCode = Deno.env.get("TUTOR_CODE") || "chantutor##2026";
+      if (code.trim() !== tutorCode.trim()) {
         return fail(400, "Invalid tutor access code.");
       }
       role = "tutor";
