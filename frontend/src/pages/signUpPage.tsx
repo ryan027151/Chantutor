@@ -26,8 +26,18 @@ function SignUpPage() {
       const { data, error: fnError } = await supabase.functions.invoke("create-account", {
         body: { email, password, firstName: fName, lastName: lName, code, accountType },
       });
-      if (fnError || data?.error) {
-        setError(data?.error ?? "Signup failed. Please try again.");
+      if (fnError) {
+        let msg = "Signup failed. Please try again.";
+        try {
+          // Supabase JS v2: non-2xx puts the response body on fnError.context
+          const body = await (fnError as unknown as { context: Response }).context.json();
+          if (body?.error) msg = body.error;
+        } catch {}
+        setError(msg);
+        return;
+      }
+      if (data?.error) {
+        setError(data.error);
         return;
       }
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
