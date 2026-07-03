@@ -23,14 +23,16 @@ function SignUpPage() {
     }
     setLoading(true);
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("create-account", {
+      const invokeResult = await supabase.functions.invoke("create-account", {
         body: { email, password, firstName: fName, lastName: lName, code, accountType },
       });
+      const { data, error: fnError } = invokeResult;
       if (fnError) {
         let msg = "Signup failed. Please try again.";
         try {
-          // Supabase JS v2: non-2xx puts the response body on fnError.context
-          const body = await (fnError as unknown as { context: Response }).context.json();
+          // functions.invoke returns the raw Response on .response (same object as fnError.context)
+          const res = (invokeResult as unknown as { response: Response }).response;
+          const body = await res.json();
           if (body?.error) msg = body.error;
         } catch {}
         setError(msg);
