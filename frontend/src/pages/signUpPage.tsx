@@ -30,11 +30,13 @@ function SignUpPage() {
       if (fnError) {
         let msg = "Signup failed. Please try again.";
         try {
-          // functions.invoke returns the raw Response on .response (same object as fnError.context)
           const res = (invokeResult as unknown as { response: Response }).response;
           const body = await res.json();
-          if (body?.error) msg = body.error;
-        } catch {}
+          console.log("[signup] error body:", body);
+          if (body?.error && typeof body.error === "string") msg = body.error;
+        } catch (e) {
+          console.log("[signup] could not parse error response:", e);
+        }
         setError(msg);
         return;
       }

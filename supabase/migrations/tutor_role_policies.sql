@@ -2,6 +2,9 @@
 -- Tutors CANNOT delete students, tests, questions, or report logs.
 -- Run this in Supabase SQL Editor.
 
+-- ── 0. Allow 'tutor' as a valid role in the user_role enum ──────────────────
+ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'tutor';
+
 -- ── 1. Update get_all_profiles() to allow tutor role ─────────────────────────
 -- Drop and recreate because the function body changes (was admin-only).
 DROP FUNCTION IF EXISTS public.get_all_profiles();
@@ -21,12 +24,12 @@ SET search_path = public
 AS $$
 DECLARE v_role text;
 BEGIN
-  SELECT role INTO v_role FROM public.profiles WHERE id = auth.uid();
-  IF v_role NOT IN ('admin', 'tutor') THEN
+  SELECT role::text INTO v_role FROM public.profiles WHERE id = auth.uid();
+  IF v_role IS DISTINCT FROM 'admin' AND v_role IS DISTINCT FROM 'tutor' THEN
     RAISE EXCEPTION 'admin or tutor role required';
   END IF;
   RETURN QUERY
-    SELECT p.id, p.first_name, p.last_name, p.role, p.last_sign_in_at, p.created_at
+    SELECT p.id, p.first_name, p.last_name, p.role::text, p.last_sign_in_at, p.created_at
     FROM public.profiles p
     ORDER BY p.first_name;
 END;
@@ -34,20 +37,30 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.get_all_profiles() TO authenticated;
 
--- ── 2. Tutors can read all tests ──────────────────────────────────────────────
+-- ── 2. Tutors can read tests of their assigned students only ──────────────────
 DROP POLICY IF EXISTS "Tutors read all tests" ON public.tests;
-CREATE POLICY "Tutors read all tests"
+DROP POLICY IF EXISTS "Tutors read assigned student tests" ON public.tests;
+CREATE POLICY "Tutors read assigned student tests"
   ON public.tests FOR SELECT TO authenticated
   USING (
-    (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'tutor'
+    (SELECT role::text FROM public.profiles WHERE id = auth.uid()) = 'tutor'
+    AND EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = tests.user_id AND p.tutor_id = auth.uid()
+    )
   );
 
--- ── 3. Tutors can read all question answers ───────────────────────────────────
+-- ── 3. Tutors can read question answers of their assigned students only ────────
 DROP POLICY IF EXISTS "Tutors read all questions" ON public.questions;
-CREATE POLICY "Tutors read all questions"
+DROP POLICY IF EXISTS "Tutors read assigned student questions" ON public.questions;
+CREATE POLICY "Tutors read assigned student questions"
   ON public.questions FOR SELECT TO authenticated
   USING (
-    (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'tutor'
+    (SELECT role::text FROM public.profiles WHERE id = auth.uid()) = 'tutor'
+    AND EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = questions.user_id AND p.tutor_id = auth.uid()
+    )
   );
 
 -- ── 4. Tutors can manage assignments (assign, view, update, delete) ───────────

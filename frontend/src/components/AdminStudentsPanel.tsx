@@ -9,6 +9,9 @@ interface Student {
   last_name: string;
   role: string;
   email: string | null;
+  tutor_id: string | null;
+  tutor_first_name: string | null;
+  tutor_last_name: string | null;
 }
 
 interface TestRecord {
@@ -44,6 +47,7 @@ interface Assignment {
   status: "pending" | "completed";
   test_id: string | null;
   created_at: string;
+  assigned_by: string | null;
   tests: { score: number | null } | null;
 }
 
@@ -134,11 +138,21 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
   const [assignWarning, setAssignWarning] = useState<string | null>(null);
   const [confirmDeleteAssign, setConfirmDeleteAssign] = useState<string | null>(null);
 
+  // Tutor assignment (admin only)
+  const [showTutorModal, setShowTutorModal] = useState(false);
+  const [tutors, setTutors] = useState<{ id: string; first_name: string; last_name: string }[]>([]);
+  const [savingTutor, setSavingTutor] = useState(false);
+
+  // assignment_id → assigner full name (populated per selected student)
+  const [assignerNames, setAssignerNames] = useState<Record<string, string>>({});
+
   async function loadStudents() {
     setLoading(true);
     const { data, error } = await supabase.rpc("get_all_profiles");
     if (!error && data) {
-      setStudents((data as Student[]).filter(s => s.role === "student"));
+      const profiles = data as Student[];
+      setStudents(profiles.filter(s => s.role === "student"));
+      if (isAdmin) setTutors(profiles.filter(t => t.role === "tutor"));
     }
     setLoading(false);
   }
@@ -156,7 +170,7 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
     setLinkedParents([]);
     setLoadingTests(true);
 
-    const [{ data: testsData }, { data: parentLinks }, { data: assignData }] = await Promise.all([
+    const [{ data: testsData }, { data: parentLinks }, { data: assignData }, { data: assignerRows }] = await Promise.all([
       supabase
         .from("tests")
         .select("id, test_name, created_at, score, duration, total_questions, configuration")
@@ -171,10 +185,16 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
         .select("*, tests(score)")
         .eq("student_id", s.id)
         .order("created_at", { ascending: false }),
+      supabase.rpc("get_student_assignment_assigners", { p_student_id: s.id }),
     ]);
 
     setTests((testsData as TestRecord[]) ?? []);
     setAssignments((assignData as Assignment[]) ?? []);
+    const nameMap: Record<string, string> = {};
+    for (const row of (assignerRows ?? []) as { assignment_id: string; assigner_name: string }[]) {
+      nameMap[row.assignment_id] = row.assigner_name;
+    }
+    setAssignerNames(nameMap);
 
     const parentIds = (parentLinks ?? []).map((l: { parent_id: string }) => l.parent_id);
     if (parentIds.length > 0) {
@@ -350,6 +370,28 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
     await supabase.from("assignments").delete().eq("id", id);
     setAssignments(prev => prev.filter(a => a.id !== id));
     setConfirmDeleteAssign(null);
+  }
+
+  async function assignTutor(tutorId: string | null) {
+    if (!selected) return;
+    setSavingTutor(true);
+    const tutor = tutorId ? tutors.find(t => t.id === tutorId) ?? null : null;
+    const { error } = await supabase
+      .from("profiles")
+      .update({ tutor_id: tutorId })
+      .eq("id", selected.id);
+    if (!error) {
+      const updated: Student = {
+        ...selected,
+        tutor_id: tutorId,
+        tutor_first_name: tutor?.first_name ?? null,
+        tutor_last_name: tutor?.last_name ?? null,
+      };
+      setSelected(updated);
+      setStudents(prev => prev.map(s => s.id === selected.id ? updated : s));
+    }
+    setSavingTutor(false);
+    setShowTutorModal(false);
   }
 
   const filtered = students.filter(s =>
@@ -545,6 +587,45 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
               </div>
             )}
 
+            {/* ── Assigned Tutor (admin only) ── */}
+            {isAdmin && (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-bold uppercase tracking-widest text-zinc-400">Assigned Tutor</p>
+                  <button
+                    type="button"
+                    onClick={() => setShowTutorModal(true)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-violet-600 bg-violet-500/8 hover:bg-violet-500/15 border border-violet-500/20 transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    {selected.tutor_id ? "Change" : "Assign"}
+                  </button>
+                </div>
+                {selected.tutor_id ? (
+                  <div className="bg-zinc-50 rounded-xl border border-zinc-200 px-4 py-3 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-violet-100 border border-violet-200 flex items-center justify-center text-sm font-bold text-violet-500 shrink-0">
+                      {selected.tutor_first_name?.[0]}{selected.tutor_last_name?.[0]}
+                    </div>
+                    <span className="flex-1 text-base font-medium text-zinc-900">{selected.tutor_first_name} {selected.tutor_last_name}</span>
+                    <button
+                      type="button"
+                      onClick={() => assignTutor(null)}
+                      disabled={savingTutor}
+                      className="text-xs text-zinc-400 hover:text-red-400 transition-colors px-1 py-1 disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-zinc-50 rounded-xl border border-zinc-200 px-5 py-4 text-center text-sm text-zinc-400">
+                    No tutor assigned. Click "Assign" to add one.
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ── Assigned Work ── */}
             <div>
               <div className="flex items-center justify-between mb-3">
@@ -614,6 +695,9 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
                             )}
                             {a.note && (
                               <p className="text-xs text-zinc-500 italic">"{a.note}"</p>
+                            )}
+                            {assignerNames[a.id] && (
+                              <p className="text-xs text-zinc-400">Assigned by {assignerNames[a.id]}</p>
                             )}
                           </div>
                           <div className="shrink-0 flex flex-col items-end gap-1">
@@ -951,7 +1035,7 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
                   <button
                     type="button"
                     aria-label="Toggle time limit"
-                    aria-pressed={assignForm.timed ? "true" : "false"}
+                    aria-pressed={assignForm.timed}
                     onClick={() => setAssignForm(f => ({ ...f, timed: !f.timed }))}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${assignForm.timed ? "bg-amber-500" : "bg-zinc-200"}`}
                   >
@@ -989,6 +1073,63 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
               <button type="button" onClick={() => setShowAssignModal(false)} className="px-4 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors">Cancel</button>
               <button type="button" onClick={saveAssignment} disabled={assignSaving} className="px-5 py-2 rounded-lg text-sm font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors disabled:opacity-50">
                 {assignSaving ? "Assigning…" : "Assign"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Assign Tutor Modal ── */}
+      {showTutorModal && selected && isAdmin && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-white border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-sm flex flex-col">
+            <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-zinc-900">Assign Tutor</h3>
+                <p className="text-sm text-zinc-400 mt-0.5">For {selected.first_name} {selected.last_name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTutorModal(false)}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 flex flex-col gap-2 max-h-80 overflow-y-auto">
+              {tutors.length === 0 ? (
+                <p className="text-sm text-zinc-400 text-center py-6">No tutors found. Create a tutor account first.</p>
+              ) : (
+                tutors.map(tutor => (
+                  <button
+                    key={tutor.id}
+                    type="button"
+                    onClick={() => assignTutor(tutor.id)}
+                    disabled={savingTutor}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-colors disabled:opacity-50 ${
+                      selected.tutor_id === tutor.id
+                        ? "bg-violet-500/10 border-violet-500/30 text-violet-700"
+                        : "bg-zinc-50 border-zinc-200 hover:border-violet-300 hover:bg-violet-50/40"
+                    }`}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-violet-100 border border-violet-200 flex items-center justify-center text-sm font-bold text-violet-500 shrink-0">
+                      {tutor.first_name[0]}{tutor.last_name[0]}
+                    </div>
+                    <span className="text-base font-medium text-zinc-900">{tutor.first_name} {tutor.last_name}</span>
+                    {selected.tutor_id === tutor.id && (
+                      <span className="ml-auto text-xs text-violet-600 font-semibold">Current</span>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-zinc-200">
+              <button
+                type="button"
+                onClick={() => setShowTutorModal(false)}
+                className="w-full px-4 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+              >
+                Cancel
               </button>
             </div>
           </div>

@@ -43,19 +43,31 @@ Deno.serve(async (req) => {
     // Privileged client — bypasses RLS (only after auth verified above)
     const db = createClient(supabaseUrl, serviceKey);
 
-    // Authorization: admin, linked parent, or student themselves
+    // Authorization: admin, assigned tutor, linked parent, or student themselves
     const { data: callerProfile } = await db
       .from("profiles").select("role").eq("id", caller.id).single();
     const isAdmin = callerProfile?.role === "admin";
+    const isTutor = callerProfile?.role === "tutor";
 
     if (!isAdmin && caller.id !== student_id) {
-      const { data: parentLink } = await db
-        .from("student_parents").select("id")
-        .eq("parent_id", caller.id).eq("student_id", student_id).maybeSingle();
-      if (!parentLink) {
-        return new Response(JSON.stringify({ error: "Forbidden" }), {
-          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      if (isTutor) {
+        const { data: tutorLink } = await db
+          .from("profiles").select("id")
+          .eq("id", student_id).eq("tutor_id", caller.id).maybeSingle();
+        if (!tutorLink) {
+          return new Response(JSON.stringify({ error: "Forbidden" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      } else {
+        const { data: parentLink } = await db
+          .from("student_parents").select("id")
+          .eq("parent_id", caller.id).eq("student_id", student_id).maybeSingle();
+        if (!parentLink) {
+          return new Response(JSON.stringify({ error: "Forbidden" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
       }
     }
 

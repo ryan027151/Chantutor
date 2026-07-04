@@ -58,6 +58,7 @@ interface AssignmentRecord {
   status: string;
   test_id: string | null;
   created_at: string;
+  assigner_name: string | null;
   tests: { score: number | null } | null;
 }
 
@@ -1050,6 +1051,9 @@ function ParentPage() {
                               <p className="text-xs text-slate-400 truncate">Topics: {a.categories.join(", ")}</p>
                             )}
                             {a.note && <p className="text-xs text-slate-400 italic">"{a.note}"</p>}
+                            {a.assigner_name && (
+                              <p className="text-xs text-slate-400">Assigned by {a.assigner_name}</p>
+                            )}
                           </div>
                           {isCompleted && a.test_id && (
                             <button

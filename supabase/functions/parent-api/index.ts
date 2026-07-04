@@ -262,13 +262,31 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (!link) return fail(403, "Not linked to this student");
 
-      const { data: assignments } = await db
+      const { data: rawAssignments } = await db
         .from("assignments")
-        .select("id, test_type, num_questions, difficulties, categories, due_date, duration_minutes, note, status, test_id, created_at, tests(score)")
+        .select("id, test_type, num_questions, difficulties, categories, due_date, duration_minutes, note, status, test_id, created_at, assigned_by, tests(score)")
         .eq("student_id", student_id)
         .order("created_at", { ascending: false });
 
-      return ok({ assignments: assignments ?? [] });
+      // Fetch assigner names (service role bypasses RLS)
+      const assignerIds = [...new Set((rawAssignments ?? []).map(a => a.assigned_by).filter(Boolean))];
+      let assignerMap: Record<string, string> = {};
+      if (assignerIds.length > 0) {
+        const { data: assigners } = await db
+          .from("profiles")
+          .select("id, first_name, last_name")
+          .in("id", assignerIds);
+        for (const p of assigners ?? []) {
+          assignerMap[p.id] = `${p.first_name} ${p.last_name}`;
+        }
+      }
+
+      const assignments = (rawAssignments ?? []).map(a => ({
+        ...a,
+        assigner_name: a.assigned_by ? (assignerMap[a.assigned_by] ?? null) : null,
+      }));
+
+      return ok({ assignments });
     }
 
     return fail(400, "Unknown action");

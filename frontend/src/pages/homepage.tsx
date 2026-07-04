@@ -19,6 +19,8 @@ interface AssignmentWithTest {
   status: string;
   test_id: string | null;
   created_at: string;
+  assigned_by: string | null;
+  assigner_name: string | null;
   tests: { score: number | null } | null;
 }
 
@@ -141,7 +143,19 @@ function HomePage() {
       .select("*, tests(score)")
       .eq("student_id", user.id)
       .order("created_at", { ascending: false });
-    setAssignments((data as AssignmentWithTest[]) ?? []);
+    const raw = (data as AssignmentWithTest[]) ?? [];
+
+    // SECURITY DEFINER RPC avoids RLS recursion (direct profiles query would loop)
+    const { data: assignerRows } = await supabase.rpc("get_my_assignment_assigners");
+    const nameByAssignmentId: Record<string, string> = {};
+    for (const row of (assignerRows ?? []) as { assignment_id: string; assigner_name: string }[]) {
+      nameByAssignmentId[row.assignment_id] = row.assigner_name;
+    }
+
+    setAssignments(raw.map(a => ({
+      ...a,
+      assigner_name: nameByAssignmentId[a.id] ?? null,
+    })));
   }
 
   async function startAssignment(a: AssignmentWithTest) {
@@ -561,6 +575,9 @@ function HomePage() {
                                 {a.note && (
                                   <p className="text-xs text-slate-500 italic">"{a.note}"</p>
                                 )}
+                                {a.assigner_name && (
+                                  <p className="text-xs text-slate-400">Assigned by {a.assigner_name}</p>
+                                )}
                               </div>
                               <button
                                 type="button"
@@ -607,6 +624,9 @@ function HomePage() {
                                 )}
                                 {a.note && (
                                   <p className="text-xs text-slate-400 italic">"{a.note}"</p>
+                                )}
+                                {a.assigner_name && (
+                                  <p className="text-xs text-slate-400">Assigned by {a.assigner_name}</p>
                                 )}
                               </div>
                               {a.test_id && (
