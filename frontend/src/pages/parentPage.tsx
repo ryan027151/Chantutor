@@ -10,7 +10,12 @@ import { exportResultsPDF } from "../utils/exportResultsPDF";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-interface Student { id: string; first_name: string; last_name: string; }
+interface Student {
+  id: string;
+  first_name: string;
+  last_name: string;
+  tutors: { id: string; first_name: string; last_name: string }[];
+}
 
 interface TestRecord {
   id: string;
@@ -979,6 +984,25 @@ function ParentPage() {
                   <span className="hidden sm:inline">View Performance</span>
                   <span className="sm:hidden">Performance</span>
                 </button>
+              </div>
+
+              {/* Assigned Tutors */}
+              <div className="bg-white rounded-xl border border-slate-100 shadow-sm px-5 py-4 flex flex-col gap-3">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Assigned Tutors</p>
+                {!selectedStudent.tutors || selectedStudent.tutors.length === 0 ? (
+                  <p className="text-sm text-slate-400">No tutors assigned yet.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedStudent.tutors.map(t => (
+                      <span key={t.id} className="flex items-center gap-2 px-3 py-1.5 bg-violet-50 border border-violet-200 rounded-full text-sm font-medium text-violet-700">
+                        <span className="w-5 h-5 rounded-full bg-violet-200 flex items-center justify-center text-xs font-bold text-violet-700 shrink-0">
+                          {t.first_name[0]}{t.last_name[0]}
+                        </span>
+                        {t.first_name} {t.last_name}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Assigned Work */}

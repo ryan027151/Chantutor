@@ -201,9 +201,20 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved, is
     const userIds = [...new Set(data.map((r) => r.user_id).filter(Boolean))] as string[];
     let nameMap: Record<string, { first_name: string; last_name: string }> = {};
     if (userIds.length > 0) {
-      const { data: profiles } = await supabase
-        .from("profiles").select("id, first_name, last_name").in("id", userIds);
-      for (const p of profiles ?? []) nameMap[p.id] = p;
+      if (isAdmin) {
+        const { data: profiles } = await supabase
+          .from("profiles").select("id, first_name, last_name").in("id", userIds);
+        for (const p of profiles ?? []) nameMap[p.id] = p;
+      } else {
+        // Tutors can only read their own profile via RLS; use get_all_profiles()
+        // (SECURITY DEFINER) for student names, plus own profile for self-filed reports.
+        const [{ data: assignedProfiles }, { data: ownProfiles }] = await Promise.all([
+          supabase.rpc("get_all_profiles"),
+          supabase.from("profiles").select("id, first_name, last_name").in("id", userIds),
+        ]);
+        for (const p of assignedProfiles ?? []) nameMap[p.id] = p;
+        for (const p of ownProfiles ?? []) nameMap[p.id] = p;
+      }
     }
     setReports(data.map((r) => ({
       ...r,

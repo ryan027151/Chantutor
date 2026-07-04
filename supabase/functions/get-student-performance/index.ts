@@ -52,8 +52,8 @@ Deno.serve(async (req) => {
     if (!isAdmin && caller.id !== student_id) {
       if (isTutor) {
         const { data: tutorLink } = await db
-          .from("profiles").select("id")
-          .eq("id", student_id).eq("tutor_id", caller.id).maybeSingle();
+          .from("student_tutors").select("student_id")
+          .eq("student_id", student_id).eq("tutor_id", caller.id).maybeSingle();
         if (!tutorLink) {
           return new Response(JSON.stringify({ error: "Forbidden" }), {
             status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },

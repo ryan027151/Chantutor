@@ -3,15 +3,19 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase-client";
 import ResultsModal from "./ResultsModal";
 
+interface Tutor {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
+
 interface Student {
   id: string;
   first_name: string;
   last_name: string;
   role: string;
   email: string | null;
-  tutor_id: string | null;
-  tutor_first_name: string | null;
-  tutor_last_name: string | null;
+  tutors: Tutor[];
 }
 
 interface TestRecord {
@@ -372,26 +376,34 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
     setConfirmDeleteAssign(null);
   }
 
-  async function assignTutor(tutorId: string | null) {
+  async function addTutor(tutorId: string) {
     if (!selected) return;
     setSavingTutor(true);
-    const tutor = tutorId ? tutors.find(t => t.id === tutorId) ?? null : null;
     const { error } = await supabase
-      .from("profiles")
-      .update({ tutor_id: tutorId })
-      .eq("id", selected.id);
+      .from("student_tutors")
+      .insert({ student_id: selected.id, tutor_id: tutorId });
     if (!error) {
-      const updated: Student = {
-        ...selected,
-        tutor_id: tutorId,
-        tutor_first_name: tutor?.first_name ?? null,
-        tutor_last_name: tutor?.last_name ?? null,
-      };
+      const tutor = tutors.find(t => t.id === tutorId)!;
+      const updated: Student = { ...selected, tutors: [...selected.tutors, tutor] };
       setSelected(updated);
       setStudents(prev => prev.map(s => s.id === selected.id ? updated : s));
     }
     setSavingTutor(false);
     setShowTutorModal(false);
+  }
+
+  async function removeTutor(tutorId: string) {
+    if (!selected) return;
+    const { error } = await supabase
+      .from("student_tutors")
+      .delete()
+      .eq("student_id", selected.id)
+      .eq("tutor_id", tutorId);
+    if (!error) {
+      const updated: Student = { ...selected, tutors: selected.tutors.filter(t => t.id !== tutorId) };
+      setSelected(updated);
+      setStudents(prev => prev.map(s => s.id === selected.id ? updated : s));
+    }
   }
 
   const filtered = students.filter(s =>
@@ -587,11 +599,11 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
               </div>
             )}
 
-            {/* ── Assigned Tutor (admin only) ── */}
-            {isAdmin && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-bold uppercase tracking-widest text-zinc-400">Assigned Tutor</p>
+            {/* ── Assigned Tutors ── */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-bold uppercase tracking-widest text-zinc-400">Assigned Tutors</p>
+                {isAdmin && (
                   <button
                     type="button"
                     onClick={() => setShowTutorModal(true)}
@@ -600,31 +612,36 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
-                    {selected.tutor_id ? "Change" : "Assign"}
+                    Add
                   </button>
-                </div>
-                {selected.tutor_id ? (
-                  <div className="bg-zinc-50 rounded-xl border border-zinc-200 px-4 py-3 flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-violet-100 border border-violet-200 flex items-center justify-center text-sm font-bold text-violet-500 shrink-0">
-                      {selected.tutor_first_name?.[0]}{selected.tutor_last_name?.[0]}
-                    </div>
-                    <span className="flex-1 text-base font-medium text-zinc-900">{selected.tutor_first_name} {selected.tutor_last_name}</span>
-                    <button
-                      type="button"
-                      onClick={() => assignTutor(null)}
-                      disabled={savingTutor}
-                      className="text-xs text-zinc-400 hover:text-red-400 transition-colors px-1 py-1 disabled:opacity-50"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ) : (
-                  <div className="bg-zinc-50 rounded-xl border border-zinc-200 px-5 py-4 text-center text-sm text-zinc-400">
-                    No tutor assigned. Click "Assign" to add one.
-                  </div>
                 )}
               </div>
-            )}
+              {selected.tutors.length === 0 ? (
+                <div className="bg-zinc-50 rounded-xl border border-zinc-200 px-5 py-4 text-center text-sm text-zinc-400">
+                  {isAdmin ? "No tutors assigned. Click \"Add\" to assign one." : "No tutors assigned."}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {selected.tutors.map(t => (
+                    <div key={t.id} className="bg-zinc-50 rounded-xl border border-zinc-200 px-4 py-3 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-violet-100 border border-violet-200 flex items-center justify-center text-sm font-bold text-violet-500 shrink-0">
+                        {t.first_name[0]}{t.last_name[0]}
+                      </div>
+                      <span className="flex-1 text-base font-medium text-zinc-900">{t.first_name} {t.last_name}</span>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => removeTutor(t.id)}
+                          className="text-xs text-zinc-400 hover:text-red-400 transition-colors px-1 py-1"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* ── Assigned Work ── */}
             <div>
@@ -1079,62 +1096,62 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
         </div>
       )}
 
-      {/* ── Assign Tutor Modal ── */}
-      {showTutorModal && selected && isAdmin && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-sm flex flex-col">
-            <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-zinc-900">Assign Tutor</h3>
-                <p className="text-sm text-zinc-400 mt-0.5">For {selected.first_name} {selected.last_name}</p>
+      {/* ── Add Tutor Modal ── */}
+      {showTutorModal && selected && isAdmin && (() => {
+        const available = tutors.filter(t => !selected.tutors.some(st => st.id === t.id));
+        return (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-white border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-sm flex flex-col">
+              <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-zinc-900">Add Tutor</h3>
+                  <p className="text-sm text-zinc-400 mt-0.5">For {selected.first_name} {selected.last_name}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTutorModal(false)}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+                >
+                  ✕
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowTutorModal(false)}
-                className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="p-4 flex flex-col gap-2 max-h-80 overflow-y-auto">
-              {tutors.length === 0 ? (
-                <p className="text-sm text-zinc-400 text-center py-6">No tutors found. Create a tutor account first.</p>
-              ) : (
-                tutors.map(tutor => (
-                  <button
-                    key={tutor.id}
-                    type="button"
-                    onClick={() => assignTutor(tutor.id)}
-                    disabled={savingTutor}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-colors disabled:opacity-50 ${
-                      selected.tutor_id === tutor.id
-                        ? "bg-violet-500/10 border-violet-500/30 text-violet-700"
-                        : "bg-zinc-50 border-zinc-200 hover:border-violet-300 hover:bg-violet-50/40"
-                    }`}
-                  >
-                    <div className="w-8 h-8 rounded-full bg-violet-100 border border-violet-200 flex items-center justify-center text-sm font-bold text-violet-500 shrink-0">
-                      {tutor.first_name[0]}{tutor.last_name[0]}
-                    </div>
-                    <span className="text-base font-medium text-zinc-900">{tutor.first_name} {tutor.last_name}</span>
-                    {selected.tutor_id === tutor.id && (
-                      <span className="ml-auto text-xs text-violet-600 font-semibold">Current</span>
-                    )}
-                  </button>
-                ))
-              )}
-            </div>
-            <div className="px-6 py-4 border-t border-zinc-200">
-              <button
-                type="button"
-                onClick={() => setShowTutorModal(false)}
-                className="w-full px-4 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
-              >
-                Cancel
-              </button>
+              <div className="p-4 flex flex-col gap-2 max-h-80 overflow-y-auto">
+                {available.length === 0 ? (
+                  <p className="text-sm text-zinc-400 text-center py-6">
+                    {tutors.length === 0
+                      ? "No tutor accounts exist yet."
+                      : "All tutors are already assigned to this student."}
+                  </p>
+                ) : (
+                  available.map(tutor => (
+                    <button
+                      key={tutor.id}
+                      type="button"
+                      onClick={() => addTutor(tutor.id)}
+                      disabled={savingTutor}
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl border bg-zinc-50 border-zinc-200 hover:border-violet-300 hover:bg-violet-50/40 text-left transition-colors disabled:opacity-50"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-violet-100 border border-violet-200 flex items-center justify-center text-sm font-bold text-violet-500 shrink-0">
+                        {tutor.first_name[0]}{tutor.last_name[0]}
+                      </div>
+                      <span className="text-base font-medium text-zinc-900">{tutor.first_name} {tutor.last_name}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-zinc-200">
+                <button
+                  type="button"
+                  onClick={() => setShowTutorModal(false)}
+                  className="w-full px-4 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Edit Profile Modal ── */}
       {editingProfile && selected && (

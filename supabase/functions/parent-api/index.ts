@@ -61,13 +61,29 @@ Deno.serve(async (req) => {
 
       if (!links || links.length === 0) return ok({ students: [] });
 
-      const studentIds = links.map(l => l.student_id);
-      const { data: profiles } = await db
-        .from("profiles")
-        .select("id, first_name, last_name")
-        .in("id", studentIds);
+      const studentIds = links.map((l: { student_id: string }) => l.student_id);
+      const [{ data: profiles }, { data: tutorLinks }] = await Promise.all([
+        db.from("profiles").select("id, first_name, last_name").in("id", studentIds),
+        db.from("student_tutors").select("student_id, tutor_id").in("student_id", studentIds),
+      ]);
 
-      return ok({ students: profiles ?? [] });
+      // Resolve tutor names
+      const tutorIds = [...new Set((tutorLinks ?? []).map((l: { tutor_id: string }) => l.tutor_id))];
+      const { data: tutorProfiles } = tutorIds.length > 0
+        ? await db.from("profiles").select("id, first_name, last_name").in("id", tutorIds)
+        : { data: [] as { id: string; first_name: string; last_name: string }[] };
+
+      const tutorMap: Record<string, { id: string; first_name: string; last_name: string }> = {};
+      for (const t of tutorProfiles ?? []) tutorMap[t.id] = t;
+
+      const tutorsByStudent: Record<string, { id: string; first_name: string; last_name: string }[]> = {};
+      for (const link of (tutorLinks ?? []) as { student_id: string; tutor_id: string }[]) {
+        if (!tutorsByStudent[link.student_id]) tutorsByStudent[link.student_id] = [];
+        const t = tutorMap[link.tutor_id];
+        if (t) tutorsByStudent[link.student_id].push(t);
+      }
+
+      return ok({ students: (profiles ?? []).map(p => ({ ...p, tutors: tutorsByStudent[p.id] ?? [] })) });
     }
 
     // ── GET_TESTS ────────────────────────────────────────────────────────────
