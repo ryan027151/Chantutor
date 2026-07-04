@@ -806,7 +806,7 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
                             </button>
                           )}
 
-                          {isAdmin && (isConfirming ? (
+                          {isConfirming ? (
                             <div className="flex items-center gap-1.5 shrink-0">
                               <span className="text-xs text-zinc-500">
                                 {testConfirm.action === "delete" ? "Delete?" : "Reset?"}
@@ -837,16 +837,18 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
                               >
                                 Reset
                               </button>
-                              <button
-                                type="button"
-                                title="Permanently delete this test and all its answers"
-                                onClick={() => setTestConfirm({ id: test.id, action: "delete" })}
-                                className="px-2 py-1 rounded-lg text-xs font-medium text-zinc-400 hover:text-red-400 hover:bg-red-500/8 border border-transparent hover:border-red-500/20 transition-colors"
-                              >
-                                Delete
-                              </button>
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  title="Permanently delete this test and all its answers"
+                                  onClick={() => setTestConfirm({ id: test.id, action: "delete" })}
+                                  className="px-2 py-1 rounded-lg text-xs font-medium text-zinc-400 hover:text-red-400 hover:bg-red-500/8 border border-transparent hover:border-red-500/20 transition-colors"
+                                >
+                                  Delete
+                                </button>
+                              )}
                             </div>
-                          ))}
+                          )}
                           </div>
                         </div>
 

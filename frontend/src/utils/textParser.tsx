@@ -51,8 +51,8 @@ export function parseFormattedText(raw: string, keyPrefix: string = ""): ReactNo
   // 3. Ensure a space next to inline tags so they don't merge with surrounding words
   const text = decodeEntities(raw)
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/(\S)(<(?:b|i|u|strong|em|sup|sub)>)/gi, "$1 $2")
-    .replace(/(<\/(?:b|i|u|strong|em|sup|sub)>)([^\s.,;:!?'"\n])/gi, "$1 $2");
+    .replace(/(\S)(<(?:b|i|u|strong|em)>)/gi, "$1 $2")
+    .replace(/(<\/(?:b|i|u|strong|em)>)([^\s.,;:!?'"\n])/gi, "$1 $2");
 
   const parts = text.split(TAG_REGEX);
   const result: ReactNode[] = [];

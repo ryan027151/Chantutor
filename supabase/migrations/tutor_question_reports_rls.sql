@@ -7,6 +7,7 @@ DROP POLICY IF EXISTS "Tutors read question reports"   ON public.question_report
 DROP POLICY IF EXISTS "Tutors update question reports" ON public.question_reports;
 
 -- ── 2. INSERT — tutors can file reports for their assigned students' tests ───
+DROP POLICY IF EXISTS "Tutors insert question reports" ON public.question_reports;
 CREATE POLICY "Tutors insert question reports"
   ON public.question_reports FOR INSERT TO authenticated
   WITH CHECK (
@@ -20,6 +21,7 @@ CREATE POLICY "Tutors insert question reports"
   );
 
 -- ── 3. SELECT — tutors see only reports for their assigned students' tests ───
+DROP POLICY IF EXISTS "Tutors read assigned student reports" ON public.question_reports;
 CREATE POLICY "Tutors read assigned student reports"
   ON public.question_reports FOR SELECT TO authenticated
   USING (
@@ -32,6 +34,7 @@ CREATE POLICY "Tutors read assigned student reports"
   );
 
 -- ── 4. UPDATE — tutors can update status on their assigned students' reports ─
+DROP POLICY IF EXISTS "Tutors update assigned student reports" ON public.question_reports;
 CREATE POLICY "Tutors update assigned student reports"
   ON public.question_reports FOR UPDATE TO authenticated
   USING (
