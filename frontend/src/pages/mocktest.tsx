@@ -18,11 +18,38 @@ function choiceLetterOf(s: string): string {
 interface GraphPoint { x: number; y: number; }
 
 // Returns true when the student's answer matches the correct answer.
-// MCQ: letter-prefix comparison.
-// Grid-in: numeric comparison with fraction/decimal normalisation.
-// linear_graphing: checks both student points lie on the correct line.
+// All types apply liberal normalization so minor formatting differences never mark a correct answer wrong.
 function checkAnswer(student: string, correct: string, type: string): boolean {
   if (!student.trim() || !correct.trim()) return false;
+
+  if (type === "multi-select") {
+    const norm = (s: string) =>
+      s.split(",").map(x => x.trim()).filter(Boolean).sort().join(",");
+    return norm(student) === norm(correct);
+  }
+
+  if (type === "expression") {
+    // 1. Strip all whitespace           "2n + 3"  → "2n+3"
+    // 2. Unify operator Unicode          "2n−3"    → "2n-3"
+    // 3. Remove explicit × between       "2×n"     → "2n"
+    //    digit and variable (implicit mult after × → *)
+    // 4. Flip variable×digit to canonical "n×2"    → "2n"
+    //    (only when letter not preceded by a digit, to avoid mangling "2n*3")
+    // 5. Normalize Unicode superscripts  "x²"      → "x^2"
+    // 6. Lowercase                       "X+N"     → "x+n"
+    const norm = (s: string) =>
+      s
+        .replace(/\s/g, "")
+        .replace(/−/g, "-")                        // − → -
+        .replace(/×/g, "*")                        // × → *
+        .replace(/÷/g, "/")                        // ÷ → /
+        .replace(/²/g, "^2")                       // ² → ^2
+        .replace(/³/g, "^3")                       // ³ → ^3
+        .replace(/(\d)\*([a-zA-Z])/g, "$1$2")           // 2*n → 2n
+        .replace(/(?<!\d)([a-zA-Z])\*(\d+)/g, "$2$1")  // n*2 → 2n (not "2n*3")
+        .toLowerCase();
+    return norm(student) === norm(correct);
+  }
 
   if (type === "linear_graphing") {
     try {
@@ -48,14 +75,38 @@ function checkAnswer(student: string, correct: string, type: string): boolean {
     return choiceLetterOf(student) === choiceLetterOf(correct);
   }
 
-  // Grid-in: convert "3/4" → 0.75, "0.75" → 0.75, "42" → 42
+  // ── Grid-in ───────────────────────────────────────────────────────────────────
+  // Accepts: "42", " 42 ", "3/4", "3 / 4", "0.75", ".75", "1,000",
+  //          mixed number "1 1/2", negative "-3/4", space-grouped "1 024"
   const toNum = (raw: string): number | null => {
-    const t = raw.trim();
+    // Step 1: remove thousands-separator commas and outer whitespace
+    const t = raw.trim().replace(/,/g, "");
+
     if (t.includes("/")) {
-      const [n, d] = t.split("/").map(Number);
-      return Number.isFinite(n) && Number.isFinite(d) && d !== 0 ? n / d : null;
+      // Mixed number: "1 1/2" → 1.5, "-2 3/4" → -2.75
+      const mixed = t.match(/^(-?\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+      if (mixed) {
+        const whole = parseInt(mixed[1], 10);
+        const num   = parseInt(mixed[2], 10);
+        const den   = parseInt(mixed[3], 10);
+        if (Number.isFinite(whole) && Number.isFinite(num) && den !== 0) {
+          return whole + (whole < 0 ? -1 : 1) * (num / den);
+        }
+      }
+      // Simple fraction: "3/4" or "3 / 4" — Number() tolerates surrounding spaces
+      const parts = t.split("/");
+      if (parts.length === 2) {
+        const n = Number(parts[0]);
+        const d = Number(parts[1]);
+        return Number.isFinite(n) && Number.isFinite(d) && d !== 0 ? n / d : null;
+      }
+      return null;
     }
-    const n = parseFloat(t);
+
+    // Strip any remaining internal spaces ("1 024" → "1024") then parse
+    const compact = t.replace(/\s/g, "");
+    if (!compact) return null;
+    const n = parseFloat(compact);
     return Number.isFinite(n) ? n : null;
   };
 
@@ -63,8 +114,9 @@ function checkAnswer(student: string, correct: string, type: string): boolean {
   const cv = toNum(correct);
   if (sv !== null && cv !== null) return Math.abs(sv - cv) < 0.0001;
 
-  // Non-numeric grid-in (shouldn't happen normally) — plain string match
-  return student.trim().toLowerCase() === correct.trim().toLowerCase();
+  // Non-numeric fallback: collapse whitespace + case-insensitive
+  const normText = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+  return normText(student) === normText(correct);
 }
 
 function formatTime(seconds: number): string {
@@ -444,7 +496,7 @@ function MockTest() {
     Promise.all([
       supabase
         .from("all_questions")
-        .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
+        .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, extra_data, subject, sub_category, difficulty")
         .eq("uid", uid)
         .single(),
       supabase
@@ -748,7 +800,7 @@ function MockTest() {
       const uid = available[Math.floor(Math.random() * available.length)];
       const { data: qData, error } = await supabase
         .from("all_questions")
-        .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
+        .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, extra_data, subject, sub_category, difficulty")
         .eq("uid", uid)
         .single();
 
@@ -1589,27 +1641,46 @@ function MockTest() {
               </div>
 
               {/* Question text */}
-              <div className="text-base leading-relaxed text-slate-800">
-                {parseFormattedText(questionData.text ?? "")}
-              </div>
+              {(() => {
+                const extra = ((questionData as Record<string, unknown>).extra_data as Record<string, unknown> | null) ?? {};
+                const vars = Array.isArray(extra.variables) ? extra.variables as string[] : [];
+                return (
+                  <div className="text-base leading-relaxed text-slate-800">
+                    {parseFormattedText(questionData.text ?? "", "", vars)}
+                  </div>
+                );
+              })()}
 
               {/* Answer input — key forces full remount on question change */}
-              <QuestionRenderer
-                key={currentQuestion}
-                chosenAnswer={setChosenAnswer}
-                type={questionData.type as "mcq" | "grid-in" | "linear_graphing"}
-                uid={questionData.uid}
-                options={[
+              {(() => {
+                const qd = questionData as Record<string, unknown>;
+                const extra = (qd.extra_data as Record<string, unknown> | null) ?? {};
+                const baseOptions = [
                   questionData.choice_1,
                   questionData.choice_2,
                   questionData.choice_3,
                   questionData.choice_4,
-                ]}
-                answer={questionData.answer}
-                isReadOnly={isReadOnly}
-                previousAnswer={previousAnswer}
-                choiceImages={choiceImages}
-              />
+                ];
+                if (questionData.type === "multi-select") {
+                  if (extra.choice_5) baseOptions.push(extra.choice_5 as string);
+                  if (extra.choice_6) baseOptions.push(extra.choice_6 as string);
+                }
+                return (
+                  <QuestionRenderer
+                    key={currentQuestion}
+                    chosenAnswer={setChosenAnswer}
+                    type={questionData.type as "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression"}
+                    uid={questionData.uid}
+                    options={baseOptions}
+                    answer={questionData.answer}
+                    isReadOnly={isReadOnly}
+                    previousAnswer={previousAnswer}
+                    choiceImages={choiceImages}
+                    selectCount={typeof extra.select_count === "number" ? extra.select_count : 1}
+                    variables={Array.isArray(extra.variables) ? extra.variables as string[] : []}
+                  />
+                );
+              })()}
 
               {/* Navigation row — back left, submit right */}
               <div className="flex flex-col gap-2 pt-1">

@@ -21,6 +21,9 @@ function GridInQuestion({ chosenAnswer, isReadOnly = false, previousAnswer = "" 
           if (!isReadOnly) chosenAnswer(e.target.value);
         }}
       />
+      <p className="text-xs text-slate-400 mt-0.5">
+        Mixed number: type the whole number, a space, then the fraction — e.g. <span className="font-mono">1 1/2</span> for 1½
+      </p>
     </div>
   );
 }

@@ -14,6 +14,7 @@ interface AllQuestion {
   choice_2: string | null;
   choice_3: string | null;
   choice_4: string | null;
+  extra_data?: Record<string, unknown> | null;
 }
 
 interface Props {
@@ -71,7 +72,7 @@ export default function QuestionDetailModal({
       const [{ data: qData }, { data: mData }] = await Promise.all([
         supabase
           .from("all_questions")
-          .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4")
+          .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, extra_data")
           .eq("uid", questionUid)
           .single(),
         supabase
@@ -112,8 +113,22 @@ export default function QuestionDetailModal({
   const correctAnswer = question?.answer ?? "";
   const isGridIn = question?.type === "grid-in";
   const isGraphing = question?.type === "linear_graphing";
-  const fallbackLetters = ["A", "B", "C", "D"];
-  const choices = question
+  const isMultiSelect = question?.type === "multi-select";
+  const isExpression = question?.type === "expression";
+  const fallbackLetters = ["A", "B", "C", "D", "E", "F"];
+
+  // Multi-select: build full options list including extra_data choices
+  const multiSelectChoices = (() => {
+    if (!isMultiSelect || !question) return [];
+    const extra = (question.extra_data ?? {}) as Record<string, unknown>;
+    const opts = [
+      question.choice_1, question.choice_2, question.choice_3, question.choice_4,
+      extra.choice_5 as string | null, extra.choice_6 as string | null,
+    ].filter(Boolean) as string[];
+    return opts.map((opt, i) => ({ letter: extractLetter(opt, fallbackLetters[i]), label: opt }));
+  })();
+
+  const choices = question && !isMultiSelect
     ? [question.choice_1, question.choice_2, question.choice_3, question.choice_4].map(
         (opt, i) => ({ letter: extractLetter(opt, fallbackLetters[i]), label: opt })
       )
@@ -243,7 +258,11 @@ export default function QuestionDetailModal({
             )}
             <div className="p-5 flex flex-col gap-4">
               <p className="text-sm text-slate-800 leading-relaxed">
-                {parseFormattedText(question.text)}
+                {parseFormattedText(
+                  question.text,
+                  "",
+                  Array.isArray(question.extra_data?.variables) ? question.extra_data!.variables as string[] : []
+                )}
               </p>
 
               {isGraphing ? (
@@ -272,6 +291,27 @@ export default function QuestionDetailModal({
                     <p className="text-xs text-slate-400 italic text-center">No answer was submitted for this question.</p>
                   )}
                 </div>
+              ) : isExpression ? (
+                <div className="flex flex-col gap-2">
+                  <div className={`flex items-center gap-3 rounded-xl px-4 py-3 border ${
+                    !studentAnswer ? "bg-slate-50 border-slate-200" :
+                    isCorrect ? "bg-emerald-50 border-emerald-200" : "bg-rose-50 border-rose-200"
+                  }`}>
+                    <span className="text-xs font-semibold text-slate-500 w-28 shrink-0">Your answer</span>
+                    <span className={`font-mono text-sm font-semibold ${
+                      !studentAnswer ? "text-slate-400 italic" :
+                      isCorrect ? "text-emerald-700" : "text-rose-700"
+                    }`}>
+                      {studentAnswer || "—"}
+                    </span>
+                  </div>
+                  {isCorrect === false && (
+                    <div className="flex items-center gap-3 rounded-xl px-4 py-3 bg-emerald-50 border border-emerald-200">
+                      <span className="text-xs font-semibold text-slate-500 w-28 shrink-0">Correct answer</span>
+                      <span className="font-mono text-sm font-semibold text-emerald-700">{correctAnswer}</span>
+                    </div>
+                  )}
+                </div>
               ) : isGridIn ? (
                 <div className="flex flex-col gap-2">
                   <div className={`flex items-center gap-3 rounded-xl px-4 py-3 border ${
@@ -292,6 +332,54 @@ export default function QuestionDetailModal({
                       <span className="text-sm font-bold text-emerald-700">{correctAnswer}</span>
                     </div>
                   )}
+                </div>
+              ) : isMultiSelect ? (
+                <div className="flex flex-col gap-2">
+                  {multiSelectChoices.map(({ letter, label }) => {
+                    const studentSelections = new Set(
+                      (studentAnswer ?? "").split(",").map(s => s.trim()).filter(Boolean)
+                    );
+                    const correctSelections = new Set(
+                      correctAnswer.split(",").map(s => s.trim()).filter(Boolean)
+                    );
+                    const isStudentChoice = studentSelections.has(letter);
+                    const isCorrectChoice = correctSelections.has(letter);
+                    let rowCls = "bg-white border-slate-200";
+                    let squareCls = "bg-slate-100 text-slate-500 border-slate-300";
+                    if (isCorrectChoice) {
+                      rowCls = "bg-emerald-50 border-emerald-300";
+                      squareCls = "bg-emerald-500 text-white border-emerald-500";
+                    } else if (isStudentChoice) {
+                      rowCls = "bg-rose-50 border-rose-300";
+                      squareCls = "bg-rose-400 text-white border-rose-400";
+                    }
+                    return (
+                      <div key={letter} className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${rowCls}`}>
+                        <span className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold shrink-0 border mt-0.5 ${squareCls}`}>
+                          {letter}
+                        </span>
+                        <div className="flex-1 text-sm text-slate-700 leading-relaxed">
+                          {label ? parseFormattedText(stripChoicePrefix(label)) : "—"}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 self-center">
+                          {isStudentChoice && !isCorrectChoice && (
+                            <span className="text-xs text-rose-500 font-medium">Your choice</span>
+                          )}
+                          {isStudentChoice && isCorrectChoice && (
+                            <span className="text-xs text-emerald-600 font-medium">Your choice</span>
+                          )}
+                          {!isStudentChoice && isCorrectChoice && (
+                            <span className="text-xs text-emerald-600 font-medium">Missed</span>
+                          )}
+                          {isCorrectChoice && (
+                            <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">

@@ -1,8 +1,10 @@
 import GridInQuestion from "./gridInQuestion";
 import MCQuestion from "./multiQuestion";
 import SHSATGrapher from "./SHSATGrapher";
+import MultiSelectQuestion from "./MultiSelectQuestion";
+import ExpressionEditorQuestion from "./ExpressionEditorQuestion";
 
-type QuestionType = "mcq" | "grid-in" | "linear_graphing";
+type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression";
 
 interface QuestionProps {
   type: QuestionType;
@@ -13,6 +15,8 @@ interface QuestionProps {
   isReadOnly?: boolean;
   previousAnswer?: string;
   choiceImages?: Record<string, string>;
+  selectCount?: number;
+  variables?: string[];
 }
 
 export default function QuestionRenderer({
@@ -23,6 +27,8 @@ export default function QuestionRenderer({
   isReadOnly = false,
   previousAnswer = "",
   choiceImages = {},
+  selectCount = 1,
+  variables = [],
 }: QuestionProps) {
   switch (type) {
     case "mcq":
@@ -53,6 +59,26 @@ export default function QuestionRenderer({
           isReadOnly={isReadOnly}
           previousAnswer={isReadOnly ? previousAnswer : undefined}
           correctAnswer={isReadOnly ? answer : undefined}
+        />
+      );
+    case "multi-select":
+      return (
+        <MultiSelectQuestion
+          options={options}
+          selectCount={selectCount}
+          chosenAnswer={chosenAnswer}
+          isReadOnly={isReadOnly}
+          previousAnswer={previousAnswer}
+          choiceImages={choiceImages}
+        />
+      );
+    case "expression":
+      return (
+        <ExpressionEditorQuestion
+          chosenAnswer={chosenAnswer}
+          isReadOnly={isReadOnly}
+          previousAnswer={previousAnswer}
+          variables={variables}
         />
       );
     default:

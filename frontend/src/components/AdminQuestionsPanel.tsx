@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../supabase-client";
 import { parseFormattedText } from "../utils/textParser";
+import ExpressionEditorQuestion from "./ExpressionEditorQuestion";
 
 type MediaType = "passage" | "graph" | "table" | "equation";
-type QuestionType = "mcq" | "grid-in" | "linear_graphing";
+type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression";
 
 interface MediaItem {
   mediaId: string;
@@ -42,9 +43,16 @@ interface Question {
   media_refs?: string;
   source?: string;
   status?: string;
+  extra_data?: Record<string, unknown> | null;
 }
 
-type FormData = Partial<Question>;
+// Virtual fields choice_5, choice_6, select_count, variables are serialized into extra_data on save
+type FormData = Partial<Question> & {
+  choice_5?: string;
+  choice_6?: string;
+  select_count?: number | string;
+  variables?: string; // comma-separated, e.g. "x, n" — only for expression type
+};
 
 const PAGE_SIZE = 30;
 
@@ -59,6 +67,10 @@ const EMPTY_FORM: FormData = {
   choice_2: "",
   choice_3: "",
   choice_4: "",
+  choice_5: "",
+  choice_6: "",
+  select_count: "",
+  variables: "",
   answer: "",
   media_refs: "",
 };
@@ -138,13 +150,18 @@ function previewStripPrefix(text: string): string {
 // ── Type badge helper ──────────────────────────────────────────────────────────
 
 function TypeBadge({ type, source }: { type: string; source?: string }) {
-  const label = type === "mcq" ? "MCQ" : type === "grid-in" ? "Grid-in" : "Graphing";
+  const label =
+    type === "mcq" ? "MCQ" :
+    type === "grid-in" ? "Grid-in" :
+    type === "linear_graphing" ? "Graphing" :
+    type === "multi-select" ? "Multi-select" :
+    type === "expression" ? "Expression" : type;
   const cls =
-    type === "mcq"
-      ? "bg-zinc-100 text-zinc-500"
-      : type === "grid-in"
-      ? "bg-amber-500/10 text-amber-500"
-      : "bg-blue-500/10 text-blue-600";
+    type === "mcq" ? "bg-zinc-100 text-zinc-500" :
+    type === "grid-in" ? "bg-amber-500/10 text-amber-500" :
+    type === "multi-select" ? "bg-indigo-500/10 text-indigo-600" :
+    type === "expression" ? "bg-teal-500/10 text-teal-600" :
+    "bg-blue-500/10 text-blue-600";
   return (
     <div className="flex items-center gap-1.5">
       <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${cls}`}>{label}</span>
@@ -166,6 +183,7 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
   const [genType, setGenType] = useState<QuestionType>("mcq");
   const [genCount, setGenCount] = useState(10);
   const [genDifficulty, setGenDifficulty] = useState("mixed");
+  const [genChoiceCount, setGenChoiceCount] = useState<4 | 5 | 6>(5);
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<{ generated: number; approved: number; pending: number; duplicates_skipped: number } | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
@@ -174,9 +192,9 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
     setGenerating(true);
     setGenError(null);
     setResult(null);
-    const { data, error } = await supabase.functions.invoke("generate-questions", {
-      body: { type: genType, count: genCount, difficulty: genDifficulty },
-    });
+    const body: Record<string, unknown> = { type: genType, count: genCount, difficulty: genDifficulty };
+    if (genType === "multi-select") body.choice_count = genChoiceCount;
+    const { data, error } = await supabase.functions.invoke("generate-questions", { body });
     setGenerating(false);
     if (error || data?.error) {
       setGenError(data?.error ?? error?.message ?? "Unknown error");
@@ -246,11 +264,13 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
               {/* Question type */}
               <div className="flex flex-col gap-1.5">
                 <Label>Question Type</Label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {([
-                    { value: "mcq",             label: "Math MCQ"    },
-                    { value: "grid-in",          label: "Grid-in"     },
-                    { value: "linear_graphing",  label: "Graphing"    },
+                    { value: "mcq",            label: "Math MCQ"     },
+                    { value: "grid-in",         label: "Grid-in"      },
+                    { value: "linear_graphing", label: "Graphing"     },
+                    { value: "multi-select",    label: "Multi-select" },
+                    { value: "expression",      label: "Expression"   },
                   ] as { value: QuestionType; label: string }[]).map(opt => (
                     <button key={opt.value} type="button"
                       onClick={() => setGenType(opt.value)}
@@ -265,6 +285,27 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
                   ))}
                 </div>
               </div>
+
+              {/* Choices per question — multi-select only */}
+              {genType === "multi-select" && (
+                <div className="flex flex-col gap-1.5">
+                  <Label>Choices per question</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([4, 5, 6] as (4 | 5 | 6)[]).map(n => (
+                      <button key={n} type="button"
+                        onClick={() => setGenChoiceCount(n)}
+                        className={`py-2 rounded-xl border text-sm font-bold transition-all ${
+                          genChoiceCount === n
+                            ? "bg-amber-500 border-amber-400 text-zinc-950"
+                            : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-amber-500/40"
+                        }`}
+                      >
+                        {n} choices
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Count */}
               <div className="flex flex-col gap-1.5">
@@ -413,7 +454,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
     let q = supabase
       .from("all_questions")
       .select(
-        "uid, type, text, choice_1, choice_2, choice_3, choice_4, answer, subject, sub_category, difficulty, media_refs, source, status",
+        "uid, type, text, choice_1, choice_2, choice_3, choice_4, answer, subject, sub_category, difficulty, media_refs, source, status, extra_data",
         { count: "exact" }
       )
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
@@ -474,7 +515,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
     (async () => {
       const { data } = await supabase
         .from("all_questions")
-        .select("uid, type, text, choice_1, choice_2, choice_3, choice_4, answer, subject, sub_category, difficulty, media_refs, source, status")
+        .select("uid, type, text, choice_1, choice_2, choice_3, choice_4, answer, subject, sub_category, difficulty, media_refs, source, status, extra_data")
         .eq("uid", initialEditUid)
         .single();
       if (data) {
@@ -526,7 +567,14 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
   }
 
   async function openEdit(q: Question) {
-    setForm({ ...q });
+    const ed = (q.extra_data ?? {}) as Record<string, unknown>;
+    setForm({
+      ...q,
+      choice_5: (ed.choice_5 as string) ?? "",
+      choice_6: (ed.choice_6 as string) ?? "",
+      select_count: ed.select_count !== undefined ? String(ed.select_count) : "",
+      variables: Array.isArray(ed.variables) ? (ed.variables as string[]).join(", ") : "",
+    });
     setOriginalForm({ ...q });
     setOriginalSubCategory(q.sub_category ?? null);
     setIsNewTopic(false);
@@ -609,6 +657,23 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
 
     const mediaRefsStr = mediaItems.map(m => m.mediaId.trim().replace(/^\[(.+)\]$/, "$1")).filter(Boolean).join(", ") || null;
 
+    // Serialize virtual fields into extra_data JSONB
+    const extraData: Record<string, unknown> | null = (() => {
+      if (form.type === "multi-select") {
+        const ed: Record<string, unknown> = {};
+        const sc = Number(form.select_count);
+        if (!isNaN(sc) && sc > 0) ed.select_count = sc;
+        if ((form.choice_5 as string)?.trim()) ed.choice_5 = (form.choice_5 as string).trim();
+        if ((form.choice_6 as string)?.trim()) ed.choice_6 = (form.choice_6 as string).trim();
+        return Object.keys(ed).length > 0 ? ed : null;
+      }
+      if (form.type === "expression") {
+        const vars = (form.variables ?? "").split(",").map(v => v.trim()).filter(Boolean);
+        return vars.length > 0 ? { variables: vars } : null;
+      }
+      return null;
+    })();
+
     // Fields for all_questions — uid only used for INSERT, not in UPDATE SET
     const fields = {
       type: form.type ?? "mcq",
@@ -623,6 +688,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
       answer: form.answer,
       media_refs: mediaRefsStr,
       source: form.source || "bank",
+      extra_data: extraData,
     };
 
     // Topic tables only have the original core columns — exclude anything added later
@@ -884,6 +950,8 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
           <option value="mcq">MCQ</option>
           <option value="grid-in">Grid-in</option>
           <option value="linear_graphing">Graphing</option>
+          <option value="multi-select">Multi-select</option>
+          <option value="expression">Expression</option>
         </select>
 
         <select title="Filter by source" value={filterSource} onChange={e => { setFilterSource(e.target.value); setPage(0); }}
@@ -1108,6 +1176,8 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                     <option value="mcq">MCQ</option>
                     <option value="grid-in">Grid-in</option>
                     <option value="linear_graphing">Linear Graphing</option>
+                    <option value="multi-select">Multi-select</option>
+                    <option value="expression">Expression Editor</option>
                   </Select>
                 </div>
               </div>
@@ -1156,8 +1226,8 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                 <Textarea value={form.text ?? ""} onChange={v => setField("text", v)} placeholder="Type the full question text here…" rows={6} />
               </div>
 
-              {/* Answer choices — only for MCQ */}
-              {form.type === "mcq" && (
+              {/* Answer choices — MCQ and multi-select */}
+              {(form.type === "mcq" || form.type === "multi-select") && (
                 <div className="flex flex-col gap-2.5">
                   <Label>Answer Choices</Label>
                   <div className="grid grid-cols-2 gap-3">
@@ -1167,7 +1237,45 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                         <Input value={(form[key] as string) ?? ""} onChange={v => setField(key, v)} placeholder={`Choice ${String.fromCharCode(65 + i)}`} />
                       </div>
                     ))}
+                    {form.type === "multi-select" && (
+                      <>
+                        <div className="flex gap-2 items-center">
+                          <span className="text-sm font-bold text-zinc-400 w-5 shrink-0">E</span>
+                          <Input value={(form.choice_5 as string) ?? ""} onChange={v => setField("choice_5", v)} placeholder="Choice E (optional)" />
+                        </div>
+                        <div className="flex gap-2 items-center">
+                          <span className="text-sm font-bold text-zinc-400 w-5 shrink-0">F</span>
+                          <Input value={(form.choice_6 as string) ?? ""} onChange={v => setField("choice_6", v)} placeholder="Choice F (optional)" />
+                        </div>
+                      </>
+                    )}
                   </div>
+                  {form.type === "multi-select" && (
+                    <div className="flex gap-2 items-center mt-1">
+                      <span className="text-sm font-bold text-zinc-400 shrink-0">Select count</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={6}
+                        value={(form.select_count as string) ?? ""}
+                        onChange={e => setField("select_count", e.target.value)}
+                        placeholder="How many to select (e.g. 2)"
+                        className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors font-mono"
+                      />
+                    </div>
+                  )}
+                  {form.type === "expression" && (
+                    <div className="flex gap-2 items-center mt-1">
+                      <span className="text-sm font-bold text-zinc-400 shrink-0">Variables</span>
+                      <input
+                        type="text"
+                        value={(form.variables as string) ?? ""}
+                        onChange={e => setField("variables", e.target.value)}
+                        placeholder="Comma-separated, e.g. x, n, b  (avoid o and l)"
+                        className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors font-mono"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1194,6 +1302,11 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                         </button>
                       );
                     })}
+                  </div>
+                ) : form.type === "multi-select" ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Input value={form.answer ?? ""} onChange={v => setField("answer", v)} placeholder="Comma-separated correct letters, e.g. A,C or A,B,E" mono />
+                    <p className="text-xs text-zinc-400">Enter all correct answer letters separated by commas.</p>
                   </div>
                 ) : form.type === "linear_graphing" ? (
                   <div className="flex flex-col gap-1.5">
@@ -1332,7 +1445,13 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                 {/* question text */}
                 <div className="text-sm leading-relaxed text-slate-800">
                   {form.text?.trim()
-                    ? parseFormattedText(form.text)
+                    ? parseFormattedText(
+                        form.text,
+                        "",
+                        form.type === "expression"
+                          ? (form.variables as string ?? "").split(",").map(v => v.trim()).filter(Boolean)
+                          : []
+                      )
                     : <span className="text-zinc-400 italic">No question text yet.</span>}
                 </div>
 
@@ -1378,6 +1497,52 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                   <div className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-500 italic">
                     Grid-in — student types a number.{" "}
                     <span className="not-italic font-semibold text-slate-700">Answer: <span className="font-mono">{form.answer || "—"}</span></span>
+                  </div>
+                )}
+
+                {/* Expression preview — shows correct answer + live virtual keyboard */}
+                {form.type === "expression" && (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Correct answer</p>
+                      <div className="min-h-12 rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 font-mono text-base text-slate-800 flex items-center">
+                        {form.answer?.trim() || <span className="text-slate-400 italic font-normal">No answer set</span>}
+                      </div>
+                    </div>
+                    <ExpressionEditorQuestion
+                      chosenAnswer={() => {}}
+                      variables={(form.variables as string)?.split(",").map(v => v.trim()).filter(Boolean) ?? []}
+                    />
+                  </div>
+                )}
+
+                {/* Multi-select preview */}
+                {form.type === "multi-select" && (
+                  <div className="flex flex-col gap-2">
+                    {form.select_count && (
+                      <p className="text-xs font-semibold text-slate-500">
+                        Select <strong className="text-slate-700">{form.select_count}</strong> correct answer{Number(form.select_count) !== 1 ? "s" : ""}.
+                      </p>
+                    )}
+                    {(["choice_1", "choice_2", "choice_3", "choice_4", "choice_5", "choice_6"] as const).map((key, i) => {
+                      const choiceText = (form[key] as string) ?? "";
+                      if (!choiceText) return null;
+                      const letter = "ABCDEF"[i];
+                      const isCorrect = (form.answer ?? "").split(",").map(s => s.trim()).includes(letter);
+                      return (
+                        <div key={key} className={`flex items-start gap-2.5 border rounded-xl p-2.5 ${
+                          isCorrect ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white"
+                        }`}>
+                          <span className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold shrink-0 border mt-0.5 ${
+                            isCorrect ? "bg-blue-600 text-white border-blue-600" : "border-slate-300 text-slate-500"
+                          }`}>{letter}</span>
+                          <span className={`text-xs leading-relaxed pt-0.5 ${isCorrect ? "text-blue-900" : "text-slate-700"}`}>
+                            {parseFormattedText(choiceText.replace(/^[A-Fa-f][).:\s]\s*/, ""))}
+                          </span>
+                          {isCorrect && <span className="text-xs font-bold text-blue-600 shrink-0 ml-auto">✓</span>}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 

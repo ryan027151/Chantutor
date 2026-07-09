@@ -1,5 +1,5 @@
 // supabase/functions/generate-questions/index.ts
-// POST { type: "mcq" | "grid-in" | "linear_graphing", count: number, difficulty: "easy"|"medium"|"hard"|"mixed" }
+// POST { type: "mcq" | "grid-in" | "linear_graphing" | "multi-select", count: number, difficulty: "easy"|"medium"|"hard"|"mixed" }
 // Calls Claude to generate SHSAT-style math questions and inserts them into all_questions.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -30,6 +30,10 @@ interface GeneratedQuestion {
   choice_2?: string;
   choice_3?: string;
   choice_4?: string;
+  choice_5?: string;
+  choice_6?: string;
+  select_count?: number;
+  variables?: string[];
   answer: string;
   sub_category: string;
   explanation?: string;
@@ -69,7 +73,7 @@ function makeUid(n: number): string {
 const VALIDATION_KEYS = `- "valid": true if you have verified the question is solvable, unambiguous, and the answer is definitely correct. false if you have any doubt.
 - "valid_note": empty string "" if valid. If invalid, one sentence describing the issue.`;
 
-function buildPrompt(type: string, count: number, difficulty: string): string {
+function buildPrompt(type: string, count: number, difficulty: string, choiceCount = 5): string {
   const diffDesc: Record<string, string> = {
     easy: "single-step computation, basic concepts, direct application of one rule",
     medium: "multi-step problems requiring 2-3 operations, moderate algebra or geometry",
@@ -131,6 +135,88 @@ RULES:
 Return ONLY a valid JSON array of ${count} objects. No markdown, no extra text.`;
   }
 
+  if (type === "multi-select") {
+    const letters = ["A", "B", "C", "D", "E", "F"].slice(0, choiceCount);
+    const letterRange = `A–${letters[letters.length - 1]}`;
+    const choiceFields = letters.map((l, i) =>
+      `- "choice_${i + 1}": option ${l} text — plain text only, no letter prefix${i < 4 ? "" : " (required)"}`
+    ).join("\n");
+    const exampleChoices = choiceCount === 4
+      ? `"choice_1":"5","choice_2":"6","choice_3":"8","choice_4":"9"`
+      : choiceCount === 5
+      ? `"choice_1":"5","choice_2":"6","choice_3":"8","choice_4":"9","choice_5":"11"`
+      : `"choice_1":"5","choice_2":"6","choice_3":"8","choice_4":"9","choice_5":"11","choice_6":"12"`;
+
+    const maxSelectCount = choiceCount - 1; // always leave at least one wrong answer
+
+    return `Generate exactly ${count} SHSAT-style math multiple-select questions for 7th-8th grade students preparing for a specialized high school entrance exam.
+
+Difficulty: ${diff}
+
+Each question has exactly ${choiceCount} answer choices (${letterRange}). The number of correct answers (select_count) must vary randomly across the batch — use values between 1 and ${maxSelectCount} and distribute them as evenly as possible (e.g. for 10 questions: roughly equal spread of 1, 2, 3, …, ${maxSelectCount}).
+
+For each question return an object with EXACTLY these keys:
+- "text": the complete question text. End with "Select the [N] correct answer(s)." where [N] is the English word for select_count (one/two/three/four/five). Use singular "answer" when select_count is 1, plural "answers" otherwise.
+${choiceFields}
+- "select_count": integer between 1 and ${maxSelectCount} — randomized per question
+- "answer": comma-separated sorted letters of ALL correct choices (e.g. "A" or "A,C" or "A,B,E")
+- "sub_category": one of: ${MATH_SUBCATS.join(", ")}
+- "explanation": why each listed answer is correct and why each unlisted option is wrong
+${VALIDATION_KEYS}
+
+RULES:
+- Generate exactly ${choiceCount} choices — no more, no fewer
+- select_count must be at least 1 and at most ${maxSelectCount} (never equal to ${choiceCount} — there must always be at least one wrong choice)
+- "answer" must contain exactly select_count letters, sorted ${letterRange.replace("–", "→")}
+- Spread select_count values evenly: avoid using the same value for every question in the batch
+- Wrong choices must be plausible student mistakes (off-by-sign, wrong operation, nearby value)
+- Good multi-select topics: properties of numbers (prime, multiples, factors), which equations have a given solution, which expressions are equivalent, which values satisfy an inequality
+- Every answer letter must correspond to a non-null choice; choices not in "answer" must be genuinely incorrect
+- Distribute sub_category evenly across the batch
+- Self-check: count the letters in "answer" — it must equal select_count exactly
+
+Return ONLY a valid JSON array of ${count} objects. No markdown fences, no extra text.
+
+Example of one correct object (select_count=1):
+{"text":"Which of the following is a prime number? Select the one correct answer.",${exampleChoices},"select_count":1,"answer":"B","sub_category":"Arithmetic","explanation":"6 is prime... (only B is correct). The other options are composite.","valid":true,"valid_note":""}`;
+  }
+
+  if (type === "expression") {
+    return `Generate exactly ${count} SHSAT-style math expression/equation/inequality questions for 7th-8th grade students.
+
+Difficulty: ${diff}
+
+Students answer by building an expression on a virtual keyboard that has: digits 0–9, operators + − × ÷ / %, comparisons = < > ≤ ≥, grouping ( ), functions √( π | ^, and specific variable buttons.
+
+For each question return an object with EXACTLY these keys:
+- "text": the complete question text. End with "Enter your answer in the space provided. Enter only your answer."
+- "variables": array of single-letter variable names used in the question (e.g. ["x"], ["n", "b"], ["p", "w"]). NEVER use "o" (looks like zero) or "l" (looks like one) as variable names — use other letters instead.
+- "answer": the complete correct expression/equation/inequality as a string, using exact Unicode symbols: × (U+00D7), ÷ (U+00F7), − (U+2212), ≤ (U+2264), ≥ (U+2265), √, π. Use ^ for exponents (e.g. x^2). Use / for fractions (e.g. n/2).
+- "sub_category": one of: ${MATH_SUBCATS.join(", ")}
+- "explanation": step-by-step derivation of the answer
+${VALIDATION_KEYS}
+
+QUESTION TYPES (vary these evenly):
+1. Write an inequality — "A number n is at least 3 more than twice m. Write an inequality." → "n ≥ 2m + 3"
+2. Write an equation — "The perimeter of a rectangle with length l and width 5 is 28. Write an equation for l." → "2l + 10 = 28"
+3. Write an expression — "The cost of x items at $4 each minus a $2 coupon. Write an expression." → "4x − 2"
+4. Solve and write — "Write the value of n that satisfies: 3n + 1 = 10." → "3"
+5. Write a formula — word problem requiring translating a relationship into math notation
+
+RULES:
+- Variables array must list EVERY letter used in the answer (so the keyboard shows those buttons)
+- NEVER use "o" or "l" as variable names — they look identical to 0 and 1 on screen
+- Answer must use proper Unicode symbols, NOT ASCII substitutes (−, not -; ×, not *; ÷, not /)
+- Answer must be the minimal correct form (e.g. "2n + 3" not "2 × n + 3" unless both are acceptable)
+- Keep expressions simple: 1–3 terms, coefficients ≤ 20, at most one operation under a √
+- Self-check: substitute a value for each variable and verify both sides of your answer are consistent
+
+Return ONLY a valid JSON array of ${count} objects. No markdown fences, no extra text.
+
+Example of one correct object:
+{"text":"A store sells notebooks for $n each and pens for $p each. Mia buys 3 notebooks and 2 pens. Write an expression for the total cost. Enter your answer in the space provided. Enter only your answer.","variables":["n","p"],"answer":"3n + 2p","sub_category":"Algebraic_Expressions","explanation":"Multiply price by quantity for each item and add: 3 × n + 2 × p = 3n + 2p.","valid":true,"valid_note":""}`;
+  }
+
   // MCQ (default)
   return `Generate exactly ${count} SHSAT-style math multiple-choice questions for 7th-8th grade students preparing for a specialized high school entrance exam.
 
@@ -170,9 +256,11 @@ Deno.serve(async (req) => {
     const type: string = body.type ?? "mcq";
     const count: number = Math.min(Math.max(parseInt(body.count ?? "10"), 1), 30);
     const difficulty: string = body.difficulty ?? "mixed";
+    const rawChoiceCount = parseInt(body.choice_count ?? "5");
+    const choiceCount: number = [4, 5, 6].includes(rawChoiceCount) ? rawChoiceCount : 5;
 
-    if (!["mcq", "grid-in", "linear_graphing"].includes(type)) {
-      return json({ error: "type must be mcq, grid-in, or linear_graphing" }, 400);
+    if (!["mcq", "grid-in", "linear_graphing", "multi-select", "expression"].includes(type)) {
+      return json({ error: "type must be mcq, grid-in, linear_graphing, multi-select, or expression" }, 400);
     }
 
     const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -196,13 +284,13 @@ Deno.serve(async (req) => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-opus-4-7",
+        model: "claude-opus-4-8",
         max_tokens: 16000,
         system:
           "You are an expert SHSAT math question writer. You write clear, accurate, grade-appropriate questions. " +
           "After writing each question you verify your own work and include 'valid' and 'valid_note' fields. " +
           "Respond with valid JSON only — absolutely no markdown, no code fences, no extra text of any kind.",
-        messages: [{ role: "user", content: buildPrompt(type, count, difficulty) }],
+        messages: [{ role: "user", content: buildPrompt(type, count, difficulty, choiceCount) }],
       }),
     });
 
@@ -267,6 +355,13 @@ Deno.serve(async (req) => {
         choice_3: q.choice_3?.trim() || null,
         choice_4: q.choice_4?.trim() || null,
         answer: q.answer?.trim() ?? "",
+        extra_data: type === "multi-select" ? {
+          select_count: typeof q.select_count === "number" ? q.select_count : 2,
+          ...(q.choice_5?.trim() ? { choice_5: q.choice_5.trim() } : {}),
+          ...(q.choice_6?.trim() ? { choice_6: q.choice_6.trim() } : {}),
+        } : type === "expression" ? {
+          variables: Array.isArray(q.variables) ? q.variables.map(String).filter(Boolean) : [],
+        } : null,
         media_refs: null,
         source: "ai",
         status,
