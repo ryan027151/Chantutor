@@ -179,34 +179,106 @@ interface GenerateModalProps {
   onSuccess: () => void;
 }
 
+const GEN_TYPE_OPTS = [
+  { value: "mcq",             label: "Math MCQ"     },
+  { value: "grid-in",         label: "Grid-in"      },
+  { value: "linear_graphing", label: "Graphing"     },
+  { value: "multi-select",    label: "Multi-select" },
+  { value: "expression",      label: "Expression"   },
+] as const;
+
+const GEN_CATEGORY_OPTS = [
+  { value: "Arithmetic",               label: "Arithmetic"           },
+  { value: "Algebra_and_Equations",    label: "Algebra & Equations"  },
+  { value: "Algebraic_Expressions",    label: "Algebraic Expr."      },
+  { value: "Geometry",                 label: "Geometry"             },
+  { value: "Fraction_Word_Problems",   label: "Fractions"            },
+  { value: "Percentage",               label: "Percentage"           },
+  { value: "Ratios_and_Proportions",   label: "Ratios & Proportions" },
+  { value: "Probability",              label: "Probability"          },
+  { value: "Stats_and_Data_Analysis",  label: "Stats & Data"         },
+  { value: "Sequence",                 label: "Sequence"             },
+  { value: "Inequalities",             label: "Inequalities"         },
+  { value: "Linear_Eq._Formula",       label: "Linear Formula"       },
+] as const;
+
+function toggle(arr: string[], val: string): string[] {
+  return arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val];
+}
+
 function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
-  const [genType, setGenType] = useState<QuestionType>("mcq");
-  const [genCount, setGenCount] = useState(10);
-  const [genDifficulty, setGenDifficulty] = useState("mixed");
+  const [genTypes, setGenTypes]             = useState<string[]>([]);   // empty = any (random)
+  const [genCategories, setGenCategories]   = useState<string[]>([]);   // empty = all categories
+  const [genDifficulties, setGenDifficulties] = useState<string[]>([]); // empty = mixed
+  const [genCount, setGenCount]             = useState(10);
   const [genChoiceCount, setGenChoiceCount] = useState<4 | 5 | 6>(5);
-  const [generating, setGenerating] = useState(false);
-  const [result, setResult] = useState<{ generated: number; approved: number; pending: number; duplicates_skipped: number } | null>(null);
-  const [genError, setGenError] = useState<string | null>(null);
+  const [generating, setGenerating]         = useState(false);
+  const [result, setResult]                 = useState<{ generated: number; approved: number; pending: number; duplicates_skipped: number } | null>(null);
+  const [genError, setGenError]             = useState<string | null>(null);
 
   async function generate() {
     setGenerating(true);
     setGenError(null);
     setResult(null);
-    const body: Record<string, unknown> = { type: genType, count: genCount, difficulty: genDifficulty };
-    if (genType === "multi-select") body.choice_count = genChoiceCount;
-    const { data, error } = await supabase.functions.invoke("generate-questions", { body });
-    setGenerating(false);
-    if (error || data?.error) {
-      setGenError(data?.error ?? error?.message ?? "Unknown error");
-      return;
+
+    // Types to generate: if none selected, pick one random type
+    const typePool = GEN_TYPE_OPTS.map(t => t.value as string);
+    const typesToGenerate = genTypes.length > 0
+      ? genTypes
+      : [typePool[Math.floor(Math.random() * typePool.length)]];
+
+    // Distribute count evenly across types
+    const base  = Math.floor(genCount / typesToGenerate.length);
+    const extra = genCount - base * typesToGenerate.length;
+
+    let totalGenerated = 0, totalApproved = 0, totalPending = 0, totalSkipped = 0;
+
+    for (let i = 0; i < typesToGenerate.length; i++) {
+      const type      = typesToGenerate[i];
+      const thisCount = base + (i < extra ? 1 : 0);
+      const body: Record<string, unknown> = {
+        type,
+        count:        thisCount,
+        difficulties: genDifficulties,
+        categories:   genCategories,
+      };
+      if (type === "multi-select") body.choice_count = genChoiceCount;
+
+      const { data, error } = await supabase.functions.invoke("generate-questions", { body });
+      if (error || data?.error) {
+        setGenError(data?.error ?? error?.message ?? "Unknown error");
+        setGenerating(false);
+        return;
+      }
+      totalGenerated += data.generated          ?? 0;
+      totalApproved  += data.approved ?? data.generated ?? 0;
+      totalPending   += data.pending            ?? 0;
+      totalSkipped   += data.duplicates_skipped ?? 0;
     }
-    setResult({ generated: data.generated ?? 0, approved: data.approved ?? data.generated ?? 0, pending: data.pending ?? 0, duplicates_skipped: data.duplicates_skipped ?? 0 });
+
+    setGenerating(false);
+    setResult({ generated: totalGenerated, approved: totalApproved, pending: totalPending, duplicates_skipped: totalSkipped });
     onSuccess();
+  }
+
+  // Cost estimate: graphing is slightly cheaper; average across selected (or all) types
+  const estimatedTypes = genTypes.length > 0 ? genTypes : GEN_TYPE_OPTS.map(t => t.value as string);
+  const avgCost = estimatedTypes.reduce((s, t) => s + (t === "linear_graphing" ? 0.03 : 0.04), 0) / estimatedTypes.length;
+  const estimatedCost = (genCount * avgCost).toFixed(2);
+
+  function SectionLabel({ children, anyLabel }: { children: string; anyLabel: string }) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-bold uppercase tracking-widest text-zinc-500">{children}</span>
+        <span className="text-xs font-semibold text-amber-500 normal-case">{anyLabel}</span>
+      </div>
+    );
   }
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-white border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-md flex flex-col">
+      <div className="bg-white border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+        {/* Header */}
         <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between shrink-0">
           <div>
             <h3 className="text-lg font-bold text-zinc-900">Generate AI Questions</h3>
@@ -218,7 +290,8 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
           </button>
         </div>
 
-        <div className="p-6 flex flex-col gap-5">
+        {/* Scrollable body */}
+        <div className="p-6 flex flex-col gap-5 overflow-y-auto">
           {result ? (
             <div className="flex flex-col items-center gap-3 py-4">
               <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
@@ -261,33 +334,30 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
             </div>
           ) : (
             <>
-              {/* Question type */}
+              {/* ── Question type (multi-select) ─────────────────────── */}
               <div className="flex flex-col gap-1.5">
-                <Label>Question Type</Label>
+                <SectionLabel anyLabel={genTypes.length === 0 ? "· Any (random)" : ""}>Question Type</SectionLabel>
                 <div className="grid grid-cols-2 gap-2">
-                  {([
-                    { value: "mcq",            label: "Math MCQ"     },
-                    { value: "grid-in",         label: "Grid-in"      },
-                    { value: "linear_graphing", label: "Graphing"     },
-                    { value: "multi-select",    label: "Multi-select" },
-                    { value: "expression",      label: "Expression"   },
-                  ] as { value: QuestionType; label: string }[]).map(opt => (
-                    <button key={opt.value} type="button"
-                      onClick={() => setGenType(opt.value)}
-                      className={`py-2.5 rounded-xl border text-sm font-semibold transition-all ${
-                        genType === opt.value
-                          ? "bg-amber-500 border-amber-400 text-zinc-950"
-                          : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-amber-500/40"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                  {GEN_TYPE_OPTS.map(opt => {
+                    const active = genTypes.includes(opt.value);
+                    return (
+                      <button key={opt.value} type="button"
+                        onClick={() => setGenTypes(toggle(genTypes, opt.value))}
+                        className={`py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+                          active
+                            ? "bg-amber-500 border-amber-400 text-zinc-950"
+                            : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-amber-500/40"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Choices per question — multi-select only */}
-              {genType === "multi-select" && (
+              {/* ── Choices per question — multi-select type only ────── */}
+              {genTypes.includes("multi-select") && (
                 <div className="flex flex-col gap-1.5">
                   <Label>Choices per question</Label>
                   <div className="grid grid-cols-3 gap-2">
@@ -307,7 +377,29 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
                 </div>
               )}
 
-              {/* Count */}
+              {/* ── Category (multi-select) ──────────────────────────── */}
+              <div className="flex flex-col gap-1.5">
+                <SectionLabel anyLabel={genCategories.length === 0 ? "· All categories" : ""}>Category</SectionLabel>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {GEN_CATEGORY_OPTS.map(cat => {
+                    const active = genCategories.includes(cat.value);
+                    return (
+                      <button key={cat.value} type="button"
+                        onClick={() => setGenCategories(toggle(genCategories, cat.value))}
+                        className={`py-2 px-1.5 rounded-xl border text-xs font-semibold text-center leading-tight transition-all ${
+                          active
+                            ? "bg-amber-500 border-amber-400 text-zinc-950"
+                            : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-amber-500/40"
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── How many questions ───────────────────────────────── */}
               <div className="flex flex-col gap-1.5">
                 <Label>How many questions?</Label>
                 <div className="grid grid-cols-4 gap-2">
@@ -326,28 +418,32 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
                 </div>
               </div>
 
-              {/* Difficulty */}
+              {/* ── Difficulty (multi-select) ────────────────────────── */}
               <div className="flex flex-col gap-1.5">
-                <Label>Difficulty</Label>
-                <div className="grid grid-cols-4 gap-2">
-                  {["mixed", "easy", "medium", "hard"].map(d => (
-                    <button key={d} type="button"
-                      onClick={() => setGenDifficulty(d)}
-                      className={`py-2 rounded-xl border text-sm font-bold capitalize transition-all ${
-                        genDifficulty === d
-                          ? "bg-amber-500 border-amber-400 text-zinc-950"
-                          : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-amber-500/40"
-                      }`}
-                    >
-                      {d}
-                    </button>
-                  ))}
+                <SectionLabel anyLabel={genDifficulties.length === 0 ? "· Mixed" : ""}>Difficulty</SectionLabel>
+                <div className="grid grid-cols-3 gap-2">
+                  {["easy", "medium", "hard"].map(d => {
+                    const active = genDifficulties.includes(d);
+                    return (
+                      <button key={d} type="button"
+                        onClick={() => setGenDifficulties(toggle(genDifficulties, d))}
+                        className={`py-2 rounded-xl border text-sm font-bold capitalize transition-all ${
+                          active
+                            ? "bg-amber-500 border-amber-400 text-zinc-950"
+                            : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-amber-500/40"
+                        }`}
+                      >
+                        {d}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               {/* Cost estimate */}
               <p className="text-xs text-zinc-400 bg-zinc-50 border border-zinc-100 rounded-lg px-3 py-2">
-                Estimated cost: ~${(genCount * (genType === "linear_graphing" ? 0.03 : 0.04)).toFixed(2)} USD using Claude Opus
+                Estimated cost: ~${estimatedCost} USD using Claude Opus
+                {genTypes.length > 1 && ` (${genTypes.length} type passes)`}
               </p>
 
               {genError && (

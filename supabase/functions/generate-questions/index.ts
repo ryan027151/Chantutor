@@ -1,5 +1,5 @@
 // supabase/functions/generate-questions/index.ts
-// POST { type: "mcq" | "grid-in" | "linear_graphing" | "multi-select", count: number, difficulty: "easy"|"medium"|"hard"|"mixed" }
+// POST { type, count, difficulties?: string[], categories?: string[], choice_count?: number }
 // Calls Claude to generate SHSAT-style math questions and inserts them into all_questions.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -73,12 +73,16 @@ function makeUid(n: number): string {
 const VALIDATION_KEYS = `- "valid": true if you have verified the question is solvable, unambiguous, and the answer is definitely correct. false if you have any doubt.
 - "valid_note": empty string "" if valid. If invalid, one sentence describing the issue.`;
 
-function buildPrompt(type: string, count: number, difficulty: string, choiceCount = 5): string {
+function buildPrompt(type: string, count: number, difficulty: string, choiceCount = 5, categories: string[] = MATH_SUBCATS): string {
+  const cats = categories.length > 0 ? categories : MATH_SUBCATS;
   const diffDesc: Record<string, string> = {
     easy: "single-step computation, basic concepts, direct application of one rule",
     medium: "multi-step problems requiring 2-3 operations, moderate algebra or geometry",
     hard: "complex multi-step reasoning, non-obvious algebraic manipulation, challenging word problems",
     mixed: "one-third easy (basic), one-third medium (multi-step), one-third hard (complex)",
+    "easy-medium": "half easy (basic single-step) and half medium (multi-step), no hard questions",
+    "easy-hard": "half easy (basic single-step) and half hard (complex reasoning), no medium questions",
+    "medium-hard": "half medium (multi-step) and half hard (complex reasoning), no easy questions",
   };
   const diff = diffDesc[difficulty] ?? diffDesc.mixed;
 
@@ -121,7 +125,7 @@ Grid-in questions require a single numeric answer. Accepted formats: whole numbe
 For each question return an object with EXACTLY these keys:
 - "text": the complete question text with all necessary information
 - "answer": the exact correct answer as a string (e.g. "42", "3/4", "0.75")
-- "sub_category": one of: ${MATH_SUBCATS.join(", ")}
+- "sub_category": one of: ${cats.join(", ")}
 - "explanation": a brief step-by-step solution (2-3 sentences)
 ${VALIDATION_KEYS}
 
@@ -160,7 +164,7 @@ For each question return an object with EXACTLY these keys:
 ${choiceFields}
 - "select_count": integer between 1 and ${maxSelectCount} — randomized per question
 - "answer": comma-separated sorted letters of ALL correct choices (e.g. "A" or "A,C" or "A,B,E")
-- "sub_category": one of: ${MATH_SUBCATS.join(", ")}
+- "sub_category": one of: ${cats.join(", ")}
 - "explanation": why each listed answer is correct and why each unlisted option is wrong
 ${VALIDATION_KEYS}
 
@@ -192,7 +196,7 @@ For each question return an object with EXACTLY these keys:
 - "text": the complete question text. End with "Enter your answer in the space provided. Enter only your answer."
 - "variables": array of single-letter variable names used in the question (e.g. ["x"], ["n", "b"], ["p", "w"]). NEVER use "o" (looks like zero) or "l" (looks like one) as variable names — use other letters instead.
 - "answer": the complete correct expression/equation/inequality as a string, using exact Unicode symbols: × (U+00D7), ÷ (U+00F7), − (U+2212), ≤ (U+2264), ≥ (U+2265), √, π. Use ^ for exponents (e.g. x^2). Use / for fractions (e.g. n/2).
-- "sub_category": one of: ${MATH_SUBCATS.join(", ")}
+- "sub_category": one of: ${cats.join(", ")}
 - "explanation": step-by-step derivation of the answer
 ${VALIDATION_KEYS}
 
@@ -229,7 +233,7 @@ For each question return an object with EXACTLY these keys:
 - "choice_3": the text of answer choice C — plain text only, no letter prefix
 - "choice_4": the text of answer choice D — plain text only, no letter prefix
 - "answer": exactly one letter — "A", "B", "C", or "D"
-- "sub_category": one of: ${MATH_SUBCATS.join(", ")}
+- "sub_category": one of: ${cats.join(", ")}
 - "explanation": why the correct answer is right and why each wrong answer is a common mistake
 ${VALIDATION_KEYS}
 
@@ -237,7 +241,7 @@ RULES:
 - Each wrong choice should represent a plausible student mistake (off-by-sign, unit error, wrong operation)
 - Use concrete numbers; avoid variables as final answers in word problems
 - Every question must have exactly one unambiguous correct answer
-- Distribute sub_category evenly across all 12 categories: do not repeat the same sub_category more than ${Math.ceil(count / 12)} times
+- Distribute sub_category evenly across the ${cats.length} available categories: do not repeat the same sub_category more than ${Math.ceil(count / cats.length)} times
 - Questions must be solvable in under 90 seconds with pencil and paper
 - Self-check: compute the answer yourself before committing to "answer"
 
@@ -255,9 +259,29 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const type: string = body.type ?? "mcq";
     const count: number = Math.min(Math.max(parseInt(body.count ?? "10"), 1), 30);
-    const difficulty: string = body.difficulty ?? "mixed";
     const rawChoiceCount = parseInt(body.choice_count ?? "5");
     const choiceCount: number = [4, 5, 6].includes(rawChoiceCount) ? rawChoiceCount : 5;
+
+    // Difficulty: accept new `difficulties[]` array or legacy single `difficulty` string
+    const rawDiffs: string[] = Array.isArray(body.difficulties)
+      ? (body.difficulties as string[]).filter((d: string) => ["easy", "medium", "hard"].includes(d))
+      : [];
+    if (rawDiffs.length === 0 && typeof body.difficulty === "string" && body.difficulty !== "mixed") {
+      rawDiffs.push(body.difficulty as string);
+    }
+    const diffCycle = rawDiffs.length > 0 ? rawDiffs : ["easy", "medium", "hard"];
+    // Build a key for the prompt description
+    const diffKey = rawDiffs.length === 0 || rawDiffs.length === 3
+      ? "mixed"
+      : rawDiffs.length === 1
+        ? rawDiffs[0]
+        : [...rawDiffs].sort().join("-");
+
+    // Categories: restrict subcategory selection; empty = all
+    const validCatSet = new Set(MATH_SUBCATS);
+    const categories: string[] = Array.isArray(body.categories)
+      ? (body.categories as string[]).filter((c: string) => validCatSet.has(c))
+      : [];
 
     if (!["mcq", "grid-in", "linear_graphing", "multi-select", "expression"].includes(type)) {
       return json({ error: "type must be mcq, grid-in, linear_graphing, multi-select, or expression" }, 400);
@@ -290,7 +314,7 @@ Deno.serve(async (req) => {
           "You are an expert SHSAT math question writer. You write clear, accurate, grade-appropriate questions. " +
           "After writing each question you verify your own work and include 'valid' and 'valid_note' fields. " +
           "Respond with valid JSON only — absolutely no markdown, no code fences, no extra text of any kind.",
-        messages: [{ role: "user", content: buildPrompt(type, count, difficulty, choiceCount) }],
+        messages: [{ role: "user", content: buildPrompt(type, count, diffKey, choiceCount, categories) }],
       }),
     });
 
@@ -333,8 +357,6 @@ Deno.serve(async (req) => {
     const duplicatesSkipped = questions.length - uniqueQuestions.length;
 
     // ── Build DB rows ────────────────────────────────────────────────────────
-    const difficulties = ["easy", "medium", "hard"];
-
     const rows = uniqueQuestions.slice(0, count).map((q, i) => {
       // status: 'approved' if Claude validated it, 'pending' if it flagged a problem
       const status = q.valid === false ? "pending" : "approved";
@@ -345,10 +367,7 @@ Deno.serve(async (req) => {
         sub_category:
           q.sub_category?.trim() ||
           (type === "linear_graphing" ? "Linear_Graphing" : "Arithmetic"),
-        difficulty:
-          difficulty === "mixed"
-            ? difficulties[i % 3]
-            : difficulty,
+        difficulty: diffCycle[i % diffCycle.length],
         text: q.text?.trim() ?? "",
         choice_1: q.choice_1?.trim() || null,
         choice_2: q.choice_2?.trim() || null,

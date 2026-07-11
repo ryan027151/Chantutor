@@ -31,9 +31,7 @@ export default function MultiSelectQuestion({
   choiceImages = {},
 }: Props) {
   const initialChecked = new Set<string>(
-    isReadOnly
-      ? previousAnswer.split(",").map(s => s.trim()).filter(Boolean)
-      : []
+    previousAnswer ? previousAnswer.split(",").map(s => s.trim()).filter(Boolean) : []
   );
   const [checked, setChecked] = useState<Set<string>>(initialChecked);
 

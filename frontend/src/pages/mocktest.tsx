@@ -8,6 +8,12 @@ import { useParams } from "react-router-dom";
 import { UserContext } from "../components/userContext.ts";
 import { Test, MediaItem } from "../components/types.ts";
 import { parseFormattedText } from "../utils/textParser.tsx";
+import { useELATools } from "../hooks/useELATools";
+import type { HighlightRect } from "../hooks/useELATools";
+import ELAToolbar from "../components/ELAToolbar.tsx";
+import ELAPencilCanvas from "../components/ELAPencilCanvas.tsx";
+import ELANotepad from "../components/ELANotepad.tsx";
+import ELALineMask from "../components/ELALineMask.tsx";
 
 // Extracts the leading letter (A–H) from a choice string like "A) text", "E. text", or just "A".
 function choiceLetterOf(s: string): string {
@@ -191,6 +197,34 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 function MockTest() {
+  // ELA annotation tools (only active for English questions)
+  const elaTools = useELATools();
+  const passageContainerRef = useRef<HTMLDivElement>(null);
+  const questionTextContainerRef = useRef<HTMLDivElement>(null);
+
+  // Capture the current text selection as highlight rects relative to a scrollable container
+  function captureHighlight(containerEl: HTMLElement | null, key: string) {
+    if (!containerEl) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    if (!containerEl.contains(range.commonAncestorContainer)) return;
+    const containerRect = containerEl.getBoundingClientRect();
+    const rects: HighlightRect[] = Array.from(range.getClientRects())
+      .filter(r => r.width > 2 && r.height > 2)
+      .map(r => ({
+        id: `h${Date.now()}${Math.random().toString(36).slice(2)}`,
+        top: r.top - containerRect.top + containerEl.scrollTop,
+        left: r.left - containerRect.left + containerEl.scrollLeft,
+        width: r.width,
+        height: r.height,
+      }));
+    if (rects.length) {
+      elaTools.addHighlights(key, rects);
+      sel.removeAllRanges();
+    }
+  }
+
   const [questionData, setQuestionData] = useState<Record<string, string> | null>(null);
   // Preserved copy of the active (unanswered) question while the student reviews past questions
   const [activeQuestionData, setActiveQuestionData] = useState<Record<string, string> | null>(null);
@@ -238,6 +272,9 @@ function MockTest() {
   const usedPassagesRef       = useRef<Set<string>>(new Set());
   const currentPassageUidsRef = useRef<string[]>([]);        // UIDs of the active passage
   const currentPassagePosRef  = useRef<number>(0);           // position within active passage
+  const passageSetNumRef      = useRef<number>(0);           // how many passage sets have been started (1-indexed)
+  const currentSetStartRef    = useRef<number>(1);           // first question index of the current active passage/group
+  const [navPassageInfo, setNavPassageInfo] = useState({ setNum: 0, itemPos: 0, itemTotal: 0 });
 
   // English grammar: pre-built flat queue (grammar passages then standalone)
   const grammarQueueRef = useRef<string[]>([]);
@@ -278,6 +315,8 @@ function MockTest() {
 
   // Derived values — recalculated every render, no extra state needed
   const isReadOnly = currentQuestion < latestQuestion;
+  // True when reviewing within the current active set — answers are editable (not locked)
+  const isEditableReview = isReadOnly && currentQuestion >= currentSetStartRef.current;
 
   // Build choice images and the set of media_ids consumed as choices,
   // so they can be excluded from the display-media panel.
@@ -315,11 +354,10 @@ function MockTest() {
       return suffixA.localeCompare(suffixB);
     });
 
-  // Back button is shown for passage questions (active mode) or any question in review mode.
-  // In active mode, isPassageQuestion gates entry into review.
-  // Once reviewing, back stays available so the student can navigate the whole passage.
+  // Back button is shown for passage/group questions (active mode) or any reviewed question.
+  // Students may NOT go back past the start of the current active set.
   const isPassageQuestion = mediaItems.some((m) => isMultiQuestionMedia(m.media_id));
-  const showBackButton = currentQuestion > 1 && (isPassageQuestion || isReadOnly);
+  const showBackButton = currentQuestion > currentSetStartRef.current && (isPassageQuestion || isReadOnly);
 
   // ─── Adaptive English initialisation ────────────────────────────────────────
 
@@ -355,6 +393,7 @@ function MockTest() {
         currentPassageUidsRef.current = selected.question_ids;
         currentPassagePosRef.current  = 0;
         usedPassagesRef.current.add(selected.passage_id);
+        passageSetNumRef.current++;
         return;
       }
     }
@@ -368,8 +407,8 @@ function MockTest() {
     const englishCfg = config?.english as { count?: number } | null;
     const englishCount = englishCfg?.count ?? Math.floor(test.total_questions / 2);
 
-    // SHSAT ratio: 46 RC / 11 grammar out of 57 English questions
-    const rcTarget      = Math.round(englishCount * (46 / 57));
+    // New SHSAT ratio: 47 RC / 3 R-E standalone out of 50 English questions
+    const rcTarget      = Math.round(englishCount * (47 / 50));
     const grammarTarget = englishCount - rcTarget;
     rcTargetRef.current = rcTarget;
 
@@ -698,17 +737,27 @@ function MockTest() {
           const next = currentPassagePosRef.current < currentPassageUidsRef.current.length
             ? currentPassageUidsRef.current[currentPassagePosRef.current] : undefined;
           rcServedRef.current++;
+          setNavPassageInfo({
+            setNum:    passageSetNumRef.current,
+            itemPos:   currentPassagePosRef.current,   // post-increment → 1-indexed current position
+            itemTotal: currentPassageUidsRef.current.length,
+          });
           const q = await fetchByUID(uid, next);
           if (q) return q;
 
         } else if (rcServedRef.current < rcTargetRef.current) {
           // Passage boundary — select next passage (θ re-evaluated here)
-          selectNextRCPassage();
+          selectNextRCPassage(); // also increments passageSetNumRef.current
           if (currentPassagePosRef.current < currentPassageUidsRef.current.length) {
             const uid  = currentPassageUidsRef.current[currentPassagePosRef.current++];
             const next = currentPassagePosRef.current < currentPassageUidsRef.current.length
               ? currentPassageUidsRef.current[currentPassagePosRef.current] : undefined;
             rcServedRef.current++;
+            setNavPassageInfo({
+              setNum:    passageSetNumRef.current,
+              itemPos:   currentPassagePosRef.current,   // post-increment → 1-indexed current position
+              itemTotal: currentPassageUidsRef.current.length,
+            });
             const q = await fetchByUID(uid, next);
             if (q) return q;
           }
@@ -880,6 +929,7 @@ function MockTest() {
       setQuestionData(qData[0]);
       setPreviousAnswer(record.student_answer);
       setCurrentQuestion(index);
+      setChosenAnswer("");
     }
   };
 
@@ -1044,6 +1094,11 @@ function MockTest() {
     setLatestQuestion(finalIndex);
     setCurrentQuestion(finalIndex);
 
+    // Track the start of new passage sets and math groups to gate back-navigation
+    if (currentPassagePosRef.current === 1 || currentMathGroupPosRef.current === 1) {
+      currentSetStartRef.current = finalIndex;
+    }
+
     const prevSubject = currentSubjectRef.current;
     const nextSubject = (finalQuestion.subject ?? "").toLowerCase();
     currentSubjectRef.current = nextSubject;
@@ -1056,6 +1111,16 @@ function MockTest() {
   const handleForward = async () => {
     if (submitting) return;
     if (isReadOnly) {
+      // Within-set review: save the (possibly changed) answer before moving forward
+      if (isEditableReview && questionData && user) {
+        const answerToSave = chosenAnswer || previousAnswer;
+        const is_correct = checkAnswer(answerToSave, questionData.answer ?? "", questionData.type ?? "mcq");
+        const time_spent = Math.round((Date.now() - questionStartTimeRef.current) / 1000);
+        supabase.from("questions").upsert(
+          { id: questionData.uid, test_id: testID!, user_id: user.id, student_answer: answerToSave, is_correct, time_spent, order_index: currentQuestion },
+          { onConflict: "test_id, user_id, id" }
+        ).then(({ error }) => { if (error) console.warn("within-set answer re-save failed:", error); });
+      }
       const nextIndex = currentQuestion + 1;
       if (nextIndex < latestQuestion) {
         await loadQuestionAtIndex(nextIndex);
@@ -1064,6 +1129,7 @@ function MockTest() {
         setCurrentQuestion(latestQuestion);
         setQuestionData(activeQuestionData);
         setPreviousAnswer("");
+        setChosenAnswer("");
         questionStartTimeRef.current = Date.now();
       }
     } else {
@@ -1076,10 +1142,20 @@ function MockTest() {
     }
   };
 
-  // Clicking the left arrow — only reachable when isPassageQuestion is true.
+  // Clicking the left arrow — only reachable within the current active set.
   const handleBack = async () => {
-    if (currentQuestion <= 1) return;
-    // Save the active question before entering review mode
+    if (currentQuestion <= currentSetStartRef.current) return;
+    // If editing a within-set reviewed question, save the (possibly changed) answer
+    if (isEditableReview && questionData && user) {
+      const answerToSave = chosenAnswer || previousAnswer;
+      const is_correct = checkAnswer(answerToSave, questionData.answer ?? "", questionData.type ?? "mcq");
+      const time_spent = Math.round((Date.now() - questionStartTimeRef.current) / 1000);
+      supabase.from("questions").upsert(
+        { id: questionData.uid, test_id: testID!, user_id: user.id, student_answer: answerToSave, is_correct, time_spent, order_index: currentQuestion },
+        { onConflict: "test_id, user_id, id" }
+      ).then(({ error }) => { if (error) console.warn("within-set answer re-save failed:", error); });
+    }
+    // Save the active question data before entering review mode
     if (!isReadOnly) setActiveQuestionData(questionData);
     await loadQuestionAtIndex(currentQuestion - 1);
   };
@@ -1156,6 +1232,7 @@ function MockTest() {
         await Promise.all([initEnglishAdaptive(test), initMathAdaptive(test)]);
       }
 
+      currentSetStartRef.current = startIndex;
       setLatestQuestion(startIndex);
       setCurrentQuestion(startIndex);
       let question = await getQuestion(test, startIndex);
@@ -1470,8 +1547,9 @@ function MockTest() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="bg-white border-b border-slate-100 shadow-sm px-4 sm:px-8 py-3 sm:py-4 flex items-center justify-between shrink-0 sticky top-0 z-10">
+      {/* Header + ELA toolbar (sticky together as one unit) */}
+      <div className="bg-white border-b border-slate-100 shadow-sm shrink-0 sticky top-0 z-10">
+      <div className="px-4 sm:px-8 py-3 sm:py-4 flex items-center justify-between">
         {/* Left: name + home */}
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <h1 className="text-sm font-bold text-slate-900 truncate">
@@ -1489,12 +1567,75 @@ function MockTest() {
           )}
         </div>
 
-        {/* Center: question counter */}
+        {/* Center: question counter — context-aware */}
         <div className="flex flex-col items-center shrink-0 px-2 sm:px-4">
-          <span className="text-xs font-semibold uppercase tracking-widest text-slate-400 leading-tight">Question</span>
-          <span className="text-sm font-bold text-slate-800 tabular-nums">
-            {currentTest ? `${currentQuestion} / ${currentTest.total_questions}` : "—"}
-          </span>
+          {(() => {
+            if (!currentTest) return (
+              <>
+                <span className="text-xs font-semibold uppercase tracking-widest text-slate-400 leading-tight">Question</span>
+                <span className="text-sm font-bold text-slate-800 tabular-nums">—</span>
+              </>
+            );
+            const cfg             = currentTest.configuration as Record<string, unknown> | null;
+            const isDiagnostic    = currentTest.test_name === "Diagnostic Test";
+            const isTopicPractice = Boolean(cfg?.practice_topics);
+            // Diagnostic and topic-filtered practice: plain "Question X / N"
+            if (isDiagnostic || isTopicPractice) return (
+              <>
+                <span className="text-xs font-semibold uppercase tracking-widest text-slate-400 leading-tight">Question</span>
+                <span className="text-sm font-bold text-slate-800 tabular-nums">
+                  {currentQuestion} / {currentTest.total_questions}
+                </span>
+              </>
+            );
+            // Full mock test — section-aware display
+            const englishCfg   = cfg?.english as { count?: number } | null;
+            const englishCount = englishCfg?.count ?? Math.floor(currentTest.total_questions / 2);
+            const subject      = questionData?.subject ?? "";
+            if (subject === "english") {
+              // Active passage question: show passage set + item within set
+              if (!isReadOnly && isPassageQuestion && navPassageInfo.setNum > 0) return (
+                <>
+                  <span className="text-xs font-semibold uppercase tracking-widest text-slate-400 leading-tight">
+                    Passage Set {navPassageInfo.setNum}
+                  </span>
+                  <span className="text-sm font-bold text-slate-800 tabular-nums">
+                    Item {navPassageInfo.itemPos} of {navPassageInfo.itemTotal}
+                  </span>
+                </>
+              );
+              // Standalone grammar items or review mode: item X of section total
+              return (
+                <>
+                  <span className="text-xs font-semibold uppercase tracking-widest text-slate-400 leading-tight">ELA</span>
+                  <span className="text-sm font-bold text-slate-800 tabular-nums">
+                    Item {currentQuestion} of {englishCount}
+                  </span>
+                </>
+              );
+            }
+            if (subject === "math") {
+              const mathIndex = currentQuestion - englishCount;
+              const mathTotal = currentTest.total_questions - englishCount;
+              return (
+                <>
+                  <span className="text-xs font-semibold uppercase tracking-widest text-slate-400 leading-tight">Math</span>
+                  <span className="text-sm font-bold text-slate-800 tabular-nums">
+                    Item {mathIndex} of {mathTotal}
+                  </span>
+                </>
+              );
+            }
+            // Subject not yet loaded
+            return (
+              <>
+                <span className="text-xs font-semibold uppercase tracking-widest text-slate-400 leading-tight">Question</span>
+                <span className="text-sm font-bold text-slate-800 tabular-nums">
+                  {currentQuestion} / {currentTest.total_questions}
+                </span>
+              </>
+            );
+          })()}
         </div>
 
         {/* Right: timer */}
@@ -1507,7 +1648,18 @@ function MockTest() {
             <span className="text-xs text-slate-400 font-medium">Untimed</span>
           )}
         </div>
-      </div>
+      </div>{/* end main header row */}
+
+      {/* Math annotation toolbar */}
+      {questionData?.subject?.toLowerCase() === "math" && (
+        <div className="px-3 sm:px-6 py-1.5 border-t border-slate-100 bg-slate-50/80 overflow-x-auto">
+          <ELAToolbar
+            tools={elaTools}
+            questionUid={questionData.uid ?? ""}
+          />
+        </div>
+      )}
+      </div>{/* end sticky header + toolbar wrapper */}
 
       {/* Pending-saves indicator — fixed bottom-left, mirrors Flag button.
           Visible whenever answers are queued and not yet confirmed by the DB.
@@ -1616,18 +1768,43 @@ function MockTest() {
       )}
 
       {/* Question area — stacks vertically on mobile, side-by-side on large screens */}
-      <div className="flex flex-col lg:flex-row items-start justify-center py-4 sm:py-8 px-3 sm:px-6 flex-1 gap-4">
+      <div className="relative flex flex-col lg:flex-row items-start justify-center py-4 sm:py-8 px-3 sm:px-6 flex-1 gap-4">
         {questionData ? (
           <>
             {/* Left panel — full width on mobile, 45% on large screens */}
             {displayMedia.length > 0 && (
-              <div className="flex flex-col w-full lg:w-[45%] lg:min-w-72 lg:max-w-[65%] lg:h-[calc(100vh-8rem)] lg:min-h-48 lg:resize overflow-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-6 lg:self-start lg:sticky lg:top-20">
+              <div
+                ref={passageContainerRef}
+                className="relative flex flex-col w-full lg:w-[45%] lg:min-w-72 lg:max-w-[65%] lg:h-[calc(100vh-8rem)] lg:min-h-48 lg:resize overflow-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-6 lg:self-start lg:sticky lg:top-20"
+                onMouseUp={() => elaTools.activeTool === "highlight" && captureHighlight(passageContainerRef.current, `p-${questionData.uid}`)}
+              >
                 <MediaDisplay mediaItems={displayMedia} />
+                {/* Highlight overlays for passage */}
+                {(elaTools.highlights.get(`p-${questionData.uid}`) ?? []).map(h => (
+                  <div key={h.id}
+                    className="absolute pointer-events-none rounded-sm"
+                    style={{ top: h.top, left: h.left, width: h.width, height: h.height, background: "rgba(251,191,36,0.35)", mixBlendMode: "multiply" } as React.CSSProperties}
+                  />
+                ))}
               </div>
             )}
 
             {/* Right panel — full width on mobile, flexible on large screens */}
-            <div className={`bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-8 flex flex-col gap-5 w-full ${displayMedia.length > 0 ? "lg:flex-1" : "lg:max-w-3xl lg:mx-auto"}`}>
+            <div className={`relative bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-8 flex flex-col gap-5 w-full ${displayMedia.length > 0 ? "lg:flex-1" : "lg:max-w-3xl lg:mx-auto"}`}>
+              {/* Pencil canvas overlay — only for Math questions */}
+              {questionData?.subject?.toLowerCase() === "math" && (
+                <ELAPencilCanvas
+                  active={elaTools.activeTool === "pencil"}
+                  strokes={elaTools.getPencilState(questionData.uid ?? "").strokes}
+                  onAddStroke={stroke => elaTools.addStroke(questionData.uid ?? "", stroke)}
+                />
+              )}
+
+              {/* Line Reader Mask — only for Math when active */}
+              {questionData?.subject?.toLowerCase() === "math" && elaTools.activeTool === "linereader" && (
+                <ELALineMask maskY={elaTools.lineMaskY} onMove={elaTools.setLineMaskY} />
+              )}
+
               {/* Question label */}
               <div className="flex items-center gap-2.5">
                 <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
@@ -1640,13 +1817,24 @@ function MockTest() {
                 )}
               </div>
 
-              {/* Question text */}
+              {/* Question text with highlight capture */}
               {(() => {
                 const extra = ((questionData as Record<string, unknown>).extra_data as Record<string, unknown> | null) ?? {};
                 const vars = Array.isArray(extra.variables) ? extra.variables as string[] : [];
                 return (
-                  <div className="text-base leading-relaxed text-slate-800">
+                  <div
+                    ref={questionTextContainerRef}
+                    className="relative text-base leading-relaxed text-slate-800"
+                    onMouseUp={() => elaTools.activeTool === "highlight" && captureHighlight(questionTextContainerRef.current, `q-${questionData.uid}`)}
+                  >
                     {parseFormattedText(questionData.text ?? "", "", vars)}
+                    {/* Highlight overlays for question text */}
+                    {(elaTools.highlights.get(`q-${questionData.uid}`) ?? []).map(h => (
+                      <div key={h.id}
+                        className="absolute pointer-events-none rounded-sm"
+                        style={{ top: h.top, left: h.left, width: h.width, height: h.height, background: "rgba(251,191,36,0.35)", mixBlendMode: "multiply" } as React.CSSProperties}
+                      />
+                    ))}
                   </div>
                 );
               })()}
@@ -1673,11 +1861,14 @@ function MockTest() {
                     uid={questionData.uid}
                     options={baseOptions}
                     answer={questionData.answer}
-                    isReadOnly={isReadOnly}
+                    isReadOnly={isReadOnly && !isEditableReview}
                     previousAnswer={previousAnswer}
                     choiceImages={choiceImages}
                     selectCount={typeof extra.select_count === "number" ? extra.select_count : 1}
                     variables={Array.isArray(extra.variables) ? extra.variables as string[] : []}
+                    eliminateMode={questionData.subject?.toLowerCase() === "math" && elaTools.activeTool === "eliminate"}
+                    eliminatedChoices={elaTools.eliminations.get(questionData.uid ?? "") ?? new Set()}
+                    onEliminate={letter => elaTools.toggleElimination(questionData.uid ?? "", letter)}
                   />
                 );
               })()}
@@ -1739,6 +1930,14 @@ function MockTest() {
           <p className="text-slate-400 text-sm mt-16">Loading question…</p>
         )}
       </div>
+
+      {/* ELA Notepad — floating, persists for entire ELA section */}
+      <ELANotepad
+        open={elaTools.notesOpen}
+        notes={elaTools.notes}
+        onNotesChange={elaTools.setNotes}
+        onClose={elaTools.toggleNotes}
+      />
     </div>
   );
 }

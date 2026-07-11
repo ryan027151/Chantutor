@@ -17,6 +17,9 @@ interface QuestionProps {
   choiceImages?: Record<string, string>;
   selectCount?: number;
   variables?: string[];
+  eliminateMode?: boolean;
+  eliminatedChoices?: Set<string>;
+  onEliminate?: (letter: string) => void;
 }
 
 export default function QuestionRenderer({
@@ -29,6 +32,9 @@ export default function QuestionRenderer({
   choiceImages = {},
   selectCount = 1,
   variables = [],
+  eliminateMode = false,
+  eliminatedChoices = new Set(),
+  onEliminate,
 }: QuestionProps) {
   switch (type) {
     case "mcq":
@@ -42,6 +48,9 @@ export default function QuestionRenderer({
           isReadOnly={isReadOnly}
           previousAnswer={previousAnswer}
           choiceImages={choiceImages}
+          eliminateMode={eliminateMode}
+          eliminatedChoices={eliminatedChoices}
+          onEliminate={onEliminate}
         />
       );
     case "grid-in":

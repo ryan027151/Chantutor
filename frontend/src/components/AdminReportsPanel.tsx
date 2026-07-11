@@ -246,8 +246,14 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved, is
 
   // ── Status helpers ─────────────────────────────────────────────────────────
 
+  const STATUS_ORDER: Record<Report["status"], number> = { pending: 0, reviewed: 1, resolved: 2 };
+
   async function setStatus(id: string, status: Report["status"]) {
     const prev = reports.find((r) => r.id === id)?.status;
+    // Allow forward moves; also allow resolved → pending (admin reopen)
+    const isBackward = prev !== undefined && STATUS_ORDER[prev] > STATUS_ORDER[status];
+    const isAllowedBackward = prev === "resolved" && status === "pending";
+    if (isBackward && !isAllowedBackward) return;
     setUpdating(id);
     await supabase.from("question_reports").update({ status }).eq("id", id);
     setReports((list) => list.map((r) => r.id === id ? { ...r, status } : r));
@@ -300,12 +306,21 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved, is
 
   async function bulkSetStatus(status: Report["status"]) {
     setBulkWorking(true);
-    const ids = [...selected];
-    await supabase.from("question_reports").update({ status }).in("id", ids);
-    const prevPendingCount = reports.filter((r) => ids.includes(r.id) && r.status === "pending").length;
-    setReports((list) => list.map((r) => ids.includes(r.id) ? { ...r, status } : r));
+    // Only apply to reports where the move is valid
+    const ids = [...selected].filter((id) => {
+      const cur = reports.find((r) => r.id === id)?.status;
+      if (!cur) return false;
+      if (STATUS_ORDER[cur] < STATUS_ORDER[status]) return true; // forward
+      if (cur === "resolved" && status === "pending") return true; // admin reopen
+      return false;
+    });
+    if (ids.length > 0) {
+      await supabase.from("question_reports").update({ status }).in("id", ids);
+      const prevPendingCount = reports.filter((r) => ids.includes(r.id) && r.status === "pending").length;
+      setReports((list) => list.map((r) => ids.includes(r.id) ? { ...r, status } : r));
+      if (status !== "pending") for (let i = 0; i < prevPendingCount; i++) onReportResolved();
+    }
     setSelected(new Set());
-    if (status !== "pending") for (let i = 0; i < prevPendingCount; i++) onReportResolved();
     setBulkWorking(false);
   }
 
@@ -496,7 +511,7 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved, is
                     {/* Actions */}
                     <td className="px-4 py-3">
                       <div className="flex gap-1 items-center flex-wrap" onClick={(e) => e.stopPropagation()}>
-                        {r.status !== "reviewed" && (
+                        {r.status === "pending" && (
                           <button type="button" disabled={updating === r.id} onClick={() => setStatus(r.id, "reviewed")}
                             className="px-2.5 py-1 rounded text-xs font-semibold bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 border border-blue-500/20 transition-colors disabled:opacity-40">
                             Review
@@ -508,7 +523,7 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved, is
                             Resolve
                           </button>
                         )}
-                        {r.status !== "pending" && (
+                        {r.status === "resolved" && (
                           <button type="button" disabled={updating === r.id} onClick={() => setStatus(r.id, "pending")}
                             className="px-2.5 py-1 rounded text-xs font-semibold bg-zinc-100 text-zinc-500 hover:bg-zinc-200 border border-zinc-200 transition-colors disabled:opacity-40">
                             Reopen

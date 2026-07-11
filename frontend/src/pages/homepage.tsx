@@ -114,7 +114,7 @@ function HomePage() {
         return;
       }
     }
-    const parsedQ = numPracticeQuestions ? parseInt(numQuestions, 10) : 114;
+    const parsedQ = numPracticeQuestions ? parseInt(numQuestions, 10) : 100;
     const totalMinutes = isTimed ? (parseInt(durationHours, 10) || 0) * 60 + (parseInt(durationMinutes, 10) || 0) : 0;
     const testName = numPracticeQuestions ? "Practice" : "Mock Test";
     const configuration = numPracticeQuestions && selectedTopics.length > 0
@@ -308,11 +308,11 @@ function HomePage() {
               value={numPracticeQuestions ? "practice" : "mock"}
               className="border border-slate-300 rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
               onChange={(e) => {
-                if (e.target.value === "mock") { setNumQuestions("114"); setNumPracticeQuestions(false); setStartError(""); }
+                if (e.target.value === "mock") { setNumQuestions("100"); setNumPracticeQuestions(false); setStartError(""); }
                 else { setNumPracticeQuestions(true); setNumQuestions("20"); setStartError(""); }
               }}
             >
-              <option value="mock">Mock Test (114 questions)</option>
+              <option value="mock">Mock Test (100 questions)</option>
               <option value="practice">Practice</option>
             </select>
           </div>
