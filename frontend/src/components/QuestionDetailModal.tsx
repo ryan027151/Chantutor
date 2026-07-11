@@ -115,6 +115,7 @@ export default function QuestionDetailModal({
   const isGraphing = question?.type === "linear_graphing";
   const isMultiSelect = question?.type === "multi-select";
   const isExpression = question?.type === "expression";
+  const isInlineDropdown = question?.type === "inline-dropdown";
   const fallbackLetters = ["A", "B", "C", "D", "E", "F"];
 
   // Multi-select: build full options list including extra_data choices
@@ -128,10 +129,17 @@ export default function QuestionDetailModal({
     return opts.map((opt, i) => ({ letter: extractLetter(opt, fallbackLetters[i]), label: opt }));
   })();
 
-  const choices = question && !isMultiSelect
+  const choices = question && !isMultiSelect && !isInlineDropdown
     ? [question.choice_1, question.choice_2, question.choice_3, question.choice_4].map(
         (opt, i) => ({ letter: extractLetter(opt, fallbackLetters[i]), label: opt })
       )
+    : [];
+
+  // Inline-dropdown: derive the option list for the sentence display
+  const inlineDropdownChoices = isInlineDropdown && question
+    ? [question.choice_1, question.choice_2, question.choice_3, question.choice_4]
+        .filter(Boolean)
+        .map((opt, i) => ({ letter: extractLetter(opt, fallbackLetters[i]), label: stripChoicePrefix(opt!) }))
     : [];
 
   const displayMedia = mediaItems
@@ -257,13 +265,48 @@ export default function QuestionDetailModal({
               </div>
             )}
             <div className="p-5 flex flex-col gap-4">
-              <p className="text-sm text-slate-800 leading-relaxed">
-                {parseFormattedText(
-                  question.text,
-                  "",
-                  Array.isArray(question.extra_data?.variables) ? question.extra_data!.variables as string[] : []
-                )}
-              </p>
+              {/* For inline-dropdown, render the sentence with the blank filled in */}
+              {isInlineDropdown ? (() => {
+                const blankIdx = question.text?.indexOf("[BLANK]") ?? -1;
+                const before = blankIdx >= 0 ? question.text.slice(0, blankIdx) : question.text ?? "";
+                const after  = blankIdx >= 0 ? question.text.slice(blankIdx + 7) : "";
+                const studentChoice = inlineDropdownChoices.find(c => c.letter === studentAnswer?.toUpperCase());
+                const correctChoice = inlineDropdownChoices.find(c => c.letter === correctAnswer.toUpperCase());
+                const chipBase = "inline-block mx-1 px-2.5 py-0.5 rounded-lg border-2 text-sm font-semibold";
+                return (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-sm text-slate-800 leading-relaxed">
+                      {parseFormattedText(before, "b-")}
+                      {studentAnswer ? (
+                        <span className={`${chipBase} ${isCorrect ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-rose-400 bg-rose-50 text-rose-800"}`}>
+                          {studentChoice?.label ?? studentAnswer}
+                        </span>
+                      ) : (
+                        <span className={`${chipBase} border-dashed border-slate-300 text-slate-400`}>
+                          not answered
+                        </span>
+                      )}
+                      {parseFormattedText(after, "a-")}
+                    </p>
+                    {isCorrect === false && correctChoice && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-slate-400 font-medium shrink-0">Correct answer:</span>
+                        <span className="font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-lg">
+                          {correctChoice.label}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })() : (
+                <p className="text-sm text-slate-800 leading-relaxed">
+                  {parseFormattedText(
+                    question.text,
+                    "",
+                    Array.isArray(question.extra_data?.variables) ? question.extra_data!.variables as string[] : []
+                  )}
+                </p>
+              )}
 
               {isGraphing ? (
                 <div className="flex flex-col gap-3">
@@ -381,7 +424,7 @@ export default function QuestionDetailModal({
                     );
                   })}
                 </div>
-              ) : (
+              ) : isInlineDropdown ? null : (
                 <div className="flex flex-col gap-2">
                   {choices.map(({ letter, label }) => {
                     const isStudentChoice = studentAnswer === letter;

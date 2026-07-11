@@ -77,7 +77,7 @@ function checkAnswer(student: string, correct: string, type: string): boolean {
     } catch { return false; }
   }
 
-  if (type === "mcq") {
+  if (type === "mcq" || type === "inline-dropdown") {
     return choiceLetterOf(student) === choiceLetterOf(correct);
   }
 
@@ -1650,8 +1650,8 @@ function MockTest() {
         </div>
       </div>{/* end main header row */}
 
-      {/* Math annotation toolbar */}
-      {questionData?.subject?.toLowerCase() === "math" && (
+      {/* Annotation toolbar — shown for all subjects */}
+      {questionData && (
         <div className="px-3 sm:px-6 py-1.5 border-t border-slate-100 bg-slate-50/80 overflow-x-auto">
           <ELAToolbar
             tools={elaTools}
@@ -1773,35 +1773,47 @@ function MockTest() {
           <>
             {/* Left panel — full width on mobile, 45% on large screens */}
             {displayMedia.length > 0 && (
-              <div
-                ref={passageContainerRef}
-                className="relative flex flex-col w-full lg:w-[45%] lg:min-w-72 lg:max-w-[65%] lg:h-[calc(100vh-8rem)] lg:min-h-48 lg:resize overflow-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-6 lg:self-start lg:sticky lg:top-20"
-                onMouseUp={() => elaTools.activeTool === "highlight" && captureHighlight(passageContainerRef.current, `p-${questionData.uid}`)}
-              >
-                <MediaDisplay mediaItems={displayMedia} />
-                {/* Highlight overlays for passage */}
-                {(elaTools.highlights.get(`p-${questionData.uid}`) ?? []).map(h => (
-                  <div key={h.id}
-                    className="absolute pointer-events-none rounded-sm"
-                    style={{ top: h.top, left: h.left, width: h.width, height: h.height, background: "rgba(251,191,36,0.35)", mixBlendMode: "multiply" } as React.CSSProperties}
+              // Outer wrapper: sized/sticky/relative — line mask lives here so it stays over the visible area
+              <div className="relative w-full lg:w-[45%] lg:min-w-72 lg:max-w-[65%] lg:h-[calc(100vh-8rem)] lg:min-h-48 lg:self-start lg:sticky lg:top-20 rounded-2xl overflow-hidden">
+                {/* Inner: scrollable content */}
+                <div
+                  ref={passageContainerRef}
+                  className="relative flex flex-col lg:h-full lg:resize overflow-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-6"
+                  onMouseUp={() => elaTools.activeTool === "highlight" && captureHighlight(passageContainerRef.current, `p-${questionData.uid}`)}
+                >
+                  <MediaDisplay mediaItems={displayMedia} />
+                  {/* Highlight overlays for passage */}
+                  {(elaTools.highlights.get(`p-${questionData.uid}`) ?? []).map(h => (
+                    <div key={h.id}
+                      className="absolute pointer-events-none rounded-sm"
+                      style={{ top: h.top, left: h.left, width: h.width, height: h.height, background: "rgba(251,191,36,0.35)", mixBlendMode: "multiply" } as React.CSSProperties}
+                    />
+                  ))}
+                  {/* Pencil canvas inside scrollable — strokes correctly track scroll position */}
+                  <ELAPencilCanvas
+                    active={elaTools.activeTool === "pencil"}
+                    strokes={elaTools.getPencilState(questionData.uid ?? "").strokes}
+                    onAddStroke={stroke => elaTools.addStroke(questionData.uid ?? "", stroke)}
                   />
-                ))}
+                </div>
+                {/* Line Reader outside scrollable — stays fixed over the visible panel area while content scrolls */}
+                {elaTools.activeTool === "linereader" && (
+                  <ELALineMask maskY={elaTools.lineMaskY} onMove={elaTools.setLineMaskY} />
+                )}
               </div>
             )}
 
             {/* Right panel — full width on mobile, flexible on large screens */}
             <div className={`relative bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-8 flex flex-col gap-5 w-full ${displayMedia.length > 0 ? "lg:flex-1" : "lg:max-w-3xl lg:mx-auto"}`}>
-              {/* Pencil canvas overlay — only for Math questions */}
-              {questionData?.subject?.toLowerCase() === "math" && (
+              {/* Pencil canvas and Line Reader on right panel only when there is no passage/media panel */}
+              {displayMedia.length === 0 && questionData && (
                 <ELAPencilCanvas
                   active={elaTools.activeTool === "pencil"}
                   strokes={elaTools.getPencilState(questionData.uid ?? "").strokes}
                   onAddStroke={stroke => elaTools.addStroke(questionData.uid ?? "", stroke)}
                 />
               )}
-
-              {/* Line Reader Mask — only for Math when active */}
-              {questionData?.subject?.toLowerCase() === "math" && elaTools.activeTool === "linereader" && (
+              {displayMedia.length === 0 && elaTools.activeTool === "linereader" && (
                 <ELALineMask maskY={elaTools.lineMaskY} onMove={elaTools.setLineMaskY} />
               )}
 
@@ -1817,8 +1829,8 @@ function MockTest() {
                 )}
               </div>
 
-              {/* Question text with highlight capture */}
-              {(() => {
+              {/* Question text with highlight capture — hidden for inline-dropdown (the component owns its text) */}
+              {questionData.type !== "inline-dropdown" && (() => {
                 const extra = ((questionData as Record<string, unknown>).extra_data as Record<string, unknown> | null) ?? {};
                 const vars = Array.isArray(extra.variables) ? extra.variables as string[] : [];
                 return (
@@ -1857,7 +1869,7 @@ function MockTest() {
                   <QuestionRenderer
                     key={currentQuestion}
                     chosenAnswer={setChosenAnswer}
-                    type={questionData.type as "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression"}
+                    type={questionData.type as "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown"}
                     uid={questionData.uid}
                     options={baseOptions}
                     answer={questionData.answer}
@@ -1866,9 +1878,10 @@ function MockTest() {
                     choiceImages={choiceImages}
                     selectCount={typeof extra.select_count === "number" ? extra.select_count : 1}
                     variables={Array.isArray(extra.variables) ? extra.variables as string[] : []}
-                    eliminateMode={questionData.subject?.toLowerCase() === "math" && elaTools.activeTool === "eliminate"}
+                    eliminateMode={elaTools.activeTool === "eliminate"}
                     eliminatedChoices={elaTools.eliminations.get(questionData.uid ?? "") ?? new Set()}
                     onEliminate={letter => elaTools.toggleElimination(questionData.uid ?? "", letter)}
+                    text={questionData.text ?? ""}
                   />
                 );
               })()}

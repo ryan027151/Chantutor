@@ -221,6 +221,51 @@ Example of one correct object:
 {"text":"A store sells notebooks for $n each and pens for $p each. Mia buys 3 notebooks and 2 pens. Write an expression for the total cost. Enter your answer in the space provided. Enter only your answer.","variables":["n","p"],"answer":"3n + 2p","sub_category":"Algebraic_Expressions","explanation":"Multiply price by quantity for each item and add: 3 × n + 2 × p = 3n + 2p.","valid":true,"valid_note":""}`;
   }
 
+  if (type === "inline-dropdown") {
+    const diffDesc: Record<string, string> = {
+      easy: "common, frequently-used words that most 7th-graders know",
+      medium: "moderately advanced vocabulary or slightly tricky grammar forms",
+      hard: "sophisticated vocabulary or nuanced grammar distinctions that require careful reading of context",
+      mixed: "one-third easy (common words), one-third medium, one-third hard (sophisticated vocabulary)",
+      "easy-medium": "half easy and half medium difficulty",
+      "easy-hard": "half easy and half hard difficulty",
+      "medium-hard": "half medium and half hard difficulty",
+    };
+    const diff = diffDesc[difficulty] ?? diffDesc.mixed;
+
+    return `Generate exactly ${count} SHSAT-style inline-dropdown ELA questions for 7th-8th grade students.
+
+Difficulty: ${diff}
+
+In this question type, a sentence is shown with a [BLANK] in the middle and the student selects the correct word or phrase from a dropdown. The question text IS the sentence itself — do not add a prompt like "Which word best completes..." before it; the sentence with the blank IS the question.
+
+For each question return an object with EXACTLY these keys:
+- "text": one complete sentence containing exactly one [BLANK] marker where the dropdown appears. The sentence must be grammatically complete on both sides of the blank. Do not add instructions — just the sentence.
+- "choice_1": answer option A — the correct answer (plain text only, no letter prefix)
+- "choice_2": answer option B — a plausible but wrong distractor
+- "choice_3": answer option C — a plausible but wrong distractor
+- "choice_4": answer option D — a plausible but wrong distractor
+- "answer": exactly "A" (since choice_1 is always the correct answer — they will be shuffled before display)
+- "sub_category": one of: Vocabulary_in_Context, Grammar_and_Usage
+- "explanation": why the correct answer fits and why each distractor is wrong
+${VALIDATION_KEYS}
+
+RULES:
+- The sentence must make unambiguous sense with only choice_1 filling the blank
+- Distractors must be plausible — wrong part of speech, wrong tense, wrong connotation, or near-synonym that doesn't fit
+- Vocabulary questions: test precise word choice in context (e.g. "The politician's speech was [BLANK], drawing applause from every section of the crowd.")
+- Grammar questions: test correct verb form, pronoun agreement, or tense consistency
+- Keep sentences rich enough that context guides the answer — avoid overly short, context-free sentences
+- All four choices should be the same part of speech and similar in length
+- No answer leaking — the sentence must not contain the answer word elsewhere
+- Self-check: read the sentence with each choice inserted and confirm only choice_1 produces a clearly correct sentence
+
+Return ONLY a valid JSON array of ${count} objects. No markdown fences, no extra text.
+
+Example of one correct object:
+{"text":"The scientist's findings were so [BLANK] that researchers around the world immediately began replicating her experiment.","choice_1":"groundbreaking","choice_2":"predictable","choice_3":"ordinary","choice_4":"familiar","answer":"A","sub_category":"Vocabulary_in_Context","explanation":"'Groundbreaking' means pioneering or revolutionary, which explains why others rushed to replicate the work. 'Predictable', 'ordinary', and 'familiar' would not motivate replication.","valid":true,"valid_note":""}`;
+  }
+
   // MCQ (default)
   return `Generate exactly ${count} SHSAT-style math multiple-choice questions for 7th-8th grade students preparing for a specialized high school entrance exam.
 
@@ -283,8 +328,8 @@ Deno.serve(async (req) => {
       ? (body.categories as string[]).filter((c: string) => validCatSet.has(c))
       : [];
 
-    if (!["mcq", "grid-in", "linear_graphing", "multi-select", "expression"].includes(type)) {
-      return json({ error: "type must be mcq, grid-in, linear_graphing, multi-select, or expression" }, 400);
+    if (!["mcq", "grid-in", "linear_graphing", "multi-select", "expression", "inline-dropdown"].includes(type)) {
+      return json({ error: "type must be mcq, grid-in, linear_graphing, multi-select, expression, or inline-dropdown" }, 400);
     }
 
     const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -311,7 +356,7 @@ Deno.serve(async (req) => {
         model: "claude-opus-4-8",
         max_tokens: 16000,
         system:
-          "You are an expert SHSAT math question writer. You write clear, accurate, grade-appropriate questions. " +
+          "You are an expert SHSAT question writer for math and ELA. You write clear, accurate, grade-appropriate questions. " +
           "After writing each question you verify your own work and include 'valid' and 'valid_note' fields. " +
           "Respond with valid JSON only — absolutely no markdown, no code fences, no extra text of any kind.",
         messages: [{ role: "user", content: buildPrompt(type, count, diffKey, choiceCount, categories) }],
@@ -360,20 +405,52 @@ Deno.serve(async (req) => {
     const rows = uniqueQuestions.slice(0, count).map((q, i) => {
       // status: 'approved' if Claude validated it, 'pending' if it flagged a problem
       const status = q.valid === false ? "pending" : "approved";
+      const isInlineDropdown = type === "inline-dropdown";
+
+      // inline-dropdown: shuffle choices so the correct answer isn't always A,
+      // then store with letter prefixes (A) B) C) D)) matching how MCQ stores them.
+      let c1 = q.choice_1?.trim() || null;
+      let c2 = q.choice_2?.trim() || null;
+      let c3 = q.choice_3?.trim() || null;
+      let c4 = q.choice_4?.trim() || null;
+      let answer = q.answer?.trim() ?? "";
+
+      if (isInlineDropdown && c1 && c2 && c3 && c4) {
+        // Shuffle the four choices (Fisher-Yates) and track where the correct one lands
+        const LETTERS = ["A", "B", "C", "D"];
+        const choices = [c1, c2, c3, c4];
+        const correctIdx = 0; // Claude always puts correct answer in choice_1 (index 0)
+        let correctNewIdx = correctIdx;
+        for (let j = choices.length - 1; j > 0; j--) {
+          const k = Math.floor(Math.random() * (j + 1));
+          [choices[j], choices[k]] = [choices[k], choices[j]];
+          if (k === correctNewIdx) correctNewIdx = j;
+          else if (j === correctNewIdx) correctNewIdx = k;
+        }
+        // Add letter prefixes
+        c1 = `A) ${choices[0]}`;
+        c2 = `B) ${choices[1]}`;
+        c3 = `C) ${choices[2]}`;
+        c4 = `D) ${choices[3]}`;
+        answer = LETTERS[correctNewIdx];
+      }
+
       return {
         uid: makeUid(uidStart + i),
         type,
-        subject: "math",
+        subject: isInlineDropdown ? "english" : "math",
         sub_category:
           q.sub_category?.trim() ||
-          (type === "linear_graphing" ? "Linear_Graphing" : "Arithmetic"),
+          (type === "linear_graphing" ? "Linear_Graphing"
+           : isInlineDropdown ? "Vocabulary_in_Context"
+           : "Arithmetic"),
         difficulty: diffCycle[i % diffCycle.length],
         text: q.text?.trim() ?? "",
-        choice_1: q.choice_1?.trim() || null,
-        choice_2: q.choice_2?.trim() || null,
-        choice_3: q.choice_3?.trim() || null,
-        choice_4: q.choice_4?.trim() || null,
-        answer: q.answer?.trim() ?? "",
+        choice_1: c1,
+        choice_2: c2,
+        choice_3: c3,
+        choice_4: c4,
+        answer,
         extra_data: type === "multi-select" ? {
           select_count: typeof q.select_count === "number" ? q.select_count : 2,
           ...(q.choice_5?.trim() ? { choice_5: q.choice_5.trim() } : {}),

@@ -3,8 +3,9 @@ import MCQuestion from "./multiQuestion";
 import SHSATGrapher from "./SHSATGrapher";
 import MultiSelectQuestion from "./MultiSelectQuestion";
 import ExpressionEditorQuestion from "./ExpressionEditorQuestion";
+import InlineDropdownQuestion from "./InlineDropdownQuestion";
 
-type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression";
+type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown";
 
 interface QuestionProps {
   type: QuestionType;
@@ -20,6 +21,8 @@ interface QuestionProps {
   eliminateMode?: boolean;
   eliminatedChoices?: Set<string>;
   onEliminate?: (letter: string) => void;
+  // Used by inline-dropdown: full question text with [BLANK] marker
+  text?: string;
 }
 
 export default function QuestionRenderer({
@@ -35,6 +38,7 @@ export default function QuestionRenderer({
   eliminateMode = false,
   eliminatedChoices = new Set(),
   onEliminate,
+  text = "",
 }: QuestionProps) {
   switch (type) {
     case "mcq":
@@ -88,6 +92,17 @@ export default function QuestionRenderer({
           isReadOnly={isReadOnly}
           previousAnswer={previousAnswer}
           variables={variables}
+        />
+      );
+    case "inline-dropdown":
+      return (
+        <InlineDropdownQuestion
+          text={text}
+          options={options}
+          chosenAnswer={chosenAnswer}
+          isReadOnly={isReadOnly}
+          previousAnswer={previousAnswer}
+          answer={answer}
         />
       );
     default:

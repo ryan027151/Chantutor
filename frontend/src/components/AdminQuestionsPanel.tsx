@@ -4,7 +4,7 @@ import { parseFormattedText } from "../utils/textParser";
 import ExpressionEditorQuestion from "./ExpressionEditorQuestion";
 
 type MediaType = "passage" | "graph" | "table" | "equation";
-type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression";
+type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown";
 
 interface MediaItem {
   mediaId: string;
@@ -155,12 +155,14 @@ function TypeBadge({ type, source }: { type: string; source?: string }) {
     type === "grid-in" ? "Grid-in" :
     type === "linear_graphing" ? "Graphing" :
     type === "multi-select" ? "Multi-select" :
-    type === "expression" ? "Expression" : type;
+    type === "expression" ? "Expression" :
+    type === "inline-dropdown" ? "Inline Dropdown" : type;
   const cls =
     type === "mcq" ? "bg-zinc-100 text-zinc-500" :
     type === "grid-in" ? "bg-amber-500/10 text-amber-500" :
     type === "multi-select" ? "bg-indigo-500/10 text-indigo-600" :
     type === "expression" ? "bg-teal-500/10 text-teal-600" :
+    type === "inline-dropdown" ? "bg-rose-500/10 text-rose-600" :
     "bg-blue-500/10 text-blue-600";
   return (
     <div className="flex items-center gap-1.5">
@@ -180,11 +182,12 @@ interface GenerateModalProps {
 }
 
 const GEN_TYPE_OPTS = [
-  { value: "mcq",             label: "Math MCQ"     },
-  { value: "grid-in",         label: "Grid-in"      },
-  { value: "linear_graphing", label: "Graphing"     },
-  { value: "multi-select",    label: "Multi-select" },
-  { value: "expression",      label: "Expression"   },
+  { value: "mcq",              label: "Math MCQ"        },
+  { value: "grid-in",          label: "Grid-in"         },
+  { value: "linear_graphing",  label: "Graphing"        },
+  { value: "multi-select",     label: "Multi-select"    },
+  { value: "expression",       label: "Expression"      },
+  { value: "inline-dropdown",  label: "Inline Dropdown" },
 ] as const;
 
 const GEN_CATEGORY_OPTS = [
@@ -1274,6 +1277,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                     <option value="linear_graphing">Linear Graphing</option>
                     <option value="multi-select">Multi-select</option>
                     <option value="expression">Expression Editor</option>
+                    <option value="inline-dropdown">Inline Dropdown</option>
                   </Select>
                 </div>
               </div>
@@ -1319,11 +1323,19 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
 
               <div className="flex flex-col gap-1.5">
                 <Label>Question Text</Label>
-                <Textarea value={form.text ?? ""} onChange={v => setField("text", v)} placeholder="Type the full question text here…" rows={6} />
+                <Textarea value={form.text ?? ""} onChange={v => setField("text", v)}
+                  placeholder={form.type === "inline-dropdown"
+                    ? "Type the sentence and put [BLANK] where the dropdown should appear. e.g. \"The scientist carefully [BLANK] the results.\""
+                    : "Type the full question text here…"}
+                  rows={form.type === "inline-dropdown" ? 3 : 6}
+                />
+                {form.type === "inline-dropdown" && (
+                  <p className="text-xs text-zinc-400">Use <code className="bg-zinc-100 px-1 rounded font-mono">[BLANK]</code> to mark where the dropdown appears in the sentence.</p>
+                )}
               </div>
 
-              {/* Answer choices — MCQ and multi-select */}
-              {(form.type === "mcq" || form.type === "multi-select") && (
+              {/* Answer choices — MCQ, multi-select, and inline-dropdown */}
+              {(form.type === "mcq" || form.type === "multi-select" || form.type === "inline-dropdown") && (
                 <div className="flex flex-col gap-2.5">
                   <Label>Answer Choices</Label>
                   <div className="grid grid-cols-2 gap-3">
@@ -1377,7 +1389,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
 
               <div className="flex flex-col gap-1.5">
                 <Label>Correct Answer</Label>
-                {form.type === "mcq" ? (
+                {(form.type === "mcq" || form.type === "inline-dropdown") ? (
                   <div className="grid grid-cols-4 gap-2">
                     {(["A", "B", "C", "D"] as const).map((letter, i) => {
                       const choiceKey = `choice_${i + 1}` as keyof FormData;
