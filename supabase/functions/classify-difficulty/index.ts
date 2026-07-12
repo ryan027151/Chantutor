@@ -223,6 +223,72 @@ Reply with ONLY this JSON — no explanation:
     }
   }
 
+  // ── Phase 3: Standalone math questions ────────────────────────────────────
+  // Math questions are not linked to passages and not in GRAMMAR_SUBCATEGORIES,
+  // so they are never touched by Phase 1 or 2. Without classification they all
+  // default to "medium" in the scoring formula, making difficulty weighting
+  // effectively disabled for the entire Math section.
+
+  const mathResults = { processed: 0, updated: 0 };
+  Object.assign(results, { math_processed: 0 });
+
+  const { data: mathQs } = await supabase
+    .from("all_questions")
+    .select("uid, text, choice_1, choice_2, choice_3, choice_4, answer, sub_category")
+    .eq("subject", "math")
+    .is("difficulty", null);
+
+  const MATH_BATCH = 12;
+  for (let i = 0; i < (mathQs?.length ?? 0); i += MATH_BATCH) {
+    const batch = (mathQs as QuestionRow[]).slice(i, i + MATH_BATCH);
+
+    const qList = batch.map((q, idx) =>
+      `Q${idx + 1} [${q.uid}] (${q.sub_category ?? "unknown"})\n` +
+      `${q.text}\n` +
+      `A) ${q.choice_1}  B) ${q.choice_2}  C) ${q.choice_3}  D) ${q.choice_4}\n` +
+      `Correct: ${q.answer}`,
+    ).join("\n\n");
+
+    try {
+      const msg = await anthropic.messages.create({
+        model: "claude-opus-4-7",
+        max_tokens: 500,
+        messages: [{
+          role: "user",
+          content:
+`You are an SHSAT expert. Classify each math question's difficulty for 7th–8th grade students.
+
+SHSAT MATH DIFFICULTY CRITERIA:
+- easy:   single-step computation or direct formula application; common operation (arithmetic, basic ratio, simple percent); no multi-step reasoning required
+- medium: two-step problem; requires translating words to an equation or combining two concepts (e.g., rate × time, percent change, basic geometry formula); moderate algebraic manipulation
+- hard:   multi-step reasoning; complex word problems; non-obvious setup; requires combining multiple concepts (e.g., algebra + geometry, proportions + inequalities); abstract or pattern-based questions
+
+QUESTIONS:
+${qList}
+
+Reply with ONLY this JSON — no explanation:
+{"classifications":[{"uid":"...","difficulty":"easy"|"medium"|"hard"},...]}`
+        }],
+      });
+
+      const raw = msg.content[0].type === "text" ? msg.content[0].text : "";
+      const classifications = extractJSON(raw);
+
+      for (const { uid, difficulty } of classifications) {
+        if (!["easy", "medium", "hard"].includes(difficulty)) continue;
+        const { error } = await supabase
+          .from("all_questions")
+          .update({ difficulty })
+          .eq("uid", uid);
+        if (!error) { results.updated++; mathResults.updated++; }
+      }
+      mathResults.processed += batch.length;
+      (results as Record<string, unknown>).math_processed = mathResults.processed;
+    } catch (e) {
+      results.errors.push(`Math batch ${i}: ${(e as Error).message}`);
+    }
+  }
+
   return new Response(JSON.stringify(results), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });

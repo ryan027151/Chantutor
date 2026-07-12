@@ -9,7 +9,7 @@ import { SUBCAT_TW, SCORE_BAND_TW, fmtSubEN, type Lang } from "../utils/translat
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface QuestionResult { id: string; order_index: number; is_correct: boolean | null; student_answer: string | null; sub_category: string | null; subject: string | null; }
+interface QuestionResult { id: string; order_index: number; is_correct: boolean | null; student_answer: string | null; sub_category: string | null; subject: string | null; time_spent?: number | null; }
 interface SelectedQuestion { uid: string; studentAnswer: string | null; isCorrect: boolean | null; questionNumber: number; }
 interface AIAnalysis { strengths: string[]; improvements: string[]; recommendations: string[]; }
 interface TestInfo {
@@ -134,6 +134,26 @@ function SectionBar({ label, correct, total, colorClass }: { label: string; corr
       </div>
     </div>
   );
+}
+
+const SHSAT_SECS = 10_800; // 3 h in seconds
+
+function getSubTip(name: string): string {
+  const MAP: Record<string, string> = {
+    Vocabulary_in_Context: "Cover the word, predict what fits, then match to the answer choices.",
+    Textual_Evidence: "Re-read the exact lines cited in the question before answering.",
+    Central_Idea: "Summarize the whole passage in one sentence — that is the central idea.",
+    Algebra_and_Equations: "Translate each word problem into one equation, then solve step-by-step.",
+    Geometry: "Sketch the figure and label all known values before computing.",
+    Arithmetic: "Review PEMDAS and practice quick fraction↔decimal conversions.",
+    Percentage: "Part = Percent × Whole; percent change = (new − old) ÷ old × 100.",
+    Comma_Usage: "Commas join independent clauses with a conjunction, follow introductory phrases, and separate list items.",
+    Pronoun_Agreement: "Match each pronoun to its antecedent in number — 'everyone/each' is singular.",
+    Sentence_Structure: "Identify subject + verb in each clause; fragments lack one, run-ons lack a separator.",
+  };
+  const key = name.replace(/[-\s]/g, "_");
+  if (MAP[key]) return MAP[key];
+  return `Drill focused sets of ${name.replace(/_/g, " ")} questions and review each error immediately.`;
 }
 
 function SHSATScoreCard({ score, t }: { score: SHSATScore; t: LangStrings }) {
@@ -312,7 +332,7 @@ export default function ResultsModal({ testID, userID, studentName, onClose }: R
       } else {
         const [{ data: testData }, { data: qData }] = await Promise.all([
           supabase.from("tests").select("test_name, created_at, total_questions, configuration, duration").eq("id", testID).single(),
-          supabase.from("questions").select("id, order_index, is_correct, student_answer").eq("test_id", testID).eq("user_id", userID).order("order_index"),
+          supabase.from("questions").select("id, order_index, is_correct, student_answer, time_spent").eq("test_id", testID).eq("user_id", userID).order("order_index"),
         ]);
         resolvedTest = testData as TestInfo | null;
         resolvedQs = (qData as QuestionResult[]).map(q => ({ ...q, sub_category: null })) ?? [];
@@ -388,11 +408,67 @@ export default function ResultsModal({ testID, userID, studentName, onClose }: R
   const engGood  = englishCount > 0 ? engCorrect >= englishCount * 0.7 : false;
   const mathGood = mathCount    > 0 ? mathCorrect >= mathCount    * 0.7 : false;
 
-  const analysis: AIAnalysis = {
-    strengths:       t.fallbackStrengths(engGood, mathGood, questions.length, totalQ),
-    improvements:    t.fallbackImprovements(engGood, mathGood),
-    recommendations: t.fallbackRecs(),
-  };
+  // Personalized analysis based on subcategory data, pacing, and subject accuracy
+  const timesArr = questions
+    .map(q => q.time_spent)
+    .filter((v): v is number => v != null && v >= 3 && v <= 600);
+  const avgTimePerQ = timesArr.length >= 8
+    ? timesArr.reduce((a, b) => a + b, 0) / timesArr.length
+    : null;
+  const budgetPerQ  = SHSAT_SECS / (test?.total_questions || 100);
+  const budgetRound = Math.round(budgetPerQ);
+  const avgRound    = avgTimePerQ != null ? Math.round(avgTimePerQ) : null;
+  const pacingCritical = avgTimePerQ != null && avgTimePerQ > budgetPerQ * 1.5;
+  const pacingWarning  = avgTimePerQ != null && avgTimePerQ > budgetPerQ * 1.1 && !pacingCritical;
+  const pacingGood     = avgTimePerQ != null && avgTimePerQ <= budgetPerQ;
+
+  const weakSubs   = (shsatScore?.subcategories ?? []).filter(s => s.total >= 2).slice(0, 2);
+  const strongSubs = (shsatScore?.subcategories ?? []).filter(s => s.total >= 2).reverse().slice(0, 1);
+
+  const strengths: string[] = [];
+  const improvements: string[] = [];
+  const recommendations: string[] = [];
+
+  if (strongSubs.length > 0) {
+    const best = strongSubs[0];
+    strengths.push(`${fmtSubEN(best.name)} is a strength — ${Math.round((best.earned / best.max) * 100)}% on ${best.total} questions`);
+  } else {
+    strengths.push(engGood ? "Strong English performance overall" : mathGood ? "Solid math fundamentals" : "Consistent effort across all sections");
+  }
+  if (pacingGood && avgRound != null) {
+    strengths.push(`Good pacing — ${avgRound}s per question, within the ${budgetRound}s budget`);
+  } else {
+    strengths.push(`Completed ${questions.length} of ${totalQ} questions`);
+  }
+
+  if (weakSubs.length > 0) {
+    const w = weakSubs[0];
+    improvements.push(`${fmtSubEN(w.name)} is the biggest gap — ${Math.round((w.earned / w.max) * 100)}% on ${w.total} questions`);
+  } else {
+    improvements.push(engGood ? "Push for higher Reading Comprehension accuracy" : "Focus on Revising/Editing and Reading Comprehension");
+  }
+  if (pacingCritical) {
+    improvements.push(`Pacing is critical — ${avgRound}s/question vs ${budgetRound}s budget; risks running out of time on the actual SHSAT`);
+  } else if (pacingWarning) {
+    improvements.push(`Slightly over pace — ${avgRound}s/question; timed drills can help`);
+  } else {
+    improvements.push(mathGood ? "Target harder math problem types" : "Review core math concepts");
+  }
+
+  if (weakSubs.length > 0) {
+    const w = weakSubs[0];
+    recommendations.push(`Drill ${fmtSubEN(w.name)} in focused blocks: ${getSubTip(w.name)}`);
+  } else {
+    recommendations.push("Practice with timed sessions to maintain accuracy under time pressure");
+  }
+  if (pacingCritical || pacingWarning) {
+    recommendations.push(`Set a ${budgetRound}s-per-question timer and complete 20 questions without going back — the fastest way to build test pace`);
+  } else {
+    recommendations.push("Re-read each incorrect explanation within 24 hours — same-day review doubles long-term retention");
+  }
+  recommendations.push("Spend extra study time on the lower-scoring section — targeted practice yields faster gains than mixed review");
+
+  const analysis: AIAnalysis = { strengths, improvements, recommendations };
 
   function handleExportPDF() {
     if (!test) return;
@@ -523,8 +599,8 @@ export default function ResultsModal({ testID, userID, studentName, onClose }: R
               </div>
             </div>
 
-            {/* SHSAT Score Estimate */}
-            {shsatScore && <SHSATScoreCard score={shsatScore} t={t} />}
+            {/* SHSAT Score Estimate — not shown for practice sessions */}
+            {shsatScore && test?.test_name !== "Practice" && <SHSATScoreCard score={shsatScore} t={t} />}
 
             {/* Performance Summary */}
             <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-5 flex flex-col gap-3">

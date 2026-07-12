@@ -4,6 +4,8 @@ import { parseFormattedText } from "../utils/textParser";
 import MediaDisplay from "./mediaDisplay";
 import { MediaItem } from "./types";
 import SHSATGrapher from "./SHSATGrapher";
+import NumberLineClick from "./NumberLineClick";
+import TableRowRadio from "./TableRowRadio";
 
 interface AllQuestion {
   uid: string;
@@ -116,6 +118,8 @@ export default function QuestionDetailModal({
   const isMultiSelect = question?.type === "multi-select";
   const isExpression = question?.type === "expression";
   const isInlineDropdown = question?.type === "inline-dropdown";
+  const isNumberLine    = question?.type === "number_line_click";
+  const isTableRowRadio = question?.type === "table_row_radio";
   const fallbackLetters = ["A", "B", "C", "D", "E", "F"];
 
   // Multi-select: build full options list including extra_data choices
@@ -129,7 +133,7 @@ export default function QuestionDetailModal({
     return opts.map((opt, i) => ({ letter: extractLetter(opt, fallbackLetters[i]), label: opt }));
   })();
 
-  const choices = question && !isMultiSelect && !isInlineDropdown
+  const choices = question && !isMultiSelect && !isInlineDropdown && !isTableRowRadio && !isNumberLine
     ? [question.choice_1, question.choice_2, question.choice_3, question.choice_4].map(
         (opt, i) => ({ letter: extractLetter(opt, fallbackLetters[i]), label: opt })
       )
@@ -308,7 +312,48 @@ export default function QuestionDetailModal({
                 </p>
               )}
 
-              {isGraphing ? (
+              {isTableRowRadio ? (
+                <div className="flex flex-col gap-2">
+                  {(() => {
+                    const extra = (question?.extra_data ?? {}) as Record<string, unknown>;
+                    const cols = Array.isArray(extra.col_headers) ? extra.col_headers as string[] : [];
+                    const rowLabels = Array.isArray(extra.rows) ? extra.rows as string[] : [];
+                    return (
+                      <TableRowRadio
+                        colHeaders={cols}
+                        rows={rowLabels}
+                        chosenAnswer={() => {}}
+                        isReadOnly={true}
+                        previousAnswer={studentAnswer ?? ""}
+                        correctAnswer={correctAnswer}
+                      />
+                    );
+                  })()}
+                  {!studentAnswer && (
+                    <p className="text-xs text-slate-400 italic text-center">No answer was submitted for this question.</p>
+                  )}
+                </div>
+              ) : isNumberLine ? (
+                <div className="flex flex-col gap-2">
+                  {(() => {
+                    const extra = (question?.extra_data ?? {}) as Record<string, unknown>;
+                    const nlMin  = typeof extra.min  === "number" ? extra.min  : -10;
+                    const nlMax  = typeof extra.max  === "number" ? extra.max  : 10;
+                    const nlStep = typeof extra.step === "number" ? extra.step : 1;
+                    return (
+                      <NumberLineClick
+                        min={nlMin} max={nlMax} step={nlStep}
+                        isReadOnly={true}
+                        previousAnswer={studentAnswer ?? undefined}
+                        correctAnswer={correctAnswer}
+                      />
+                    );
+                  })()}
+                  {!studentAnswer && (
+                    <p className="text-xs text-slate-400 italic text-center">No answer was submitted for this question.</p>
+                  )}
+                </div>
+              ) : isGraphing ? (
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-4 text-xs text-slate-500">

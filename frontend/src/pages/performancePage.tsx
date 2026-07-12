@@ -13,9 +13,7 @@ import { Test } from "../components/types";
 // ─── constants ────────────────────────────────────────────────────────────────
 // Weights match scoring.ts exactly — easy=1, medium=1.5, hard=2
 const DIFF_W: Record<string, number> = { easy: 1, medium: 1.5, hard: 2 };
-const SHSAT_TOTAL_Q   = 114;
-const SHSAT_SECS      = 10_800;          // 3 h in seconds
-const BUDGET_PER_Q    = SHSAT_SECS / SHSAT_TOTAL_Q; // ≈ 94.7 s
+const SHSAT_SECS = 10_800; // 3 h in seconds
 
 function normDiff(raw: string | null | undefined): string {
   const l = raw?.toLowerCase?.();
@@ -30,9 +28,9 @@ function avg(arr: number[]): number | null {
   return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
 }
 function scoreBand(s: number): { label: string; cls: string } {
-  if (s >= 620) return { label: "Guaranteed",              cls: "text-emerald-600" };
-  if (s >= 530) return { label: "Competitive range",       cls: "text-blue-600"    };
-  if (s >= 450) return { label: "Approaching competitive", cls: "text-amber-600"   };
+  if (s >= 620) return { label: "Top-school competitive",  cls: "text-emerald-600" };
+  if (s >= 580) return { label: "Competitive range",       cls: "text-blue-600"    };
+  if (s >= 500) return { label: "Approaching competitive", cls: "text-amber-600"   };
   return               { label: "Keep practicing",         cls: "text-rose-600"    };
 }
 
@@ -69,7 +67,7 @@ interface Advice {
 }
 
 // ─── score prediction ─────────────────────────────────────────────────────────
-function computePrediction(qs: MergedQ[]): Prediction {
+function computePrediction(qs: MergedQ[], budgetPerQ: number): Prediction {
   let earnedW = 0, totalW = 0;
   for (const q of qs) {
     const w = DIFF_W[normDiff(q.difficulty)];
@@ -83,7 +81,7 @@ function computePrediction(qs: MergedQ[]): Prediction {
   if (times.length < 10) return { score: accuracyOnly, accuracyOnly, timeFactor: 1, avgSecs: null };
 
   const avgSecs = times.reduce((s, t) => s + t, 0) / times.length;
-  const timeFactor = Math.min(1, BUDGET_PER_Q / avgSecs);
+  const timeFactor = Math.min(1, budgetPerQ / avgSecs);
   return { score: Math.round(baseAcc * timeFactor * 500 + 200), accuracyOnly, timeFactor, avgSecs };
 }
 
@@ -208,27 +206,29 @@ function getTip(name: string): string {
 
 function buildAdvice(
   subs: SubStat[], subjects: Record<string, SubjectStat>,
-  pred: Prediction, total: number,
+  pred: Prediction, total: number, budgetPerQ: number,
 ): Advice[] {
   const out: Advice[] = [];
+  const budgetRound = Math.round(budgetPerQ);
+  const totalQEst = Math.round(SHSAT_SECS / budgetPerQ);
   // pacing
   if (pred.avgSecs !== null) {
-    const over = pred.avgSecs - BUDGET_PER_Q;
-    if (over > BUDGET_PER_Q * 0.5)
+    const over = pred.avgSecs - budgetPerQ;
+    if (over > budgetPerQ * 0.5)
       out.push({ type: "error", heading: "Pacing is a critical issue",
-        body: `You average ${Math.round(pred.avgSecs)}s per question — SHSAT budget is ~${Math.round(BUDGET_PER_Q)}s. At this pace you'd leave ~${Math.round((1 - pred.timeFactor) * SHSAT_TOTAL_Q)} questions unanswered. Make timed drills your top priority.` });
-    else if (over > BUDGET_PER_Q * 0.1)
+        body: `You average ${Math.round(pred.avgSecs)}s per question — SHSAT budget is ~${budgetRound}s. At this pace you'd leave ~${Math.round((1 - pred.timeFactor) * totalQEst)} questions unanswered. Make timed drills your top priority.` });
+    else if (over > budgetPerQ * 0.1)
       out.push({ type: "warn", heading: "Watch your pacing",
-        body: `You average ${Math.round(pred.avgSecs)}s/question (budget ~${Math.round(BUDGET_PER_Q)}s). You'll feel rushed near the end. Practice a 90-second limit per question.` });
-    else if (pred.avgSecs < BUDGET_PER_Q * 0.7)
+        body: `You average ${Math.round(pred.avgSecs)}s/question (budget ~${budgetRound}s). You'll feel rushed near the end. Set a per-question timer to build the habit.` });
+    else if (pred.avgSecs < budgetPerQ * 0.7)
       out.push({ type: "good", heading: "Strong pacing",
-        body: `You average ${Math.round(pred.avgSecs)}s/question — well within the SHSAT budget. You have spare time to review flagged answers.` });
+        body: `You average ${Math.round(pred.avgSecs)}s/question — well within the ${budgetRound}s budget. You have spare time to review flagged answers.` });
 
-    const slowSubs = subs.filter(s => s.avgSecs !== null && s.avgSecs > BUDGET_PER_Q * 1.3 && s.total >= 3)
+    const slowSubs = subs.filter(s => s.avgSecs !== null && s.avgSecs > budgetPerQ * 1.3 && s.total >= 3)
       .sort((a, b) => (b.avgSecs ?? 0) - (a.avgSecs ?? 0)).slice(0, 2);
     for (const s of slowSubs)
       out.push({ type: "warn", heading: `Slow on: ${fmtSub(s.name)}`,
-        body: `~${Math.round(s.avgSecs!)}s per ${fmtSub(s.name)} question (budget ~${Math.round(BUDGET_PER_Q)}s). Build speed with repeated timed drills on this topic.` });
+        body: `~${Math.round(s.avgSecs!)}s per ${fmtSub(s.name)} question (budget ~${budgetRound}s). Build speed with repeated timed drills on this topic.` });
   }
   // accuracy
   const eng = subjects["English"], math = subjects["Math"];
@@ -304,11 +304,11 @@ function Bar({ pct, color }: { pct: number; color: string }) {
     </div>
   );
 }
-function TimeTag({ secs }: { secs: number | null }) {
+function TimeTag({ secs, budget }: { secs: number | null; budget: number }) {
   if (secs === null) return null;
-  const cls = secs <= BUDGET_PER_Q * 0.8 ? "bg-emerald-50 text-emerald-700"
-    : secs <= BUDGET_PER_Q * 1.1 ? "bg-slate-100 text-slate-500"
-    : secs <= BUDGET_PER_Q * 1.5 ? "bg-amber-50 text-amber-700"
+  const cls = secs <= budget * 0.8 ? "bg-emerald-50 text-emerald-700"
+    : secs <= budget * 1.1 ? "bg-slate-100 text-slate-500"
+    : secs <= budget * 1.5 ? "bg-amber-50 text-amber-700"
     : "bg-rose-50 text-rose-700";
   return (
     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded tabular-nums shrink-0 ${cls}`}>
@@ -422,8 +422,21 @@ export default function PerformancePage() {
   }, [isViewing, targetId]);
 
   // ── derived ────────────────────────────────────────────────────────────────
+
+  // Effective time budget: based on average question count of non-practice tests.
+  // Practice tests are excluded from the predicted score entirely.
+  const nonPracticeTests = allTests.filter(t => t.test_name !== "Practice");
+  const budgetPerQ = nonPracticeTests.length > 0
+    ? SHSAT_SECS / (nonPracticeTests.reduce((s, t) => s + (t.total_questions || 100), 0) / nonPracticeTests.length)
+    : SHSAT_SECS / 100;
+
   const stats = (() => {
     if (!questions) return null;
+    // Only count questions from non-practice tests for score prediction.
+    const scorableQs = nonPracticeTests.length > 0
+      ? questions.filter(q => nonPracticeTests.some(t => t.id === q.test_id))
+      : questions;
+
     const subMap = new Map<string, { correct: number; total: number; subject: string; times: number[] }>();
     const subjRaw: Record<string, { correct: number; total: number; times: number[] }> = {};
 
@@ -449,18 +462,18 @@ export default function PerformancePage() {
       subjects[k] = { correct: v.correct, total: v.total,
         accuracy: Math.round(v.correct / v.total * 100), avgSecs: avg(v.times) };
 
-    const pred = computePrediction(questions);
+    const pred = computePrediction(scorableQs, budgetPerQ);
     const correct = questions.filter(q => q.is_correct).length;
     return { pred, overallAcc: Math.round(correct / questions.length * 100),
       total: questions.length, correct, subcats, subjects,
-      advice: buildAdvice(subcats, subjects, pred, questions.length) };
+      advice: buildAdvice(subcats, subjects, pred, questions.length, budgetPerQ) };
   })();
 
-  // Chart data
-  const shsatTests = allTests.filter(t => t.test_name !== "Practice");
+  // Chart data — uses nonPracticeTests already computed above
+  const shsatTests = nonPracticeTests;
 
-  // Compute SHSAT score (200–700) from individual question difficulty weights,
-  // not from tests.score which stores a raw percentage (0–100).
+  // Compute per-test SHSAT score (200–700) from difficulty-weighted accuracy.
+  // tests.score stores a raw percentage (0–100) and is not used here.
   const shsatChartData = shsatTests.flatMap(t => {
     const testQs = questions?.filter(q => q.test_id === t.id) ?? [];
     if (!testQs.length) return [];
@@ -478,6 +491,11 @@ export default function PerformancePage() {
     }];
   });
 
+  // Overall "Predicted SHSAT" = average of all per-test scores (excluding practice).
+  const avgPredictedScore = shsatChartData.length > 0
+    ? Math.round(shsatChartData.reduce((s, d) => s + d.score, 0) / shsatChartData.length)
+    : null;
+
   const accuracyChartData = allTests.flatMap(t => {
     const testQs = questions?.filter(q => q.test_id === t.id) ?? [];
     if (!testQs.length) return [];
@@ -494,8 +512,8 @@ export default function PerformancePage() {
   });
 
   const avgTimeColor = !stats?.pred.avgSecs ? "text-slate-900"
-    : stats.pred.avgSecs <= BUDGET_PER_Q       ? "text-emerald-600"
-    : stats.pred.avgSecs <= BUDGET_PER_Q * 1.3 ? "text-amber-600" : "text-rose-600";
+    : stats.pred.avgSecs <= budgetPerQ       ? "text-emerald-600"
+    : stats.pred.avgSecs <= budgetPerQ * 1.3 ? "text-amber-600" : "text-rose-600";
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
@@ -549,12 +567,17 @@ export default function PerformancePage() {
               <div className="bg-linear-to-br from-blue-600 to-blue-800 rounded-xl shadow-md p-5 flex flex-col justify-between">
                 <p className="text-xs font-semibold text-blue-200 uppercase tracking-wider">Predicted SHSAT</p>
                 <div className="mt-2">
-                  <p className="text-5xl font-extrabold text-white tabular-nums leading-none">{stats.pred.score}</p>
+                  <p className="text-5xl font-extrabold text-white tabular-nums leading-none">
+                    {avgPredictedScore ?? "—"}
+                  </p>
                   <p className="text-xs text-blue-200 mt-1">/ 700</p>
                 </div>
-                {stats.pred.timeFactor < 0.99
-                  ? <p className="text-[10px] text-blue-300 mt-3 leading-snug">Accuracy alone: {stats.pred.accuracyOnly} · reduced by pacing</p>
-                  : <p className="text-[10px] text-blue-300 mt-3 leading-snug">Difficulty-weighted · based on {stats.total} questions</p>}
+                {avgPredictedScore == null
+                  ? <p className="text-[10px] text-blue-300 mt-3 leading-snug">Complete a mock or diagnostic test</p>
+                  : shsatChartData.length > 1
+                  ? <p className="text-[10px] text-blue-300 mt-3 leading-snug">Average of {shsatChartData.length} test scores · difficulty-weighted</p>
+                  : <p className="text-[10px] text-blue-300 mt-3 leading-snug">From 1 completed test · difficulty-weighted</p>
+                }
               </div>
               <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Questions Done</p>
@@ -571,7 +594,7 @@ export default function PerformancePage() {
                 <p className={`text-3xl font-bold tabular-nums ${avgTimeColor}`}>
                   {stats.pred.avgSecs != null ? `${Math.round(stats.pred.avgSecs)}s` : "—"}
                 </p>
-                <p className="text-xs text-slate-400 mt-0.5">SHSAT budget: ~{Math.round(BUDGET_PER_Q)}s</p>
+                <p className="text-xs text-slate-400 mt-0.5">SHSAT budget: ~{Math.round(budgetPerQ)}s</p>
               </div>
             </div>
 
@@ -593,15 +616,15 @@ export default function PerformancePage() {
                   <LineChart data={shsatChartData} margin={{ top: 16, right: 24, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[200, 700]} ticks={[200, 300, 400, 450, 530, 620, 700]}
+                    <YAxis domain={[200, 700]} ticks={[200, 300, 400, 500, 580, 620, 700]}
                       tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} width={36} />
                     <Tooltip content={<SHSATTooltip />} />
                     <ReferenceLine y={620} stroke="#10b981" strokeDasharray="5 4" strokeWidth={1.5}
-                      label={{ value: "620 – Guaranteed", position: "insideTopRight", fontSize: 10, fill: "#10b981", dy: -4 }} />
-                    <ReferenceLine y={530} stroke="#3b82f6" strokeDasharray="5 4" strokeWidth={1.5}
-                      label={{ value: "530 – Competitive", position: "insideTopRight", fontSize: 10, fill: "#3b82f6", dy: -4 }} />
-                    <ReferenceLine y={450} stroke="#f59e0b" strokeDasharray="5 4" strokeWidth={1.5}
-                      label={{ value: "450 – Approaching", position: "insideTopRight", fontSize: 10, fill: "#f59e0b", dy: -4 }} />
+                      label={{ value: "620 – Top schools", position: "insideTopRight", fontSize: 10, fill: "#10b981", dy: -4 }} />
+                    <ReferenceLine y={580} stroke="#3b82f6" strokeDasharray="5 4" strokeWidth={1.5}
+                      label={{ value: "580 – Competitive", position: "insideTopRight", fontSize: 10, fill: "#3b82f6", dy: -4 }} />
+                    <ReferenceLine y={500} stroke="#f59e0b" strokeDasharray="5 4" strokeWidth={1.5}
+                      label={{ value: "500 – Approaching", position: "insideTopRight", fontSize: 10, fill: "#f59e0b", dy: -4 }} />
                     <Line type="monotone" dataKey="score" name="SHSAT Score" stroke="#3b82f6" strokeWidth={2.5}
                       dot={{ r: 5, fill: "#3b82f6", strokeWidth: 0 }} activeDot={{ r: 7 }} connectNulls={false} />
                   </LineChart>
@@ -652,7 +675,7 @@ export default function PerformancePage() {
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-medium text-slate-700">{subj}</span>
                         <div className="flex items-center gap-2">
-                          <TimeTag secs={v.avgSecs} />
+                          <TimeTag secs={v.avgSecs} budget={budgetPerQ} />
                           <span className="text-sm font-bold tabular-nums text-slate-900">{v.accuracy}%</span>
                         </div>
                       </div>
@@ -711,7 +734,7 @@ export default function PerformancePage() {
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <span className="text-[10px] text-slate-400 tabular-nums">{s.correct}/{s.total}</span>
-                          <TimeTag secs={s.avgSecs} />
+                          <TimeTag secs={s.avgSecs} budget={budgetPerQ} />
                           <span className={`text-xs font-bold w-9 text-right tabular-nums ${txtC}`}>{acc}%</span>
                         </div>
                       </div>

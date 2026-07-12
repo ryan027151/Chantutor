@@ -4,8 +4,10 @@ import SHSATGrapher from "./SHSATGrapher";
 import MultiSelectQuestion from "./MultiSelectQuestion";
 import ExpressionEditorQuestion from "./ExpressionEditorQuestion";
 import InlineDropdownQuestion from "./InlineDropdownQuestion";
+import NumberLineClick from "./NumberLineClick";
+import TableRowRadio from "./TableRowRadio";
 
-type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown";
+type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown" | "number_line_click" | "table_row_radio";
 
 interface QuestionProps {
   type: QuestionType;
@@ -23,6 +25,13 @@ interface QuestionProps {
   onEliminate?: (letter: string) => void;
   // Used by inline-dropdown: full question text with [BLANK] marker
   text?: string;
+  // Used by number_line_click: axis bounds and snap increment
+  nlMin?: number;
+  nlMax?: number;
+  nlStep?: number;
+  // Used by table_row_radio
+  trColHeaders?: string[];
+  trRows?: string[];
 }
 
 export default function QuestionRenderer({
@@ -39,6 +48,11 @@ export default function QuestionRenderer({
   eliminatedChoices = new Set(),
   onEliminate,
   text = "",
+  nlMin = -10,
+  nlMax = 10,
+  nlStep = 1,
+  trColHeaders = [],
+  trRows = [],
 }: QuestionProps) {
   switch (type) {
     case "mcq":
@@ -103,6 +117,29 @@ export default function QuestionRenderer({
           isReadOnly={isReadOnly}
           previousAnswer={previousAnswer}
           answer={answer}
+        />
+      );
+    case "number_line_click":
+      return (
+        <NumberLineClick
+          min={nlMin}
+          max={nlMax}
+          step={nlStep}
+          onAnswerChange={chosenAnswer}
+          isReadOnly={isReadOnly}
+          previousAnswer={isReadOnly ? previousAnswer : undefined}
+          correctAnswer={isReadOnly ? answer : undefined}
+        />
+      );
+    case "table_row_radio":
+      return (
+        <TableRowRadio
+          colHeaders={trColHeaders}
+          rows={trRows}
+          chosenAnswer={chosenAnswer}
+          isReadOnly={isReadOnly}
+          previousAnswer={isReadOnly ? previousAnswer : undefined}
+          correctAnswer={isReadOnly ? answer : undefined}
         />
       );
     default:

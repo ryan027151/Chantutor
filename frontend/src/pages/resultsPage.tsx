@@ -15,6 +15,8 @@ interface QuestionResult {
   student_answer: string | null;
   sub_category: string | null;
   subject: string | null;
+  time_spent: number | null;
+  difficulty: string | null;
 }
 
 
@@ -29,6 +31,45 @@ interface AIAnalysis {
   strengths: string[];
   improvements: string[];
   recommendations: string[];
+}
+
+const SHSAT_SECS = 10_800; // 3 h in seconds
+
+// Short actionable tip for a subcategory (used in personalized analysis)
+function getSubTip(name: string): string {
+  const MAP: Record<string, string> = {
+    Vocabulary_in_Context:            "Cover the word, predict what fits from context, then match to the choices.",
+    Textual_Evidence:                 "Find the exact lines cited in the question and re-read that paragraph before choosing.",
+    Textual_Evidence_and_Reasoning:   "Identify the claim, find the supporting evidence, then check the logical link between them.",
+    Central_Idea:                     "Summarize the whole passage in one sentence — that is your central idea.",
+    Main_Idea:                        "The main idea appears in the topic sentence. Eliminate answers that are too specific.",
+    Inference_and_Implied_Ideas:      "Work only from what the text says. Avoid over-inferring beyond what is directly supported.",
+    Authors_Purpose:                  "Ask whether the author is informing, persuading, or entertaining — signal words reveal the purpose.",
+    Figurative_Language:              "Name the device first (simile/metaphor/personification), then explain what is being compared.",
+    Summarization:                    "Include only the main idea and key support — cut minor details and repeated information.",
+    Text_Structure:                   "Look for signal words: 'however' (contrast), 'therefore' (cause-effect), 'first/then' (sequence).",
+    Comma_Usage:                      "Commas join independent clauses with a conjunction, follow introductory phrases, and separate list items.",
+    Pronoun_Agreement:                "Match each pronoun to its antecedent in number. 'Everyone/each/either' = singular.",
+    Sentence_Structure:               "Identify the subject + verb in each clause — fragments lack one, run-ons lack punctuation between them.",
+    Verb_Tense:                       "Keep tense consistent unless the time frame changes. Past-perfect ('had done') marks action before another past event.",
+    Algebra_and_Equations:            "Translate each word problem into one equation before solving. Substitute back to verify.",
+    Algebraic_Expressions:            "Distribute carefully — distributing a negative flips all signs inside the parentheses.",
+    Geometry:                         "Sketch the figure and label what you know before computing. Key: area of triangle = ½bh.",
+    Arithmetic:                       "Review PEMDAS order-of-operations and practice quick fraction↔decimal conversions.",
+    Percentage:                       "Part = Percent × Whole. Percent change = (new − old) ÷ old × 100.",
+    Ratios_and_Proportions:           "Write ratios as fractions and cross-multiply. For part-to-part ratios, find the total parts first.",
+    Probability:                      "P(event) = favorable ÷ total outcomes. For independent events, multiply; for 'or' (mutually exclusive), add.",
+    Stats_and_Data_Analysis:          "Mean = sum ÷ count. Median = middle after sorting. Always read chart axis labels before answering.",
+    Fraction_Word_Problems:           "Draw a bar model. Find a common denominator before adding/subtracting; multiply across when multiplying.",
+    "Linear_Eq._Formula":             "Slope-intercept: y = mx + b. Slope = (y₂−y₁)/(x₂−x₁). Use two points to build the equation.",
+  };
+  const key = name.replace(/[-\s]/g, "_");
+  if (MAP[key]) return MAP[key];
+  const lower = key.toLowerCase();
+  for (const [k, v] of Object.entries(MAP)) {
+    if (lower.includes(k.toLowerCase()) || k.toLowerCase().includes(lower)) return v;
+  }
+  return `Drill focused sets of ${name.replace(/_/g, " ")} questions and review every error immediately after each set.`;
 }
 
 function ScoreCircle({ correct, total, lang }: { correct: number; total: number; lang: Lang }) {
@@ -230,7 +271,7 @@ function ResultsPage() {
 
       const { data: qData } = await supabase
         .from("questions")
-        .select("id, order_index, is_correct, student_answer")
+        .select("id, order_index, is_correct, student_answer, time_spent")
         .eq("test_id", testID)
         .order("order_index", { ascending: true });
 
@@ -252,7 +293,8 @@ function ResultsPage() {
         setQuestions((qData as QuestionResult[]).map(q => ({
           ...q,
           sub_category: detailMap[q.id]?.sub_category ?? null,
-          subject: detailMap[q.id]?.subject ?? null,
+          subject:      detailMap[q.id]?.subject ?? null,
+          difficulty:   detailMap[q.id]?.difficulty ?? null,
         })));
 
         const scored: ScoredQuestion[] = (qData as QuestionResult[]).map(q => {
@@ -296,31 +338,121 @@ function ResultsPage() {
   const revisingCorrect = revisingQs.filter(q => q.is_correct === true).length;
   const readingCorrect  = readingQs.filter(q => q.is_correct === true).length;
 
-  const analysis: AIAnalysis = {
-    strengths: [
-      engCorrect >= englishQs.length * 0.7
-        ? t("Strong English performance overall", "語文表現整體良好")
-        : t("Consistent effort across all questions", "各科目均表現努力"),
-      mathCorrect >= mathQs.length * 0.7
-        ? t("Solid math fundamentals", "數學基礎紮實")
-        : t("Good attempt on challenging content", "挑戰性題目表現積極"),
-      t(`Completed ${questions.length} of ${test.total_questions} questions`, `已完成 ${questions.length} / ${test.total_questions} 道題`),
-    ],
-    improvements: [
-      revisingCorrect < revisingQs.length * 0.7
-        ? t("Focus on grammar and Revising/Editing questions", "加強文法與修訂/編輯練習")
-        : t("Push for higher Reading Comprehension accuracy", "追求更高的閱讀理解正確率"),
-      mathCorrect < mathQs.length * 0.7
-        ? t("Review core math concepts and grid-in format", "複習核心數學知識")
-        : t("Target harder math problem types", "挑戰更難的數學題型"),
-      t("Revisit any questions answered incorrectly to spot patterns", "重新審視答錯的題目，找出錯誤規律"),
-    ],
-    recommendations: [
-      t("Practice with timed sessions to build test endurance", "練習限時作答，培養考試耐力"),
-      t("Review explanations for all incorrect answers", "仔細閱讀所有錯題的解析"),
-      t("Spend extra study time on your lower-scoring section", "將更多學習時間集中在分數較低的科目上"),
-    ],
-  };
+  // ── Personalized analysis ──────────────────────────────────────────────────
+  const timesArr = questions
+    .map(q => q.time_spent)
+    .filter((t): t is number => t != null && t >= 3 && t <= 600);
+  const avgTimePerQ = timesArr.length >= 8
+    ? timesArr.reduce((a, b) => a + b, 0) / timesArr.length
+    : null;
+  const budgetPerQ = SHSAT_SECS / (test.total_questions || 100);
+  const budgetRound = Math.round(budgetPerQ);
+  const avgRound = avgTimePerQ != null ? Math.round(avgTimePerQ) : null;
+  const pacingCritical = avgTimePerQ != null && avgTimePerQ > budgetPerQ * 1.5;
+  const pacingWarning  = avgTimePerQ != null && avgTimePerQ > budgetPerQ * 1.1 && !pacingCritical;
+  const pacingGood     = avgTimePerQ != null && avgTimePerQ <= budgetPerQ;
+
+  // Weakest subcategories sorted weakest-first (scoring.ts already sorts this way)
+  const weakSubs  = (shsatScore?.subcategories ?? []).filter(s => s.total >= 2).slice(0, 3);
+  const strongSubs = (shsatScore?.subcategories ?? []).filter(s => s.total >= 2).reverse().slice(0, 2);
+  const zh = lang === "zh-TW";
+
+  const strengths: string[] = [];
+  const improvements: string[] = [];
+  const recommendations: string[] = [];
+
+  // Strengths
+  if (strongSubs.length > 0) {
+    const best = strongSubs[0];
+    const pct = Math.round((best.earned / best.max) * 100);
+    strengths.push(zh
+      ? `${best.name} 表現突出，加權正確率 ${pct}%（${best.total} 題）`
+      : `${fmtSubLocalized(best.name, "en")} is a real strength — ${pct}% weighted accuracy on ${best.total} questions`);
+  } else if (engCorrect >= englishQs.length * 0.7) {
+    strengths.push(zh ? "英文部分整體表現良好" : `English is solid at ${Math.round(engCorrect / Math.max(englishQs.length, 1) * 100)}% accuracy`);
+  } else if (mathCorrect >= mathQs.length * 0.7) {
+    strengths.push(zh ? "數學部分整體表現良好" : `Math is solid at ${Math.round(mathCorrect / Math.max(mathQs.length, 1) * 100)}% accuracy`);
+  } else {
+    strengths.push(zh ? "持續作答每一題，正在建立考試耐力" : "Pushed through every question — building real test stamina");
+  }
+  if (pacingGood && avgRound != null) {
+    strengths.push(zh
+      ? `作答節奏穩定（平均 ${avgRound}s/題，預算 ${budgetRound}s）`
+      : `Great pacing — averaged ${avgRound}s per question, within the ${budgetRound}s budget`);
+  } else if (strongSubs.length > 1) {
+    const s2 = strongSubs[1];
+    const pct2 = Math.round((s2.earned / s2.max) * 100);
+    strengths.push(zh
+      ? `${s2.name} 同樣紮實，加權正確率 ${pct2}%`
+      : `${fmtSubLocalized(s2.name, "en")} also solid — ${pct2}% weighted accuracy`);
+  } else {
+    strengths.push(zh
+      ? `完成 ${questions.length} 題作答，對題型已有完整接觸`
+      : `Completed all ${questions.length} questions — full exposure to every question type`);
+  }
+
+  // Improvements
+  if (weakSubs.length > 0) {
+    const worst = weakSubs[0];
+    const pct = Math.round((worst.earned / worst.max) * 100);
+    improvements.push(zh
+      ? `${worst.name} 是最大弱點：加權正確率僅 ${pct}%（${worst.total} 題）`
+      : `${fmtSubLocalized(worst.name, "en")} is the biggest gap — ${pct}% weighted accuracy on ${worst.total} questions`);
+  }
+  if (weakSubs.length > 1) {
+    const w2 = weakSubs[1];
+    const pct2 = Math.round((w2.earned / w2.max) * 100);
+    improvements.push(zh
+      ? `${w2.name} 同樣需要加強：${pct2}% 正確率（${w2.total} 題）`
+      : `${fmtSubLocalized(w2.name, "en")} also needs work — ${pct2}% accuracy on ${w2.total} questions`);
+  }
+  if (pacingCritical) {
+    improvements.push(zh
+      ? `作答速度嚴重偏慢（平均 ${avgRound}s/題 vs ${budgetRound}s 預算）——正式考試有未完成所有題目的風險`
+      : `Pacing is critical — ${avgRound}s/question vs ${budgetRound}s budget; at this speed you risk not finishing the actual SHSAT`);
+  } else if (pacingWarning) {
+    improvements.push(zh
+      ? `作答節奏稍慢（平均 ${avgRound}s/題）——接近預算邊界，練習計時可有效改善`
+      : `Slightly over pace — ${avgRound}s/question against a ${budgetRound}s budget; consistent timed practice can close this gap`);
+  }
+  while (improvements.length < 2) {
+    if (revisingQs.length > 0 && revisingCorrect / revisingQs.length < 0.7)
+      improvements.push(zh ? "文法修訂題正確率低於 70%，加強基礎語法規則" : `Revising/Editing at ${Math.round(revisingCorrect / revisingQs.length * 100)}% — grammar patterns here are predictable and yield fast gains`);
+    else if (mathQs.length > 0 && mathCorrect / mathQs.length < 0.7)
+      improvements.push(zh ? "數學正確率低於 70%，優先複習代數與比例" : `Math at ${Math.round(mathCorrect / Math.max(mathQs.length, 1) * 100)}% — prioritize Algebra and Ratios/Proportions (highest question count)`);
+    else
+      improvements.push(zh ? "仍有部分題型有進步空間" : "Some harder question types still have room for improvement");
+    break;
+  }
+
+  // Recommendations
+  if (weakSubs.length > 0) {
+    const w = weakSubs[0];
+    recommendations.push(zh
+      ? `針對 ${w.name} 進行 20 題集中練習——研究顯示單一主題集中練習比混合練習效率高出 40%。訣竅：${getSubTip(w.name)}`
+      : `Drill ${fmtSubLocalized(w.name, "en")} in focused blocks — single-topic practice is ~40% more efficient than mixed sets. Key tip: ${getSubTip(w.name)}`);
+  }
+  if (pacingCritical || pacingWarning) {
+    recommendations.push(zh
+      ? `設定每題 ${budgetRound}s 計時器，完成 20 題不回頭修改——計時訓練是建立作答節奏最快的方法`
+      : `Set a ${budgetRound}s-per-question timer and complete 20 questions without going back — timed repetition builds pace faster than any other method`);
+  } else {
+    recommendations.push(zh
+      ? `在 24 小時內重新閱讀每道錯題的解析——間隔重複研究顯示，當天複習的記憶保留率是隔天的兩倍`
+      : `Re-read each incorrect answer's explanation within 24 hours — spaced-repetition research shows same-day review doubles retention vs. reviewing days later`);
+  }
+  if (weakSubs.length > 1) {
+    const w2 = weakSubs[1];
+    recommendations.push(zh
+      ? `下次練習集中在 ${w2.name}——每次專注一個弱點，比同時練多個更能快速建立信心`
+      : `Next session, focus exclusively on ${fmtSubLocalized(w2.name, "en")} — one weak area per session builds fluency faster than mixing topics`);
+  } else {
+    recommendations.push(zh
+      ? `在薄弱科目上增加練習頻率——每週 3 次短時間集中練習優於一次長時間練習`
+      : `Increase practice frequency on your weaker section — three 20-minute focused sessions per week outperform one long session`);
+  }
+
+  const analysis: AIAnalysis = { strengths, improvements, recommendations };
 
   async function handleExportPDF() {
     if (!test) return;
@@ -426,8 +558,8 @@ function ResultsPage() {
           </div>
         </div>
 
-        {/* SHSAT Score Estimate */}
-        {shsatScore && <SHSATScoreCard score={shsatScore} lang={lang} />}
+        {/* SHSAT Score Estimate — not shown for practice sessions */}
+        {shsatScore && test.test_name !== "Practice" && <SHSATScoreCard score={shsatScore} lang={lang} />}
 
         {/* AI Coach */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 flex flex-col gap-4">
@@ -496,6 +628,22 @@ function ResultsPage() {
                       {fmtSubLocalized(q.sub_category, lang)}
                     </span>
                   )}
+                  {q?.difficulty && (() => {
+                    const d = q.difficulty.toLowerCase();
+                    const cls =
+                      d === "easy"   ? "bg-emerald-50 text-emerald-600" :
+                      d === "hard"   ? "bg-rose-50 text-rose-600" :
+                                       "bg-amber-50 text-amber-600";
+                    const label =
+                      d === "easy"   ? t("Easy", "簡單") :
+                      d === "hard"   ? t("Hard", "困難") :
+                                       t("Med", "中等");
+                    return (
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${cls}`}>
+                        {label}
+                      </span>
+                    );
+                  })()}
                   {clickable && (
                     <svg className="w-3.5 h-3.5 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

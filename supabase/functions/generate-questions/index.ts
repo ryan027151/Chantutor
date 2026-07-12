@@ -34,6 +34,13 @@ interface GeneratedQuestion {
   choice_6?: string;
   select_count?: number;
   variables?: string[];
+  // number_line_click fields
+  nl_min?: number;
+  nl_max?: number;
+  nl_step?: number;
+  // table_row_radio fields
+  col_headers?: string[];
+  rows?: string[];
   answer: string;
   sub_category: string;
   explanation?: string;
@@ -266,6 +273,96 @@ Example of one correct object:
 {"text":"The scientist's findings were so [BLANK] that researchers around the world immediately began replicating her experiment.","choice_1":"groundbreaking","choice_2":"predictable","choice_3":"ordinary","choice_4":"familiar","answer":"A","sub_category":"Vocabulary_in_Context","explanation":"'Groundbreaking' means pioneering or revolutionary, which explains why others rushed to replicate the work. 'Predictable', 'ordinary', and 'familiar' would not motivate replication.","valid":true,"valid_note":""}`;
   }
 
+  if (type === "number_line_click") {
+    return `Generate exactly ${count} SHSAT-style math number-line-click questions for 7th-8th grade students.
+
+Difficulty: ${diff}
+
+In this question type the student clicks a single point on an interactive number line to give their answer.
+You must design the axis carefully so the correct answer lies exactly on a snap point (a multiple of step).
+
+For each question return an object with EXACTLY these keys:
+- "text": the complete question prompt. It must tell the student WHAT value to mark. End with "Mark your answer on the number line."
+- "nl_min": integer — the left edge of the number line (e.g. -10, 0, -5)
+- "nl_max": integer — the right edge (e.g. 10, 20, 5). Must satisfy nl_max > nl_min.
+- "nl_step": a positive number — the snap increment. Use 1 for integers, 0.5 for halves, 0.25 for quarters. NEVER use a step that makes the range have more than 80 ticks (i.e. (nl_max - nl_min) / nl_step ≤ 80).
+- "answer": the correct numeric value as a string. MUST be exactly nl_min + k*nl_step for some non-negative integer k, AND must be within [nl_min, nl_max]. e.g. if nl_min=-4, nl_max=6, nl_step=0.5, a valid answer is "2.5".
+- "sub_category": one of: ${cats.join(", ")}
+- "explanation": 1-2 sentences explaining how to find the answer and where it falls on the number line
+${VALIDATION_KEYS}
+
+DIFFICULTY GUIDE:
+- easy:   the answer is a labeled integer; no computation needed (e.g. "Mark −3 on the number line.")
+- medium: requires simple computation to find the value (e.g. "Solve x + 7 = 3 and mark x.", fraction/decimal conversion)
+- hard:   multi-step reasoning or non-obvious value (e.g. "A car travels at 40 mph for 1.5 hours. Mark the distance on the number line.", irrational approximation, word problem)
+
+AXIS DESIGN RULES:
+- Choose nl_min and nl_max so the answer is NOT at the very edge (leave at least 2 steps of buffer on each side).
+- For integer answers: use nl_step = 1.
+- For half-integer answers (e.g. 2.5, −1.5): use nl_step = 0.5.
+- For quarter answers: use nl_step = 0.25.
+- Keep the range small enough to be readable: prefer ranges of 10–20 units.
+- If the question is about negative numbers, make sure nl_min is negative.
+- Self-check: verify that parseFloat(answer) === nl_min + k*nl_step for some integer k >= 0.
+
+GOOD QUESTION TYPES:
+1. Direct placement: "Mark the integer −7 on the number line." → nl_min=-10, nl_max=0, nl_step=1, answer="-7"
+2. Solve and mark: "Solve: x − 4 = 1. Mark the value of x on the number line." → answer="5"
+3. Fraction/decimal: "Mark 3/2 on the number line." → nl_min=0, nl_max=4, nl_step=0.5, answer="1.5"
+4. Word problem: "A submarine is 6 meters below sea level. Mark its depth on the number line (negative = below)." → nl_min=-10, nl_max=0, nl_step=1, answer="-6"
+5. Opposite: "Mark the opposite of 4 on the number line." → answer="-4"
+6. Average: "The average of 1 and 5 is ___. Mark it on the number line." → answer="3"
+
+Return ONLY a valid JSON array of ${count} objects. No markdown fences, no extra text.
+
+Example of one correct object:
+{"text":"Solve x + 3 = 7. Mark the value of x on the number line.","nl_min":-2,"nl_max":12,"nl_step":1,"answer":"4","sub_category":"Algebra_and_Equations","explanation":"x = 7 − 3 = 4. On the number line from −2 to 12 with step 1, the point 4 is two ticks right of center.","valid":true,"valid_note":""}`;
+  }
+
+  if (type === "table_row_radio") {
+    return `Generate exactly ${count} SHSAT-style math table-classification questions for 7th-8th grade students.
+
+Difficulty: ${diff}
+
+In this question type a table is shown with several rows (items to classify) and 2–4 column options (the classification categories). The student selects exactly one column option per row by clicking a radio button.
+
+For each question return an object with EXACTLY these keys:
+- "text": the complete question prompt that sets up the classification task. Should be one or two sentences. Do NOT repeat the row labels in the text — those are in "rows". End with something like "Complete the table."
+- "col_headers": array of 2–4 strings — the classification column labels (e.g. ["True","False"] or ["Positive","Negative","Zero"] or ["Rational","Irrational"])
+- "rows": array of 3–5 strings — the items to classify (each is one row label in the table). Keep each row label concise (under 60 characters).
+- "answer": comma-separated capital letters, one per row, where A = first column, B = second column, etc. Length must equal rows.length exactly.
+- "sub_category": one of: ${cats.join(", ")}
+- "explanation": for each row, state which column it belongs to and why (one sentence each)
+${VALIDATION_KEYS}
+
+DIFFICULTY GUIDE:
+- easy: direct recall, obvious classification, common facts (e.g. is this number even/odd?)
+- medium: requires computation or applying a definition (e.g. evaluate expression, check divisibility)
+- hard: multiple-step reasoning, non-obvious cases, requires combining concepts
+
+EXCELLENT TABLE QUESTION TYPES (use varied types across the batch):
+1. Number properties: classify integers as prime/composite/neither; even/odd; rational/irrational
+2. Equation solutions: classify each equation as having 0, 1, or 2 solutions
+3. Expression sign: classify each expression as positive/negative/zero for a given value of x
+4. Geometric properties: classify each angle measure as acute/right/obtuse/straight
+5. Inequality satisfaction: classify each value as a solution/not a solution to a given inequality
+6. Divisibility: classify each number as divisible by 2/3/5/neither
+7. Variable relationship: classify each scenario as proportional/not proportional
+
+TABLE DESIGN RULES:
+- col_headers: 2–4 entries. Use exactly 2 for binary (True/False, Yes/No). Use 3 for ternary. Never exceed 4.
+- rows: 3–5 items. Use 4 rows as the default. Each row must clearly belong to exactly one column.
+- Distribute answers evenly: don't put all items in the same column. Aim for roughly equal counts per column.
+- answer length must equal rows.length — verify this before returning.
+- Each row item must be unambiguous — it fits exactly one column, not two.
+- Self-check: go through each row item and confirm which column it belongs to, then verify your answer string matches.
+
+Return ONLY a valid JSON array of ${count} objects. No markdown fences, no extra text.
+
+Example of one correct object (col A=True, B=False):
+{"text":"For each statement about integers, select True or False.","col_headers":["True","False"],"rows":["The product of two negative numbers is negative.","All prime numbers are odd.","Zero is neither positive nor negative.","The sum of any two even numbers is even."],"answer":"B,B,A,A","sub_category":"Arithmetic","explanation":"Row1: neg×neg=positive (False). Row2: 2 is prime and even (False). Row3: zero is neither (True). Row4: even+even=even (True).","valid":true,"valid_note":""}`;
+  }
+
   // MCQ (default)
   return `Generate exactly ${count} SHSAT-style math multiple-choice questions for 7th-8th grade students preparing for a specialized high school entrance exam.
 
@@ -328,8 +425,8 @@ Deno.serve(async (req) => {
       ? (body.categories as string[]).filter((c: string) => validCatSet.has(c))
       : [];
 
-    if (!["mcq", "grid-in", "linear_graphing", "multi-select", "expression", "inline-dropdown"].includes(type)) {
-      return json({ error: "type must be mcq, grid-in, linear_graphing, multi-select, expression, or inline-dropdown" }, 400);
+    if (!["mcq", "grid-in", "linear_graphing", "multi-select", "expression", "inline-dropdown", "number_line_click", "table_row_radio"].includes(type)) {
+      return json({ error: "type must be mcq, grid-in, linear_graphing, multi-select, expression, inline-dropdown, number_line_click, or table_row_radio" }, 400);
     }
 
     const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -446,10 +543,10 @@ Deno.serve(async (req) => {
            : "Arithmetic"),
         difficulty: diffCycle[i % diffCycle.length],
         text: q.text?.trim() ?? "",
-        choice_1: c1,
-        choice_2: c2,
-        choice_3: c3,
-        choice_4: c4,
+        choice_1: (type === "number_line_click" || type === "table_row_radio") ? null : c1,
+        choice_2: (type === "number_line_click" || type === "table_row_radio") ? null : c2,
+        choice_3: (type === "number_line_click" || type === "table_row_radio") ? null : c3,
+        choice_4: (type === "number_line_click" || type === "table_row_radio") ? null : c4,
         answer,
         extra_data: type === "multi-select" ? {
           select_count: typeof q.select_count === "number" ? q.select_count : 2,
@@ -457,12 +554,40 @@ Deno.serve(async (req) => {
           ...(q.choice_6?.trim() ? { choice_6: q.choice_6.trim() } : {}),
         } : type === "expression" ? {
           variables: Array.isArray(q.variables) ? q.variables.map(String).filter(Boolean) : [],
+        } : type === "number_line_click" ? {
+          min:  typeof q.nl_min  === "number" ? q.nl_min  : -10,
+          max:  typeof q.nl_max  === "number" ? q.nl_max  : 10,
+          step: typeof q.nl_step === "number" && q.nl_step > 0 ? q.nl_step : 1,
+        } : type === "table_row_radio" ? {
+          col_headers: Array.isArray(q.col_headers) ? q.col_headers.map(String) : [],
+          rows:        Array.isArray(q.rows)        ? q.rows.map(String)        : [],
         } : null,
         media_refs: null,
         source: "ai",
         status,
       };
-    }).filter((r) => r.text && r.answer); // discard any empty rows Claude returned
+    }).filter((r) => {
+      if (!r.text || !r.answer) return false;
+      // For number_line_click: verify answer is a valid snap point within [min, max]
+      if (r.type === "number_line_click" && r.extra_data) {
+        const ed = r.extra_data as { min: number; max: number; step: number };
+        const v = parseFloat(r.answer);
+        if (!isFinite(v)) return false;
+        if (v < ed.min - 0.0001 || v > ed.max + 0.0001) return false;
+        const k = (v - ed.min) / ed.step;
+        if (Math.abs(Math.round(k) - k) > 0.0001) return false;
+      }
+      // For table_row_radio: verify answer letter count matches row count
+      if (r.type === "table_row_radio" && r.extra_data) {
+        const ed = r.extra_data as { col_headers: string[]; rows: string[] };
+        if (!ed.col_headers?.length || !ed.rows?.length) return false;
+        const answerParts = r.answer.split(",").map(s => s.trim()).filter(Boolean);
+        if (answerParts.length !== ed.rows.length) return false;
+        const validLetters = ["A","B","C","D","E","F"].slice(0, ed.col_headers.length);
+        if (!answerParts.every(l => validLetters.includes(l.toUpperCase()))) return false;
+      }
+      return true;
+    }); // discard any empty or invalid rows Claude returned
 
     if (rows.length === 0) {
       return json({ error: "No valid questions parsed from Claude response", raw: rawText.slice(0, 500) }, 500);

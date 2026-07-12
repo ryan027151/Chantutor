@@ -4,7 +4,7 @@ import { parseFormattedText } from "../utils/textParser";
 import ExpressionEditorQuestion from "./ExpressionEditorQuestion";
 
 type MediaType = "passage" | "graph" | "table" | "equation";
-type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown";
+type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown" | "number_line_click" | "table_row_radio";
 
 interface MediaItem {
   mediaId: string;
@@ -46,12 +46,17 @@ interface Question {
   extra_data?: Record<string, unknown> | null;
 }
 
-// Virtual fields choice_5, choice_6, select_count, variables are serialized into extra_data on save
+// Virtual fields choice_5, choice_6, select_count, variables, nl_* are serialized into extra_data on save
 type FormData = Partial<Question> & {
   choice_5?: string;
   choice_6?: string;
   select_count?: number | string;
   variables?: string; // comma-separated, e.g. "x, n" — only for expression type
+  nl_min?: string;       // number_line_click: left bound
+  nl_max?: string;       // number_line_click: right bound
+  nl_step?: string;      // number_line_click: snap increment
+  tr_col_headers?: string; // table_row_radio: comma-separated column headers
+  tr_rows?: string;        // table_row_radio: newline-separated row labels
 };
 
 const PAGE_SIZE = 30;
@@ -73,6 +78,11 @@ const EMPTY_FORM: FormData = {
   variables: "",
   answer: "",
   media_refs: "",
+  nl_min:  "-10",
+  nl_max:  "10",
+  nl_step: "1",
+  tr_col_headers: "",
+  tr_rows: "",
 };
 
 function Label({ children }: { children: React.ReactNode }) {
@@ -156,13 +166,17 @@ function TypeBadge({ type, source }: { type: string; source?: string }) {
     type === "linear_graphing" ? "Graphing" :
     type === "multi-select" ? "Multi-select" :
     type === "expression" ? "Expression" :
-    type === "inline-dropdown" ? "Inline Dropdown" : type;
+    type === "inline-dropdown" ? "Inline Dropdown" :
+    type === "number_line_click" ? "Number Line" :
+    type === "table_row_radio"   ? "Table Radio"  : type;
   const cls =
-    type === "mcq" ? "bg-zinc-100 text-zinc-500" :
-    type === "grid-in" ? "bg-amber-500/10 text-amber-500" :
-    type === "multi-select" ? "bg-indigo-500/10 text-indigo-600" :
-    type === "expression" ? "bg-teal-500/10 text-teal-600" :
-    type === "inline-dropdown" ? "bg-rose-500/10 text-rose-600" :
+    type === "mcq"              ? "bg-zinc-100 text-zinc-500" :
+    type === "grid-in"          ? "bg-amber-500/10 text-amber-500" :
+    type === "multi-select"     ? "bg-indigo-500/10 text-indigo-600" :
+    type === "expression"       ? "bg-teal-500/10 text-teal-600" :
+    type === "inline-dropdown"  ? "bg-rose-500/10 text-rose-600" :
+    type === "number_line_click"? "bg-cyan-500/10 text-cyan-600" :
+    type === "table_row_radio"  ? "bg-violet-500/10 text-violet-600" :
     "bg-blue-500/10 text-blue-600";
   return (
     <div className="flex items-center gap-1.5">
@@ -182,12 +196,14 @@ interface GenerateModalProps {
 }
 
 const GEN_TYPE_OPTS = [
-  { value: "mcq",              label: "Math MCQ"        },
-  { value: "grid-in",          label: "Grid-in"         },
-  { value: "linear_graphing",  label: "Graphing"        },
-  { value: "multi-select",     label: "Multi-select"    },
-  { value: "expression",       label: "Expression"      },
-  { value: "inline-dropdown",  label: "Inline Dropdown" },
+  { value: "mcq",               label: "Math MCQ"        },
+  { value: "grid-in",           label: "Grid-in"         },
+  { value: "linear_graphing",   label: "Graphing"        },
+  { value: "multi-select",      label: "Multi-select"    },
+  { value: "expression",        label: "Expression"      },
+  { value: "inline-dropdown",   label: "Inline Dropdown" },
+  { value: "number_line_click", label: "Number Line"     },
+  { value: "table_row_radio",   label: "Table Row Radio" },
 ] as const;
 
 const GEN_CATEGORY_OPTS = [
@@ -673,6 +689,15 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
       choice_6: (ed.choice_6 as string) ?? "",
       select_count: ed.select_count !== undefined ? String(ed.select_count) : "",
       variables: Array.isArray(ed.variables) ? (ed.variables as string[]).join(", ") : "",
+      nl_min:  ed.min  !== undefined ? String(ed.min)  : "-10",
+      nl_max:  ed.max  !== undefined ? String(ed.max)  : "10",
+      nl_step: ed.step !== undefined ? String(ed.step) : "1",
+      tr_col_headers: Array.isArray(ed.col_headers)
+        ? (ed.col_headers as string[]).join(", ")
+        : "",
+      tr_rows: Array.isArray(ed.rows)
+        ? (ed.rows as string[]).join("\n")
+        : "",
     });
     setOriginalForm({ ...q });
     setOriginalSubCategory(q.sub_category ?? null);
@@ -770,6 +795,24 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
         const vars = (form.variables ?? "").split(",").map(v => v.trim()).filter(Boolean);
         return vars.length > 0 ? { variables: vars } : null;
       }
+      if (form.type === "number_line_click") {
+        const mn = parseFloat((form.nl_min as string) ?? "");
+        const mx = parseFloat((form.nl_max as string) ?? "");
+        const st = parseFloat((form.nl_step as string) ?? "");
+        const ed: Record<string, unknown> = {};
+        if (isFinite(mn)) ed.min  = mn;
+        if (isFinite(mx)) ed.max  = mx;
+        if (isFinite(st) && st > 0) ed.step = st;
+        return Object.keys(ed).length > 0 ? ed : null;
+      }
+      if (form.type === "table_row_radio") {
+        const cols = (form.tr_col_headers ?? "")
+          .split(",").map((s: string) => s.trim()).filter(Boolean);
+        const rowsArr = (form.tr_rows ?? "")
+          .split("\n").map((s: string) => s.trim()).filter(Boolean);
+        if (cols.length === 0 || rowsArr.length === 0) return null;
+        return { col_headers: cols, rows: rowsArr };
+      }
       return null;
     })();
 
@@ -780,10 +823,10 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
       sub_category: form.sub_category,
       difficulty: form.difficulty || null,
       text: form.text,
-      choice_1: form.type === "linear_graphing" ? null : (form.choice_1 || null),
-      choice_2: form.type === "linear_graphing" ? null : (form.choice_2 || null),
-      choice_3: form.type === "linear_graphing" ? null : (form.choice_3 || null),
-      choice_4: form.type === "linear_graphing" ? null : (form.choice_4 || null),
+      choice_1: (form.type === "linear_graphing" || form.type === "number_line_click" || form.type === "table_row_radio") ? null : (form.choice_1 || null),
+      choice_2: (form.type === "linear_graphing" || form.type === "number_line_click" || form.type === "table_row_radio") ? null : (form.choice_2 || null),
+      choice_3: (form.type === "linear_graphing" || form.type === "number_line_click" || form.type === "table_row_radio") ? null : (form.choice_3 || null),
+      choice_4: (form.type === "linear_graphing" || form.type === "number_line_click" || form.type === "table_row_radio") ? null : (form.choice_4 || null),
       answer: form.answer,
       media_refs: mediaRefsStr,
       source: form.source || "bank",
@@ -1051,6 +1094,8 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
           <option value="linear_graphing">Graphing</option>
           <option value="multi-select">Multi-select</option>
           <option value="expression">Expression</option>
+          <option value="number_line_click">Number Line</option>
+          <option value="table_row_radio">Table Row Radio</option>
         </select>
 
         <select title="Filter by source" value={filterSource} onChange={e => { setFilterSource(e.target.value); setPage(0); }}
@@ -1269,6 +1314,9 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                         setField("subject", "math");
                         setField("sub_category", "Linear_Graphing");
                       }
+                      if (t === "number_line_click") {
+                        setField("subject", "math");
+                      }
                     }}
                     title="Question type"
                   >
@@ -1278,6 +1326,8 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                     <option value="multi-select">Multi-select</option>
                     <option value="expression">Expression Editor</option>
                     <option value="inline-dropdown">Inline Dropdown</option>
+                    <option value="number_line_click">Number Line Click</option>
+                    <option value="table_row_radio">Table Row Radio</option>
                   </Select>
                 </div>
               </div>
@@ -1387,6 +1437,77 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                 </div>
               )}
 
+              {/* Table row radio config */}
+              {form.type === "table_row_radio" && (
+                <div className="flex flex-col gap-3">
+                  <Label>Table Config</Label>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Column Headers</span>
+                    <input
+                      type="text"
+                      value={(form.tr_col_headers as string) ?? ""}
+                      onChange={e => setField("tr_col_headers", e.target.value)}
+                      placeholder="e.g.  True, False   or   Positive, Negative, Zero"
+                      className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors font-mono"
+                    />
+                    <p className="text-xs text-zinc-400">Comma-separated. Each becomes a radio column. Max 6 columns.</p>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Row Labels</span>
+                    <textarea
+                      rows={4}
+                      value={(form.tr_rows as string) ?? ""}
+                      onChange={e => setField("tr_rows", e.target.value)}
+                      placeholder={"Statement 1\nStatement 2\nStatement 3"}
+                      className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors resize-y font-mono"
+                    />
+                    <p className="text-xs text-zinc-400">One row per line. Each line becomes a table row the student classifies.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Number line axis config */}
+              {form.type === "number_line_click" && (
+                <div className="flex flex-col gap-2">
+                  <Label>Number Line Config</Label>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Min</span>
+                      <input
+                        type="number"
+                        value={(form.nl_min as string) ?? "-10"}
+                        onChange={e => setField("nl_min", e.target.value)}
+                        placeholder="-10"
+                        className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors font-mono"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Max</span>
+                      <input
+                        type="number"
+                        value={(form.nl_max as string) ?? "10"}
+                        onChange={e => setField("nl_max", e.target.value)}
+                        placeholder="10"
+                        className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors font-mono"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Step</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={(form.nl_step as string) ?? "1"}
+                        onChange={e => setField("nl_step", e.target.value)}
+                        placeholder="1"
+                        className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors font-mono"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-zinc-400">Step is the snap increment (1 = integers, 0.5 = halves, 0.25 = quarters).</p>
+                </div>
+              )}
+
               <div className="flex flex-col gap-1.5">
                 <Label>Correct Answer</Label>
                 {(form.type === "mcq" || form.type === "inline-dropdown") ? (
@@ -1428,13 +1549,42 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                       Enter JSON: <span className="font-mono text-zinc-600">{"{"}"m": slope, "b": y-intercept{"}"}</span> or <span className="font-mono text-zinc-600">{"{"}"vertical": true, "x": x-value{"}"}</span>
                     </p>
                   </div>
+                ) : form.type === "number_line_click" ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Input
+                      value={form.answer ?? ""}
+                      onChange={v => setField("answer", v)}
+                      placeholder="e.g. 3  or  -2.5  or  0.5"
+                      mono
+                    />
+                    <p className="text-xs text-zinc-400">
+                      Enter the exact numeric value the student must click (must be a multiple of Step within [Min, Max]).
+                    </p>
+                  </div>
+                ) : form.type === "table_row_radio" ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Input
+                      value={form.answer ?? ""}
+                      onChange={v => setField("answer", v)}
+                      placeholder="e.g.  A,B,A  or  A,B,C,A"
+                      mono
+                    />
+                    <p className="text-xs text-zinc-400">
+                      One letter per row, comma-separated. A = first column, B = second, etc.
+                      {(() => {
+                        const rowCount = (form.tr_rows as string ?? "")
+                          .split("\n").map((s: string) => s.trim()).filter(Boolean).length;
+                        return rowCount > 0 ? ` (${rowCount} row${rowCount !== 1 ? "s" : ""} defined)` : "";
+                      })()}
+                    </p>
+                  </div>
                 ) : (
                   <Input value={form.answer ?? ""} onChange={v => setField("answer", v)} placeholder="e.g. 42, 3/4, or 0.75" mono />
                 )}
               </div>
 
-              {/* Media — not relevant for linear_graphing but allow it for edge cases */}
-              {form.type !== "linear_graphing" && (
+              {/* Media — not relevant for these non-choice types */}
+              {form.type !== "linear_graphing" && form.type !== "number_line_click" && form.type !== "table_row_radio" && (
                 <div className="flex flex-col gap-2.5">
                   <div className="flex items-center justify-between">
                     <Label>Media (optional)</Label>
@@ -1659,6 +1809,40 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                   <div className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-500 italic">
                     Student draws a line on a graph.{" "}
                     <span className="not-italic font-semibold text-slate-700">Answer: <span className="font-mono">{form.answer || "—"}</span></span>
+                  </div>
+                )}
+                {/* Table row radio */}
+                {form.type === "table_row_radio" && (
+                  <div className="bg-white border border-violet-200 rounded-xl px-3 py-2 text-xs text-slate-500">
+                    {(() => {
+                      const cols = (form.tr_col_headers as string ?? "")
+                        .split(",").map((s: string) => s.trim()).filter(Boolean);
+                      const rowsArr = (form.tr_rows as string ?? "")
+                        .split("\n").map((s: string) => s.trim()).filter(Boolean);
+                      if (cols.length === 0 || rowsArr.length === 0) {
+                        return <span className="italic">Enter column headers and row labels above to preview.</span>;
+                      }
+                      return (
+                        <div className="flex flex-col gap-1">
+                          <span className="font-semibold text-slate-600 not-italic">
+                            {rowsArr.length} row{rowsArr.length !== 1 ? "s" : ""} × {cols.length} column{cols.length !== 1 ? "s" : ""}
+                            {" — "}Answer: <span className="font-mono">{form.answer || "—"}</span>
+                          </span>
+                          <span className="text-zinc-400">Cols: {cols.join(" · ")} | Rows: {rowsArr.slice(0, 2).join(" · ")}{rowsArr.length > 2 ? " …" : ""}</span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+                {/* Number line click */}
+                {form.type === "number_line_click" && (
+                  <div className="bg-white border border-cyan-200 rounded-xl px-3 py-2 text-xs text-slate-500">
+                    Student clicks a point on a number line.{" "}
+                    <span className="font-semibold text-slate-700">
+                      Range: <span className="font-mono">[{(form.nl_min as string) || "-10"}, {(form.nl_max as string) || "10"}]</span>,{" "}
+                      Step: <span className="font-mono">{(form.nl_step as string) || "1"}</span>,{" "}
+                      Answer: <span className="font-mono">{form.answer || "—"}</span>
+                    </span>
                   </div>
                 )}
               </div>

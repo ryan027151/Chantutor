@@ -81,6 +81,19 @@ function checkAnswer(student: string, correct: string, type: string): boolean {
     return choiceLetterOf(student) === choiceLetterOf(correct);
   }
 
+  if (type === "number_line_click") {
+    const sv = parseFloat(student);
+    const cv = parseFloat(correct);
+    return isFinite(sv) && isFinite(cv) && Math.abs(sv - cv) < 0.0001;
+  }
+
+  if (type === "table_row_radio") {
+    // Per-row comparison: "A,B,A" vs "A,B,A" — order-sensitive, exact match per row
+    const normRow = (s: string) =>
+      s.split(",").map(x => x.trim().toUpperCase()).join(",");
+    return normRow(student) === normRow(correct);
+  }
+
   // ── Grid-in ───────────────────────────────────────────────────────────────────
   // Accepts: "42", " 42 ", "3/4", "3 / 4", "0.75", ".75", "1,000",
   //          mixed number "1 1/2", negative "-3/4", space-grouped "1 024"
@@ -1133,8 +1146,8 @@ function MockTest() {
         questionStartTimeRef.current = Date.now();
       }
     } else {
-      // Graphing questions always have an answer (the grapher sets it on mount)
-      if (!chosenAnswer && questionData?.type !== "linear_graphing") {
+      // Graphing and number-line questions always have an answer (set on mount)
+      if (!chosenAnswer && questionData?.type !== "linear_graphing" && questionData?.type !== "number_line_click") {
         setNullSubmission(true);
         return;
       }
@@ -1869,7 +1882,7 @@ function MockTest() {
                   <QuestionRenderer
                     key={currentQuestion}
                     chosenAnswer={setChosenAnswer}
-                    type={questionData.type as "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown"}
+                    type={questionData.type as "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown" | "number_line_click" | "table_row_radio"}
                     uid={questionData.uid}
                     options={baseOptions}
                     answer={questionData.answer}
@@ -1882,6 +1895,11 @@ function MockTest() {
                     eliminatedChoices={elaTools.eliminations.get(questionData.uid ?? "") ?? new Set()}
                     onEliminate={letter => elaTools.toggleElimination(questionData.uid ?? "", letter)}
                     text={questionData.text ?? ""}
+                    nlMin={typeof extra.min === "number" ? extra.min : -10}
+                    nlMax={typeof extra.max === "number" ? extra.max : 10}
+                    nlStep={typeof extra.step === "number" ? extra.step : 1}
+                    trColHeaders={Array.isArray(extra.col_headers) ? extra.col_headers as string[] : []}
+                    trRows={Array.isArray(extra.rows) ? extra.rows as string[] : []}
                   />
                 );
               })()}
