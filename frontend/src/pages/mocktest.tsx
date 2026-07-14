@@ -87,11 +87,14 @@ function checkAnswer(student: string, correct: string, type: string): boolean {
     return isFinite(sv) && isFinite(cv) && Math.abs(sv - cv) < 0.0001;
   }
 
-  if (type === "table_row_radio") {
-    // Per-row comparison: "A,B,A" vs "A,B,A" — order-sensitive, exact match per row
+  if (type === "table_row_radio" || type === "drag_fill_multiple" || type === "drag_to_bin" || type === "drag_to_categorize") {
     const normRow = (s: string) =>
       s.split(",").map(x => x.trim().toUpperCase()).join(",");
     return normRow(student) === normRow(correct);
+  }
+
+  if (type === "drag_fill_single") {
+    return student.trim().toUpperCase() === correct.trim().toUpperCase();
   }
 
   // ── Grid-in ───────────────────────────────────────────────────────────────────
@@ -1147,7 +1150,8 @@ function MockTest() {
       }
     } else {
       // Graphing and number-line questions always have an answer (set on mount)
-      if (!chosenAnswer && questionData?.type !== "linear_graphing" && questionData?.type !== "number_line_click") {
+      const alwaysHasAnswer = ["linear_graphing", "number_line_click"].includes(questionData?.type ?? "");
+      if (!chosenAnswer && !alwaysHasAnswer) {
         setNullSubmission(true);
         return;
       }
@@ -1842,8 +1846,8 @@ function MockTest() {
                 )}
               </div>
 
-              {/* Question text with highlight capture — hidden for inline-dropdown (the component owns its text) */}
-              {questionData.type !== "inline-dropdown" && (() => {
+              {/* Question text — hidden for types that render their own text inline */}
+              {!["inline-dropdown", "drag_fill_single", "drag_fill_multiple"].includes(questionData.type) && (() => {
                 const extra = ((questionData as Record<string, unknown>).extra_data as Record<string, unknown> | null) ?? {};
                 const vars = Array.isArray(extra.variables) ? extra.variables as string[] : [];
                 return (
@@ -1874,7 +1878,7 @@ function MockTest() {
                   questionData.choice_3,
                   questionData.choice_4,
                 ];
-                if (questionData.type === "multi-select") {
+                if (questionData.type === "multi-select" || questionData.type === "drag_fill_multiple") {
                   if (extra.choice_5) baseOptions.push(extra.choice_5 as string);
                   if (extra.choice_6) baseOptions.push(extra.choice_6 as string);
                 }
@@ -1882,7 +1886,7 @@ function MockTest() {
                   <QuestionRenderer
                     key={currentQuestion}
                     chosenAnswer={setChosenAnswer}
-                    type={questionData.type as "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown" | "number_line_click" | "table_row_radio"}
+                    type={questionData.type as "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown" | "number_line_click" | "table_row_radio" | "drag_fill_single" | "drag_fill_multiple" | "drag_to_bin" | "drag_to_categorize" | "in_passage_sentence_select" | "inline_text_span_click"}
                     uid={questionData.uid}
                     options={baseOptions}
                     answer={questionData.answer}
@@ -1900,6 +1904,10 @@ function MockTest() {
                     nlStep={typeof extra.step === "number" ? extra.step : 1}
                     trColHeaders={Array.isArray(extra.col_headers) ? extra.col_headers as string[] : []}
                     trRows={Array.isArray(extra.rows) ? extra.rows as string[] : []}
+                    dfItems={Array.isArray(extra.items) ? extra.items as string[] : []}
+                    dfBins={Array.isArray(extra.bins) ? extra.bins as string[] : []}
+                    pssSentences={Array.isArray(extra.sentences) ? extra.sentences as string[] : []}
+                    spanPassage={typeof extra.passage === "string" ? extra.passage : ""}
                   />
                 );
               })()}

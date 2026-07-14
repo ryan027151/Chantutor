@@ -6,8 +6,14 @@ import ExpressionEditorQuestion from "./ExpressionEditorQuestion";
 import InlineDropdownQuestion from "./InlineDropdownQuestion";
 import NumberLineClick from "./NumberLineClick";
 import TableRowRadio from "./TableRowRadio";
+import DragFillSingle from "./DragFillSingle";
+import DragFillMultiple from "./DragFillMultiple";
+import DragToBin from "./DragToBin";
+import DragToCategorize from "./DragToCategorize";
+import PassageSentenceSelect from "./PassageSentenceSelect";
+import InlineTextSpanClick from "./InlineTextSpanClick";
 
-type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown" | "number_line_click" | "table_row_radio";
+type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown" | "number_line_click" | "table_row_radio" | "drag_fill_single" | "drag_fill_multiple" | "drag_to_bin" | "drag_to_categorize" | "in_passage_sentence_select" | "inline_text_span_click";
 
 interface QuestionProps {
   type: QuestionType;
@@ -32,6 +38,13 @@ interface QuestionProps {
   // Used by table_row_radio
   trColHeaders?: string[];
   trRows?: string[];
+  // Used by drag_to_bin / drag_to_categorize
+  dfItems?: string[];
+  dfBins?: string[];
+  // Used by in_passage_sentence_select
+  pssSentences?: string[];
+  // Used by inline_text_span_click
+  spanPassage?: string;
 }
 
 export default function QuestionRenderer({
@@ -53,6 +66,10 @@ export default function QuestionRenderer({
   nlStep = 1,
   trColHeaders = [],
   trRows = [],
+  dfItems = [],
+  dfBins = [],
+  pssSentences = [],
+  spanPassage = "",
 }: QuestionProps) {
   switch (type) {
     case "mcq":
@@ -140,6 +157,70 @@ export default function QuestionRenderer({
           isReadOnly={isReadOnly}
           previousAnswer={isReadOnly ? previousAnswer : undefined}
           correctAnswer={isReadOnly ? answer : undefined}
+        />
+      );
+    case "drag_fill_single":
+      return (
+        <DragFillSingle
+          text={text}
+          options={options}
+          chosenAnswer={chosenAnswer}
+          isReadOnly={isReadOnly}
+          previousAnswer={previousAnswer}
+          answer={isReadOnly ? answer : undefined}
+        />
+      );
+    case "drag_fill_multiple":
+      return (
+        <DragFillMultiple
+          text={text}
+          options={options}
+          chosenAnswer={chosenAnswer}
+          isReadOnly={isReadOnly}
+          previousAnswer={previousAnswer}
+          answer={isReadOnly ? answer : undefined}
+        />
+      );
+    case "drag_to_bin":
+      return (
+        <DragToBin
+          items={dfItems}
+          bins={dfBins}
+          chosenAnswer={chosenAnswer}
+          isReadOnly={isReadOnly}
+          previousAnswer={previousAnswer}
+          answer={isReadOnly ? answer : undefined}
+        />
+      );
+    case "drag_to_categorize":
+      return (
+        <DragToCategorize
+          items={dfItems}
+          bins={dfBins}
+          chosenAnswer={chosenAnswer}
+          isReadOnly={isReadOnly}
+          previousAnswer={previousAnswer}
+          answer={isReadOnly ? answer : undefined}
+        />
+      );
+    case "in_passage_sentence_select":
+      return (
+        <PassageSentenceSelect
+          sentences={pssSentences}
+          chosenAnswer={chosenAnswer}
+          isReadOnly={isReadOnly}
+          previousAnswer={previousAnswer}
+          answer={isReadOnly ? answer : undefined}
+        />
+      );
+    case "inline_text_span_click":
+      return (
+        <InlineTextSpanClick
+          passage={spanPassage}
+          chosenAnswer={chosenAnswer}
+          isReadOnly={isReadOnly}
+          previousAnswer={previousAnswer}
+          answer={isReadOnly ? answer : undefined}
         />
       );
     default:

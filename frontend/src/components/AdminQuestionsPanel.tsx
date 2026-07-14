@@ -2,9 +2,22 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../supabase-client";
 import { parseFormattedText } from "../utils/textParser";
 import ExpressionEditorQuestion from "./ExpressionEditorQuestion";
+import NumberLineClick from "./NumberLineClick";
+import TableRowRadio from "./TableRowRadio";
+import SHSATGrapher from "./SHSATGrapher";
+import InlineDropdownQuestion from "./InlineDropdownQuestion";
+import MCQuestion from "./multiQuestion";
+import MultiSelectQuestion from "./MultiSelectQuestion";
+import GridInQuestion from "./gridInQuestion";
+import DragFillSingle from "./DragFillSingle";
+import DragFillMultiple from "./DragFillMultiple";
+import DragToBin from "./DragToBin";
+import DragToCategorize from "./DragToCategorize";
+import PassageSentenceSelect from "./PassageSentenceSelect";
+import InlineTextSpanClick from "./InlineTextSpanClick";
 
 type MediaType = "passage" | "graph" | "table" | "equation";
-type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown" | "number_line_click" | "table_row_radio";
+type QuestionType = "mcq" | "grid-in" | "linear_graphing" | "multi-select" | "expression" | "inline-dropdown" | "number_line_click" | "table_row_radio" | "drag_fill_single" | "drag_fill_multiple" | "drag_to_bin" | "drag_to_categorize" | "in_passage_sentence_select" | "inline_text_span_click";
 
 interface MediaItem {
   mediaId: string;
@@ -57,6 +70,10 @@ type FormData = Partial<Question> & {
   nl_step?: string;      // number_line_click: snap increment
   tr_col_headers?: string; // table_row_radio: comma-separated column headers
   tr_rows?: string;        // table_row_radio: newline-separated row labels
+  df_items?: string;       // drag_to_bin/categorize: newline-separated item chips
+  df_bins?: string;        // drag_to_bin/categorize: comma-separated bin/category labels
+  pss_sentences?: string;  // in_passage_sentence_select: newline-separated sentences
+  span_passage?: string;   // inline_text_span_click: passage text with [SPAN_A]...[/SPAN_A] markers
 };
 
 const PAGE_SIZE = 30;
@@ -83,6 +100,10 @@ const EMPTY_FORM: FormData = {
   nl_step: "1",
   tr_col_headers: "",
   tr_rows: "",
+  df_items: "",
+  df_bins: "",
+  pss_sentences: "",
+  span_passage: "",
 };
 
 function Label({ children }: { children: React.ReactNode }) {
@@ -157,26 +178,65 @@ function previewStripPrefix(text: string): string {
   return text.replace(/^[A-Ha-h][).:\s]\s*/, "");
 }
 
+function checkPreviewAnswer(type: QuestionType, student: string, correct: string): boolean | null {
+  if (!student.trim() || !correct.trim()) return null;
+  const s = student.trim(), c = correct.trim();
+  if (type === "mcq" || type === "inline-dropdown") return s.toUpperCase() === c.toUpperCase();
+  if (type === "multi-select") {
+    const norm = (x: string) => x.split(",").map(t => t.trim().toUpperCase()).filter(Boolean).sort().join(",");
+    return norm(s) === norm(c);
+  }
+  if (type === "grid-in") {
+    const parseFrac = (str: string) => { const m = str.match(/^(-?\d+)\s*\/\s*(\d+)$/); return m ? parseInt(m[1]) / parseInt(m[2]) : parseFloat(str); };
+    const sv = parseFrac(s), cv = parseFrac(c);
+    return isFinite(sv) && isFinite(cv) && Math.abs(sv - cv) < 0.0001;
+  }
+  if (type === "number_line_click") {
+    const sv = parseFloat(s), cv = parseFloat(c);
+    return isFinite(sv) && isFinite(cv) && Math.abs(sv - cv) < 0.0001;
+  }
+  if (type === "table_row_radio" || type === "drag_fill_multiple" || type === "drag_to_bin" || type === "drag_to_categorize") {
+    const norm = (x: string) => x.split(",").map(t => t.trim().toUpperCase()).join(",");
+    return norm(s) === norm(c);
+  }
+  if (type === "drag_fill_single") return s.toUpperCase() === c.toUpperCase();
+  if (type === "inline_text_span_click") return s.toUpperCase() === c.toUpperCase();
+  if (type === "in_passage_sentence_select") return s.trim() === c.trim();
+  return s === c; // linear_graphing, expression
+}
+
 // ── Type badge helper ──────────────────────────────────────────────────────────
 
 function TypeBadge({ type, source }: { type: string; source?: string }) {
   const label =
-    type === "mcq" ? "MCQ" :
-    type === "grid-in" ? "Grid-in" :
-    type === "linear_graphing" ? "Graphing" :
-    type === "multi-select" ? "Multi-select" :
-    type === "expression" ? "Expression" :
-    type === "inline-dropdown" ? "Inline Dropdown" :
-    type === "number_line_click" ? "Number Line" :
-    type === "table_row_radio"   ? "Table Radio"  : type;
+    type === "mcq"              ? "MCQ" :
+    type === "grid-in"          ? "Grid-in" :
+    type === "linear_graphing"  ? "Graphing" :
+    type === "multi-select"     ? "Multi-select" :
+    type === "expression"       ? "Expression" :
+    type === "inline-dropdown"  ? "Inline Dropdown" :
+    type === "number_line_click"? "Number Line" :
+    type === "table_row_radio"  ? "Table Radio" :
+    type === "drag_fill_single" ? "Drag Fill" :
+    type === "drag_fill_multiple" ? "Drag Fill ×N" :
+    type === "drag_to_bin" ? "Drag to Bin" :
+    type === "drag_to_categorize" ? "Categorize" :
+    type === "in_passage_sentence_select" ? "Sentence Select" :
+    type === "inline_text_span_click" ? "Span Click" : type;
   const cls =
-    type === "mcq"              ? "bg-zinc-100 text-zinc-500" :
-    type === "grid-in"          ? "bg-amber-500/10 text-amber-500" :
-    type === "multi-select"     ? "bg-indigo-500/10 text-indigo-600" :
-    type === "expression"       ? "bg-teal-500/10 text-teal-600" :
-    type === "inline-dropdown"  ? "bg-rose-500/10 text-rose-600" :
-    type === "number_line_click"? "bg-cyan-500/10 text-cyan-600" :
-    type === "table_row_radio"  ? "bg-violet-500/10 text-violet-600" :
+    type === "mcq"               ? "bg-zinc-100 text-zinc-500" :
+    type === "grid-in"           ? "bg-amber-500/10 text-amber-500" :
+    type === "multi-select"      ? "bg-indigo-500/10 text-indigo-600" :
+    type === "expression"        ? "bg-teal-500/10 text-teal-600" :
+    type === "inline-dropdown"   ? "bg-rose-500/10 text-rose-600" :
+    type === "number_line_click" ? "bg-cyan-500/10 text-cyan-600" :
+    type === "table_row_radio"   ? "bg-violet-500/10 text-violet-600" :
+    type === "drag_fill_single"  ? "bg-orange-500/10 text-orange-600" :
+    type === "drag_fill_multiple"? "bg-fuchsia-500/10 text-fuchsia-600" :
+    type === "drag_to_bin"       ? "bg-lime-500/10 text-lime-700" :
+    type === "drag_to_categorize"? "bg-sky-500/10 text-sky-700" :
+    type === "in_passage_sentence_select" ? "bg-teal-500/10 text-teal-700" :
+    type === "inline_text_span_click" ? "bg-violet-500/10 text-violet-700" :
     "bg-blue-500/10 text-blue-600";
   return (
     <div className="flex items-center gap-1.5">
@@ -195,31 +255,48 @@ interface GenerateModalProps {
   onSuccess: () => void;
 }
 
-const GEN_TYPE_OPTS = [
-  { value: "mcq",               label: "Math MCQ"        },
-  { value: "grid-in",           label: "Grid-in"         },
-  { value: "linear_graphing",   label: "Graphing"        },
-  { value: "multi-select",      label: "Multi-select"    },
-  { value: "expression",        label: "Expression"      },
-  { value: "inline-dropdown",   label: "Inline Dropdown" },
-  { value: "number_line_click", label: "Number Line"     },
-  { value: "table_row_radio",   label: "Table Row Radio" },
-] as const;
+const GEN_TYPE_OPTS: { id: string; type: string; subject: string; label: string }[] = [
+  // Math types
+  { id: "mcq_math",               type: "mcq",               subject: "math",    label: "Math MCQ"         },
+  { id: "grid-in",                type: "grid-in",           subject: "math",    label: "Grid-in"          },
+  { id: "linear_graphing",        type: "linear_graphing",   subject: "math",    label: "Graphing"         },
+  { id: "multi-select_math",      type: "multi-select",      subject: "math",    label: "Multi-select"     },
+  { id: "expression",             type: "expression",        subject: "math",    label: "Expression"       },
+  { id: "number_line_click",      type: "number_line_click", subject: "math",    label: "Number Line"      },
+  { id: "table_row_radio_math",   type: "table_row_radio",   subject: "math",    label: "Table (Math)"     },
+  // ELA types
+  { id: "inline-dropdown",        type: "inline-dropdown",    subject: "english", label: "Inline Dropdown"   },
+  { id: "mcq_english",            type: "mcq",                subject: "english", label: "ELA MCQ"           },
+  { id: "multi-select_english",   type: "multi-select",       subject: "english", label: "ELA Multi-select"  },
+  { id: "table_row_radio_english",type: "table_row_radio",    subject: "english", label: "ELA Table"         },
+  { id: "drag_fill_single_math",  type: "drag_fill_single",   subject: "math",    label: "Drag Fill (Math)"  },
+  { id: "drag_fill_single_eng",   type: "drag_fill_single",   subject: "english", label: "Drag Fill (ELA)"   },
+  { id: "drag_fill_multiple_math",type: "drag_fill_multiple", subject: "math",    label: "Drag ×N (Math)"    },
+  { id: "drag_fill_multiple_eng", type: "drag_fill_multiple", subject: "english", label: "Drag ×N (ELA)"     },
+  { id: "drag_to_bin_math",       type: "drag_to_bin",        subject: "math",    label: "Drag to Bin"       },
+  { id: "drag_to_cat_math",       type: "drag_to_categorize", subject: "math",    label: "Categorize (Math)" },
+  { id: "drag_to_cat_eng",        type: "drag_to_categorize",       subject: "english", label: "Categorize (ELA)"  },
+  { id: "inline_text_span_eng",   type: "inline_text_span_click",   subject: "english", label: "Span Click (ELA)"  },
+];
 
 const GEN_CATEGORY_OPTS = [
-  { value: "Arithmetic",               label: "Arithmetic"           },
-  { value: "Algebra_and_Equations",    label: "Algebra & Equations"  },
-  { value: "Algebraic_Expressions",    label: "Algebraic Expr."      },
-  { value: "Geometry",                 label: "Geometry"             },
-  { value: "Fraction_Word_Problems",   label: "Fractions"            },
-  { value: "Percentage",               label: "Percentage"           },
-  { value: "Ratios_and_Proportions",   label: "Ratios & Proportions" },
-  { value: "Probability",              label: "Probability"          },
-  { value: "Stats_and_Data_Analysis",  label: "Stats & Data"         },
-  { value: "Sequence",                 label: "Sequence"             },
-  { value: "Inequalities",             label: "Inequalities"         },
-  { value: "Linear_Eq._Formula",       label: "Linear Formula"       },
-] as const;
+  // Math subcategories
+  { value: "Arithmetic",               label: "Arithmetic",           group: "math" },
+  { value: "Algebra_and_Equations",    label: "Algebra & Equations",  group: "math" },
+  { value: "Algebraic_Expressions",    label: "Algebraic Expr.",      group: "math" },
+  { value: "Geometry",                 label: "Geometry",             group: "math" },
+  { value: "Fraction_Word_Problems",   label: "Fractions",            group: "math" },
+  { value: "Percentage",               label: "Percentage",           group: "math" },
+  { value: "Ratios_and_Proportions",   label: "Ratios & Proportions", group: "math" },
+  { value: "Probability",              label: "Probability",          group: "math" },
+  { value: "Stats_and_Data_Analysis",  label: "Stats & Data",         group: "math" },
+  { value: "Sequence",                 label: "Sequence",             group: "math" },
+  { value: "Inequalities",             label: "Inequalities",         group: "math" },
+  { value: "Linear_Eq._Formula",       label: "Linear Formula",       group: "math" },
+  // ELA subcategories
+  { value: "Vocabulary_in_Context",    label: "Vocabulary",           group: "english" },
+  { value: "Grammar_and_Usage",        label: "Grammar",              group: "english" },
+];
 
 function toggle(arr: string[], val: string): string[] {
   return arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val];
@@ -241,7 +318,7 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
     setResult(null);
 
     // Types to generate: if none selected, pick one random type
-    const typePool = GEN_TYPE_OPTS.map(t => t.value as string);
+    const typePool = GEN_TYPE_OPTS.map(t => t.id);
     const typesToGenerate = genTypes.length > 0
       ? genTypes
       : [typePool[Math.floor(Math.random() * typePool.length)]];
@@ -253,10 +330,14 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
     let totalGenerated = 0, totalApproved = 0, totalPending = 0, totalSkipped = 0;
 
     for (let i = 0; i < typesToGenerate.length; i++) {
-      const type      = typesToGenerate[i];
+      const id        = typesToGenerate[i];
+      const opt       = GEN_TYPE_OPTS.find(o => o.id === id)!;
+      const type      = opt.type;
+      const subject   = opt.subject;
       const thisCount = base + (i < extra ? 1 : 0);
       const body: Record<string, unknown> = {
         type,
+        subject,
         count:        thisCount,
         difficulties: genDifficulties,
         categories:   genCategories,
@@ -281,8 +362,11 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
   }
 
   // Cost estimate: graphing is slightly cheaper; average across selected (or all) types
-  const estimatedTypes = genTypes.length > 0 ? genTypes : GEN_TYPE_OPTS.map(t => t.value as string);
-  const avgCost = estimatedTypes.reduce((s, t) => s + (t === "linear_graphing" ? 0.03 : 0.04), 0) / estimatedTypes.length;
+  const estimatedIds = genTypes.length > 0 ? genTypes : GEN_TYPE_OPTS.map(t => t.id);
+  const avgCost = estimatedIds.reduce((s, id) => {
+    const opt = GEN_TYPE_OPTS.find(o => o.id === id);
+    return s + (opt?.type === "linear_graphing" ? 0.03 : 0.04);
+  }, 0) / estimatedIds.length;
   const estimatedCost = (genCount * avgCost).toFixed(2);
 
   function SectionLabel({ children, anyLabel }: { children: string; anyLabel: string }) {
@@ -301,7 +385,7 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
         <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between shrink-0">
           <div>
             <h3 className="text-lg font-bold text-zinc-900">Generate AI Questions</h3>
-            <p className="text-sm text-zinc-400 mt-0.5">Uses Claude to write SHSAT-style math questions</p>
+            <p className="text-sm text-zinc-400 mt-0.5">Uses Claude to write SHSAT-style math and ELA questions</p>
           </div>
           <button type="button" onClick={onClose}
             className="w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors text-base">
@@ -356,27 +440,48 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
               {/* ── Question type (multi-select) ─────────────────────── */}
               <div className="flex flex-col gap-1.5">
                 <SectionLabel anyLabel={genTypes.length === 0 ? "· Any (random)" : ""}>Question Type</SectionLabel>
-                <div className="grid grid-cols-2 gap-2">
-                  {GEN_TYPE_OPTS.map(opt => {
-                    const active = genTypes.includes(opt.value);
-                    return (
-                      <button key={opt.value} type="button"
-                        onClick={() => setGenTypes(toggle(genTypes, opt.value))}
-                        className={`py-2.5 rounded-xl border text-sm font-semibold transition-all ${
-                          active
-                            ? "bg-amber-500 border-amber-400 text-zinc-950"
-                            : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-amber-500/40"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
+                <div className="flex flex-col gap-2">
+                  <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Math</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {GEN_TYPE_OPTS.filter(o => o.subject === "math").map(opt => {
+                      const active = genTypes.includes(opt.id);
+                      return (
+                        <button key={opt.id} type="button"
+                          onClick={() => setGenTypes(toggle(genTypes, opt.id))}
+                          className={`py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+                            active
+                              ? "bg-amber-500 border-amber-400 text-zinc-950"
+                              : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-amber-500/40"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mt-1">ELA</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {GEN_TYPE_OPTS.filter(o => o.subject === "english").map(opt => {
+                      const active = genTypes.includes(opt.id);
+                      return (
+                        <button key={opt.id} type="button"
+                          onClick={() => setGenTypes(toggle(genTypes, opt.id))}
+                          className={`py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+                            active
+                              ? "bg-blue-500 border-blue-400 text-white"
+                              : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-blue-500/40"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
               {/* ── Choices per question — multi-select type only ────── */}
-              {genTypes.includes("multi-select") && (
+              {genTypes.some(id => id.startsWith("multi-select")) && (
                 <div className="flex flex-col gap-1.5">
                   <Label>Choices per question</Label>
                   <div className="grid grid-cols-3 gap-2">
@@ -399,8 +504,10 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
               {/* ── Category (multi-select) ──────────────────────────── */}
               <div className="flex flex-col gap-1.5">
                 <SectionLabel anyLabel={genCategories.length === 0 ? "· All categories" : ""}>Category</SectionLabel>
+                {/* Math subcategories */}
+                <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Math</div>
                 <div className="grid grid-cols-3 gap-1.5">
-                  {GEN_CATEGORY_OPTS.map(cat => {
+                  {GEN_CATEGORY_OPTS.filter(c => c.group === "math").map(cat => {
                     const active = genCategories.includes(cat.value);
                     return (
                       <button key={cat.value} type="button"
@@ -409,6 +516,25 @@ function GenerateModal({ onClose, onSuccess }: GenerateModalProps) {
                           active
                             ? "bg-amber-500 border-amber-400 text-zinc-950"
                             : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-amber-500/40"
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* ELA subcategories */}
+                <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mt-1">ELA</div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {GEN_CATEGORY_OPTS.filter(c => c.group === "english").map(cat => {
+                    const active = genCategories.includes(cat.value);
+                    return (
+                      <button key={cat.value} type="button"
+                        onClick={() => setGenCategories(toggle(genCategories, cat.value))}
+                        className={`py-2 px-1.5 rounded-xl border text-xs font-semibold text-center leading-tight transition-all ${
+                          active
+                            ? "bg-blue-500 border-blue-400 text-white"
+                            : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:border-blue-500/40"
                         }`}
                       >
                         {cat.label}
@@ -532,6 +658,8 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [originalForm, setOriginalForm] = useState<FormData | null>(null);
+  const [previewAnswer, setPreviewAnswer] = useState<string>("");
+  const [previewResetKey, setPreviewResetKey] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<Question | null>(null);
@@ -624,6 +752,20 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
 
   useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
 
+  useEffect(() => {
+    setPreviewAnswer("");
+    setPreviewResetKey(k => k + 1);
+  }, [
+    form.type, form.answer, form.text,
+    form.choice_1, form.choice_2, form.choice_3, form.choice_4,
+    form.choice_5, form.choice_6,
+    form.nl_min, form.nl_max, form.nl_step,
+    form.tr_col_headers, form.tr_rows,
+    form.variables,
+    form.df_items, form.df_bins,
+    form.pss_sentences, form.span_passage,
+  ]);
+
   // When navigated here from the Reports panel, auto-open the edit modal for the flagged question
   useEffect(() => {
     if (!initialEditUid) return;
@@ -698,6 +840,16 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
       tr_rows: Array.isArray(ed.rows)
         ? (ed.rows as string[]).join("\n")
         : "",
+      df_items: Array.isArray(ed.items)
+        ? (ed.items as string[]).join("\n")
+        : "",
+      df_bins: Array.isArray(ed.bins)
+        ? (ed.bins as string[]).join(", ")
+        : "",
+      pss_sentences: Array.isArray(ed.sentences)
+        ? (ed.sentences as string[]).join("\n")
+        : "",
+      span_passage: typeof ed.passage === "string" ? ed.passage : "",
     });
     setOriginalForm({ ...q });
     setOriginalSubCategory(q.sub_category ?? null);
@@ -813,6 +965,28 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
         if (cols.length === 0 || rowsArr.length === 0) return null;
         return { col_headers: cols, rows: rowsArr };
       }
+      if (form.type === "drag_fill_multiple") {
+        const ed: Record<string, unknown> = {};
+        if ((form.choice_5 as string)?.trim()) ed.choice_5 = (form.choice_5 as string).trim();
+        if ((form.choice_6 as string)?.trim()) ed.choice_6 = (form.choice_6 as string).trim();
+        return Object.keys(ed).length > 0 ? ed : null;
+      }
+      if (form.type === "drag_to_bin" || form.type === "drag_to_categorize") {
+        const items = (form.df_items ?? "").split("\n").map((s: string) => s.trim()).filter(Boolean);
+        const bins  = (form.df_bins  ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
+        if (items.length === 0 || bins.length === 0) return null;
+        return { items, bins };
+      }
+      if (form.type === "in_passage_sentence_select") {
+        const sentences = (form.pss_sentences ?? "").split("\n").map((s: string) => s.trim()).filter(Boolean);
+        if (sentences.length === 0) return null;
+        return { sentences };
+      }
+      if (form.type === "inline_text_span_click") {
+        const passage = (form.span_passage ?? "").trim();
+        if (!passage) return null;
+        return { passage };
+      }
       return null;
     })();
 
@@ -823,10 +997,10 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
       sub_category: form.sub_category,
       difficulty: form.difficulty || null,
       text: form.text,
-      choice_1: (form.type === "linear_graphing" || form.type === "number_line_click" || form.type === "table_row_radio") ? null : (form.choice_1 || null),
-      choice_2: (form.type === "linear_graphing" || form.type === "number_line_click" || form.type === "table_row_radio") ? null : (form.choice_2 || null),
-      choice_3: (form.type === "linear_graphing" || form.type === "number_line_click" || form.type === "table_row_radio") ? null : (form.choice_3 || null),
-      choice_4: (form.type === "linear_graphing" || form.type === "number_line_click" || form.type === "table_row_radio") ? null : (form.choice_4 || null),
+      choice_1: (form.type === "linear_graphing" || form.type === "number_line_click" || form.type === "table_row_radio" || form.type === "drag_to_bin" || form.type === "drag_to_categorize" || form.type === "in_passage_sentence_select" || form.type === "inline_text_span_click") ? null : (form.choice_1 || null),
+      choice_2: (form.type === "linear_graphing" || form.type === "number_line_click" || form.type === "table_row_radio" || form.type === "drag_to_bin" || form.type === "drag_to_categorize" || form.type === "in_passage_sentence_select" || form.type === "inline_text_span_click") ? null : (form.choice_2 || null),
+      choice_3: (form.type === "linear_graphing" || form.type === "number_line_click" || form.type === "table_row_radio" || form.type === "drag_to_bin" || form.type === "drag_to_categorize" || form.type === "in_passage_sentence_select" || form.type === "inline_text_span_click") ? null : (form.choice_3 || null),
+      choice_4: (form.type === "linear_graphing" || form.type === "number_line_click" || form.type === "table_row_radio" || form.type === "drag_to_bin" || form.type === "drag_to_categorize" || form.type === "in_passage_sentence_select" || form.type === "inline_text_span_click") ? null : (form.choice_4 || null),
       answer: form.answer,
       media_refs: mediaRefsStr,
       source: form.source || "bank",
@@ -1062,6 +1236,8 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
+  const previewResult: boolean | null = checkPreviewAnswer(form.type as QuestionType, previewAnswer, form.answer ?? "");
+
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
       {/* ── Toolbar ── */}
@@ -1080,26 +1256,43 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
         />
 
         <select title="Filter by subject" value={filterSubject} onChange={e => { setFilterSubject(e.target.value); setPage(0); }}
-          className="bg-zinc-50 border border-zinc-200 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+          className={`bg-zinc-50 border rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base focus:outline-none transition-colors ${filterSubject ? "border-amber-400 text-amber-700 bg-amber-50 focus:border-amber-500" : "border-zinc-200 text-zinc-600 focus:border-amber-500/40"}`}>
           <option value="">All Subjects</option>
           <option value="english">English</option>
           <option value="math">Math</option>
         </select>
 
-        <select title="Filter by type" value={filterType} onChange={e => { setFilterType(e.target.value); setPage(0); }}
-          className="bg-zinc-50 border border-zinc-200 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+        <select title="Filter by type" value={filterType} onChange={e => {
+            const t = e.target.value;
+            setFilterType(t);
+            setPage(0);
+            // inline-dropdown is always English; auto-correct a conflicting Math subject filter
+            if (t === "inline-dropdown" && filterSubject === "math") setFilterSubject("");
+            // non-ELA types are always Math; auto-correct a conflicting English subject filter
+            const mathOnlyTypes = ["grid-in", "linear_graphing", "multi-select", "expression", "number_line_click", "table_row_radio"];
+            if (mathOnlyTypes.includes(t) && filterSubject === "english") setFilterSubject("");
+            // drag_fill types can be both — no auto-correct needed
+          }}
+          className={`bg-zinc-50 border rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base focus:outline-none transition-colors ${filterType ? "border-amber-400 text-amber-700 bg-amber-50 focus:border-amber-500" : "border-zinc-200 text-zinc-600 focus:border-amber-500/40"}`}>
           <option value="">All Types</option>
           <option value="mcq">MCQ</option>
           <option value="grid-in">Grid-in</option>
           <option value="linear_graphing">Graphing</option>
           <option value="multi-select">Multi-select</option>
           <option value="expression">Expression</option>
+          <option value="inline-dropdown">Inline Dropdown</option>
           <option value="number_line_click">Number Line</option>
           <option value="table_row_radio">Table Row Radio</option>
+          <option value="drag_fill_single">Drag Fill (Single)</option>
+          <option value="drag_fill_multiple">Drag Fill (Multiple)</option>
+          <option value="drag_to_bin">Drag to Bin</option>
+          <option value="drag_to_categorize">Drag to Categorize</option>
+          <option value="in_passage_sentence_select">Sentence Select</option>
+          <option value="inline_text_span_click">Span Click</option>
         </select>
 
         <select title="Filter by source" value={filterSource} onChange={e => { setFilterSource(e.target.value); setPage(0); }}
-          className="bg-zinc-50 border border-zinc-200 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+          className={`bg-zinc-50 border rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base focus:outline-none transition-colors ${filterSource ? "border-amber-400 text-amber-700 bg-amber-50 focus:border-amber-500" : "border-zinc-200 text-zinc-600 focus:border-amber-500/40"}`}>
           <option value="">All Sources</option>
           <option value="bank">Question Bank</option>
           <option value="ai">AI Generated</option>
@@ -1107,7 +1300,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
 
         <div className="relative">
           <select title="Filter by status" value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(0); }}
-            className="bg-zinc-50 border border-zinc-200 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+            className={`bg-zinc-50 border rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base focus:outline-none transition-colors ${filterStatus ? "border-amber-400 text-amber-700 bg-amber-50 focus:border-amber-500" : "border-zinc-200 text-zinc-600 focus:border-amber-500/40"}`}>
             <option value="">All Statuses</option>
             <option value="approved">Approved</option>
             <option value="pending">Pending Review</option>
@@ -1121,10 +1314,20 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
         </div>
 
         <select title="Filter by topic" value={filterCategory} onChange={e => { setFilterCategory(e.target.value); setPage(0); }}
-          className="bg-zinc-50 border border-zinc-200 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base text-zinc-600 focus:outline-none focus:border-amber-500/40 transition-colors">
+          className={`bg-zinc-50 border rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base focus:outline-none transition-colors ${filterCategory ? "border-amber-400 text-amber-700 bg-amber-50 focus:border-amber-500" : "border-zinc-200 text-zinc-600 focus:border-amber-500/40"}`}>
           <option value="">All Topics</option>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
+
+        {(filterSubject || filterType || filterSource || filterStatus || filterCategory || search) && (
+          <button type="button" onClick={() => {
+            setFilterSubject(""); setFilterType(""); setFilterSource("");
+            setFilterStatus(""); setFilterCategory(""); setSearch(""); setSearchInput(""); setPage(0);
+          }}
+            className="shrink-0 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-300 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap">
+            Clear filters
+          </button>
+        )}
 
         <div className="ml-auto flex items-center gap-2 shrink-0">
           <button type="button" onClick={() => setShowGenerate(true)}
@@ -1328,6 +1531,12 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                     <option value="inline-dropdown">Inline Dropdown</option>
                     <option value="number_line_click">Number Line Click</option>
                     <option value="table_row_radio">Table Row Radio</option>
+                    <option value="drag_fill_single">Drag Fill (Single)</option>
+                    <option value="drag_fill_multiple">Drag Fill (Multiple)</option>
+                    <option value="drag_to_bin">Drag to Bin</option>
+                    <option value="drag_to_categorize">Drag to Categorize</option>
+                    <option value="in_passage_sentence_select">Sentence Select</option>
+                    <option value="inline_text_span_click">Span Click</option>
                   </Select>
                 </div>
               </div>
@@ -1374,36 +1583,67 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
               <div className="flex flex-col gap-1.5">
                 <Label>Question Text</Label>
                 <Textarea value={form.text ?? ""} onChange={v => setField("text", v)}
-                  placeholder={form.type === "inline-dropdown"
-                    ? "Type the sentence and put [BLANK] where the dropdown should appear. e.g. \"The scientist carefully [BLANK] the results.\""
-                    : "Type the full question text here…"}
-                  rows={form.type === "inline-dropdown" ? 3 : 6}
+                  placeholder={
+                    form.type === "inline-dropdown"
+                      ? "Type the sentence and put [BLANK] where the dropdown appears. e.g. \"The scientist carefully [BLANK] the results.\""
+                      : form.type === "drag_fill_single"
+                        ? "Type the sentence and put [BLANK] where the word tile drops. e.g. \"The scientist was [BLANK] in her approach.\""
+                        : form.type === "drag_fill_multiple"
+                          ? "Type the sentence(s) and number each blank: [BLANK_1], [BLANK_2], [BLANK_3]… e.g. \"The [BLANK_1] scientist [BLANK_2] her findings.\""
+                          : form.type === "drag_to_bin" || form.type === "drag_to_categorize"
+                            ? "Type the question or instruction, e.g. \"Classify each number as Prime, Composite, or Neither.\""
+                            : "Type the full question text here…"
+                  }
+                  rows={form.type === "inline-dropdown" || form.type === "drag_fill_single" ? 3 : 6}
                 />
                 {form.type === "inline-dropdown" && (
-                  <p className="text-xs text-zinc-400">Use <code className="bg-zinc-100 px-1 rounded font-mono">[BLANK]</code> to mark where the dropdown appears in the sentence.</p>
+                  <p className="text-xs text-zinc-400">Use <code className="bg-zinc-100 px-1 rounded font-mono">[BLANK]</code> to mark where the dropdown appears.</p>
+                )}
+                {form.type === "drag_fill_single" && (
+                  <p className="text-xs text-zinc-400">Use <code className="bg-zinc-100 px-1 rounded font-mono">[BLANK]</code> to mark the single drop target.</p>
+                )}
+                {form.type === "drag_fill_multiple" && (
+                  <p className="text-xs text-zinc-400">Use <code className="bg-zinc-100 px-1 rounded font-mono">[BLANK_1]</code>, <code className="bg-zinc-100 px-1 rounded font-mono">[BLANK_2]</code>, … for each blank in order. Answer: <code className="bg-zinc-100 px-1 rounded font-mono">A,C,B</code> means blank 1→A, blank 2→C, blank 3→B.</p>
                 )}
               </div>
 
-              {/* Answer choices — MCQ, multi-select, and inline-dropdown */}
-              {(form.type === "mcq" || form.type === "multi-select" || form.type === "inline-dropdown") && (
+              {/* Answer choices — MCQ, multi-select, inline-dropdown, and drag fill types */}
+              {(form.type === "mcq" || form.type === "multi-select" || form.type === "inline-dropdown" ||
+                form.type === "drag_fill_single" || form.type === "drag_fill_multiple") && (
                 <div className="flex flex-col gap-2.5">
-                  <Label>Answer Choices</Label>
+                  <Label>
+                    {form.type === "drag_fill_single" || form.type === "drag_fill_multiple"
+                      ? "Word Tiles (draggable tokens)"
+                      : "Answer Choices"}
+                  </Label>
                   <div className="grid grid-cols-2 gap-3">
                     {(["choice_1", "choice_2", "choice_3", "choice_4"] as const).map((key, i) => (
                       <div key={key} className="flex gap-2 items-center">
                         <span className="text-sm font-bold text-zinc-400 w-5 shrink-0">{String.fromCharCode(65 + i)}</span>
-                        <Input value={(form[key] as string) ?? ""} onChange={v => setField(key, v)} placeholder={`Choice ${String.fromCharCode(65 + i)}`} />
+                        <Input value={(form[key] as string) ?? ""} onChange={v => setField(key, v)}
+                          placeholder={
+                            form.type === "drag_fill_single" || form.type === "drag_fill_multiple"
+                              ? `Token ${String.fromCharCode(65 + i)}`
+                              : `Choice ${String.fromCharCode(65 + i)}`
+                          }
+                        />
                       </div>
                     ))}
-                    {form.type === "multi-select" && (
+                    {(form.type === "multi-select" || form.type === "drag_fill_multiple") && (
                       <>
                         <div className="flex gap-2 items-center">
                           <span className="text-sm font-bold text-zinc-400 w-5 shrink-0">E</span>
-                          <Input value={(form.choice_5 as string) ?? ""} onChange={v => setField("choice_5", v)} placeholder="Choice E (optional)" />
+                          <Input value={(form.choice_5 as string) ?? ""}
+                            onChange={v => setField("choice_5", v)}
+                            placeholder={form.type === "drag_fill_multiple" ? "Token E (optional extra)" : "Choice E (optional)"}
+                          />
                         </div>
                         <div className="flex gap-2 items-center">
                           <span className="text-sm font-bold text-zinc-400 w-5 shrink-0">F</span>
-                          <Input value={(form.choice_6 as string) ?? ""} onChange={v => setField("choice_6", v)} placeholder="Choice F (optional)" />
+                          <Input value={(form.choice_6 as string) ?? ""}
+                            onChange={v => setField("choice_6", v)}
+                            placeholder={form.type === "drag_fill_multiple" ? "Token F (optional extra)" : "Choice F (optional)"}
+                          />
                         </div>
                       </>
                     )}
@@ -1466,6 +1706,72 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                 </div>
               )}
 
+              {/* Drag to bin / categorize config */}
+              {(form.type === "drag_to_bin" || form.type === "drag_to_categorize") && (
+                <div className="flex flex-col gap-3">
+                  <Label>{form.type === "drag_to_bin" ? "Bin Config" : "Category Config"}</Label>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Item Chips</span>
+                    <textarea
+                      rows={4}
+                      value={(form.df_items as string) ?? ""}
+                      onChange={e => setField("df_items", e.target.value)}
+                      placeholder={"prime\ncomposite\nnot prime and not composite\n...one item per line"}
+                      className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors resize-y font-mono"
+                    />
+                    <p className="text-xs text-zinc-400">One item per line. These are the chips students drag into bins/categories.</p>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wide">
+                      {form.type === "drag_to_bin" ? "Bin Labels" : "Category Labels"}
+                    </span>
+                    <input
+                      type="text"
+                      value={(form.df_bins as string) ?? ""}
+                      onChange={e => setField("df_bins", e.target.value)}
+                      placeholder={form.type === "drag_to_bin" ? "e.g.  Prime, Composite, Neither" : "e.g.  Noun, Verb, Adjective"}
+                      className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors font-mono"
+                    />
+                    <p className="text-xs text-zinc-400">
+                      Comma-separated. Each label becomes {form.type === "drag_to_bin" ? "a bin container" : "a column"}. Max 6.
+                      {form.type === "drag_to_categorize" && " Use \"-\" in the answer for distractor items that belong in no category."}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* In-passage sentence select config */}
+              {form.type === "in_passage_sentence_select" && (
+                <div className="flex flex-col gap-3">
+                  <Label>Passage Sentences</Label>
+                  <textarea
+                    rows={6}
+                    value={(form.pss_sentences as string) ?? ""}
+                    onChange={e => setField("pss_sentences", e.target.value)}
+                    placeholder={"The dog ran across the park.\nIt leaped over the fence.\nThe children cheered loudly.\n...one sentence per line"}
+                    className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors resize-y font-mono"
+                  />
+                  <p className="text-xs text-zinc-400">One sentence per line. Students click a sentence to select it. Answer = 1-based sentence number (e.g., 3).</p>
+                </div>
+              )}
+
+              {/* Inline text span click config */}
+              {form.type === "inline_text_span_click" && (
+                <div className="flex flex-col gap-3">
+                  <Label>Passage with Spans</Label>
+                  <textarea
+                    rows={6}
+                    value={(form.span_passage as string) ?? ""}
+                    onChange={e => setField("span_passage", e.target.value)}
+                    placeholder={"The [SPAN_A]quick brown[/SPAN_A] fox [SPAN_B]jumps over[/SPAN_B] the [SPAN_C]lazy dog[/SPAN_C]."}
+                    className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors resize-y font-mono text-sm"
+                  />
+                  <p className="text-xs text-zinc-400">
+                    Wrap each clickable span with <code className="bg-zinc-100 px-1 rounded font-mono">[SPAN_A]...[/SPAN_A]</code>, <code className="bg-zinc-100 px-1 rounded font-mono">[SPAN_B]...[/SPAN_B]</code>, etc. Students click the labeled span. Answer = the letter of the correct span.
+                  </p>
+                </div>
+              )}
+
               {/* Number line axis config */}
               {form.type === "number_line_click" && (
                 <div className="flex flex-col gap-2">
@@ -1510,7 +1816,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
 
               <div className="flex flex-col gap-1.5">
                 <Label>Correct Answer</Label>
-                {(form.type === "mcq" || form.type === "inline-dropdown") ? (
+                {(form.type === "mcq" || form.type === "inline-dropdown" || form.type === "drag_fill_single") ? (
                   <div className="grid grid-cols-4 gap-2">
                     {(["A", "B", "C", "D"] as const).map((letter, i) => {
                       const choiceKey = `choice_${i + 1}` as keyof FormData;
@@ -1563,12 +1869,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                   </div>
                 ) : form.type === "table_row_radio" ? (
                   <div className="flex flex-col gap-1.5">
-                    <Input
-                      value={form.answer ?? ""}
-                      onChange={v => setField("answer", v)}
-                      placeholder="e.g.  A,B,A  or  A,B,C,A"
-                      mono
-                    />
+                    <Input value={form.answer ?? ""} onChange={v => setField("answer", v)} placeholder="e.g.  A,B,A  or  A,B,C,A" mono />
                     <p className="text-xs text-zinc-400">
                       One letter per row, comma-separated. A = first column, B = second, etc.
                       {(() => {
@@ -1577,6 +1878,65 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                         return rowCount > 0 ? ` (${rowCount} row${rowCount !== 1 ? "s" : ""} defined)` : "";
                       })()}
                     </p>
+                  </div>
+                ) : form.type === "drag_fill_multiple" ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Input value={form.answer ?? ""} onChange={v => setField("answer", v)} placeholder="e.g.  A,C,B  (blank 1→A, blank 2→C, blank 3→B)" mono />
+                    <p className="text-xs text-zinc-400">
+                      One letter per blank in order, comma-separated.
+                      {(() => {
+                        const blanks = (form.text ?? "").match(/\[BLANK_\d+\]/g) ?? [];
+                        return blanks.length > 0 ? ` (${blanks.length} blank${blanks.length !== 1 ? "s" : ""} in text)` : " — add [BLANK_1], [BLANK_2], … to the text above.";
+                      })()}
+                    </p>
+                  </div>
+                ) : form.type === "drag_to_bin" ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Input value={form.answer ?? ""} onChange={v => setField("answer", v)} placeholder="e.g.  A,B,A,C  (one bin letter per item in Items order)" mono />
+                    <p className="text-xs text-zinc-400">
+                      One bin letter per item, comma-separated. A = first bin, B = second, etc.
+                      {(() => {
+                        const itemCount = (form.df_items as string ?? "").split("\n").filter(s => s.trim()).length;
+                        return itemCount > 0 ? ` (${itemCount} item${itemCount !== 1 ? "s" : ""} defined)` : "";
+                      })()}
+                    </p>
+                  </div>
+                ) : form.type === "drag_to_categorize" ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Input value={form.answer ?? ""} onChange={v => setField("answer", v)} placeholder="e.g.  A,B,-,A  (use - for distractor items with no category)" mono />
+                    <p className="text-xs text-zinc-400">
+                      One category letter per item. Use <code className="bg-zinc-100 px-1 rounded font-mono">-</code> for items that don't belong in any category.
+                      {(() => {
+                        const itemCount = (form.df_items as string ?? "").split("\n").filter(s => s.trim()).length;
+                        return itemCount > 0 ? ` (${itemCount} item${itemCount !== 1 ? "s" : ""} defined)` : "";
+                      })()}
+                    </p>
+                  </div>
+                ) : form.type === "in_passage_sentence_select" ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Input value={form.answer ?? ""} onChange={v => setField("answer", v)} placeholder="e.g.  3  (the correct sentence number)" mono />
+                    <p className="text-xs text-zinc-400">
+                      1-based sentence number.
+                      {(() => {
+                        const sentCount = (form.pss_sentences as string ?? "").split("\n").filter(s => s.trim()).length;
+                        return sentCount > 0 ? ` (${sentCount} sentence${sentCount !== 1 ? "s" : ""} defined)` : "";
+                      })()}
+                    </p>
+                  </div>
+                ) : form.type === "inline_text_span_click" ? (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="grid grid-cols-4 gap-2">
+                      {(["A", "B", "C", "D"] as const).map(letter => (
+                        <button key={letter} type="button" onClick={() => setField("answer", letter)}
+                          className={`px-3 py-2.5 rounded-xl border text-base font-bold transition-all ${
+                            form.answer === letter ? "bg-amber-500 border-amber-400 text-zinc-950" : "bg-zinc-50 border-zinc-200 text-zinc-400 hover:border-amber-500/40 hover:text-zinc-700"
+                          }`}
+                        >
+                          {letter}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-zinc-400">Select the letter of the correct span.</p>
                   </div>
                 ) : (
                   <Input value={form.answer ?? ""} onChange={v => setField("answer", v)} placeholder="e.g. 42, 3/4, or 0.75" mono />
@@ -1663,20 +2023,35 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
               )}
             </div>{/* end left form column */}
 
-            {/* ── Right: live preview ── */}
-            <div className="w-80 shrink-0 flex flex-col overflow-hidden bg-slate-50">
-              <div className="px-4 py-3 border-b border-zinc-200 bg-white shrink-0 flex items-center gap-2">
-                <svg className="w-4 h-4 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                <div>
-                  <p className="text-sm font-bold text-zinc-700">Live Preview</p>
-                  <p className="text-xs text-zinc-400">What students see</p>
+            {/* ── Right: interactive preview ── */}
+            <div className="w-80 shrink-0 flex flex-col overflow-hidden bg-slate-50 border-l border-zinc-200">
+              {/* Header */}
+              <div className="px-4 py-3 border-b border-zinc-200 bg-white shrink-0 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <svg className="w-4 h-4 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-zinc-700">Interactive Preview</p>
+                    <p className="text-xs text-zinc-400">Test it as a student would</p>
+                  </div>
                 </div>
+                {/* Live feedback badge — fades in when admin answers */}
+                <span className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-full transition-all duration-200 ${
+                  previewResult === true
+                    ? "bg-emerald-100 text-emerald-700 opacity-100 scale-100"
+                    : previewResult === false
+                    ? "bg-rose-100 text-rose-700 opacity-100 scale-100"
+                    : "opacity-0 scale-95 pointer-events-none"
+                }`}>
+                  {previewResult === true ? "✓ Correct" : "✗ Wrong"}
+                </span>
               </div>
+
+              {/* Scrollable content */}
               <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-                {/* display media: passages + non-choice images */}
+                {/* Media: passages + images */}
                 {previewDisplayMedia.length > 0 && (
                   <div className="flex flex-col gap-3">
                     {previewDisplayMedia.map((item, idx) => (
@@ -1700,7 +2075,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                   </div>
                 )}
 
-                {/* question text */}
+                {/* Question text */}
                 <div className="text-sm leading-relaxed text-slate-800">
                   {form.text?.trim()
                     ? parseFormattedText(
@@ -1713,136 +2088,245 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                     : <span className="text-zinc-400 italic">No question text yet.</span>}
                 </div>
 
-                {/* MCQ choices */}
+                {/* ── MCQ ── */}
                 {form.type === "mcq" && (
-                  <div className="flex flex-col gap-2">
-                    {(["choice_1", "choice_2", "choice_3", "choice_4"] as const).map((key, i) => {
-                      const choiceText = (form[key] as string) ?? "";
-                      const letter = previewExtractLetter(choiceText, "ABCD"[i]);
-                      const image = previewChoiceImages[letter] ?? previewChoiceImages["ABCD"[i]];
-                      const stripped = previewStripPrefix(choiceText);
-                      const isMediaRef = /^\[.+\]$/.test(stripped.trim());
-                      const isCorrect = form.answer === letter;
-                      return (
-                        <div key={key} className={`flex items-start gap-2.5 border rounded-xl p-2.5 ${
-                          isCorrect ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white"
-                        }`}>
-                          <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border mt-0.5 ${
-                            isCorrect ? "bg-blue-600 text-white border-blue-600" : "border-slate-300 text-slate-500"
-                          }`}>{letter}</span>
-                          <div className="flex-1 min-w-0 pt-0.5">
-                            {image ? (
-                              <img src={image} alt={`Choice ${letter}`} className="max-h-20 h-auto" />
-                            ) : isMediaRef ? (
-                              <span className="text-xs font-mono text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
-                                ⚠ {stripped.trim().slice(1, -1)} — not loaded
-                              </span>
-                            ) : (
-                              <span className={`text-xs leading-relaxed ${isCorrect ? "text-blue-900" : "text-slate-700"}`}>
-                                {parseFormattedText(stripped || choiceText)}
-                              </span>
-                            )}
-                          </div>
-                          {isCorrect && <span className="text-xs font-bold text-blue-600 shrink-0">✓</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <MCQuestion
+                    key={previewResetKey}
+                    option1={form.choice_1 as string ?? ""}
+                    option2={form.choice_2 as string ?? ""}
+                    option3={form.choice_3 as string ?? ""}
+                    option4={form.choice_4 as string ?? ""}
+                    chosenAnswer={setPreviewAnswer}
+                    isReadOnly={false}
+                    previousAnswer=""
+                    choiceImages={previewChoiceImages}
+                  />
                 )}
 
-                {/* Grid-in */}
+                {/* ── Grid-in ── */}
                 {form.type === "grid-in" && (
-                  <div className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-500 italic">
-                    Grid-in — student types a number.{" "}
-                    <span className="not-italic font-semibold text-slate-700">Answer: <span className="font-mono">{form.answer || "—"}</span></span>
-                  </div>
+                  <GridInQuestion
+                    key={previewResetKey}
+                    chosenAnswer={setPreviewAnswer}
+                    isReadOnly={false}
+                    previousAnswer=""
+                  />
                 )}
 
-                {/* Expression preview — shows correct answer + live virtual keyboard */}
+                {/* ── Multi-select ── */}
+                {form.type === "multi-select" && (() => {
+                  const opts = (
+                    [form.choice_1, form.choice_2, form.choice_3, form.choice_4, form.choice_5, form.choice_6] as (string | undefined)[]
+                  ).map(v => v?.trim() ?? "").filter(Boolean);
+                  return (
+                    <MultiSelectQuestion
+                      key={previewResetKey}
+                      options={opts}
+                      selectCount={Number(form.select_count) || 1}
+                      chosenAnswer={setPreviewAnswer}
+                      isReadOnly={false}
+                      previousAnswer=""
+                      choiceImages={previewChoiceImages}
+                    />
+                  );
+                })()}
+
+                {/* ── Expression ── */}
                 {form.type === "expression" && (
-                  <div className="flex flex-col gap-3">
-                    <div className="flex flex-col gap-1.5">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Correct answer</p>
-                      <div className="min-h-12 rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 font-mono text-base text-slate-800 flex items-center">
-                        {form.answer?.trim() || <span className="text-slate-400 italic font-normal">No answer set</span>}
-                      </div>
-                    </div>
-                    <ExpressionEditorQuestion
-                      chosenAnswer={() => {}}
-                      variables={(form.variables as string)?.split(",").map(v => v.trim()).filter(Boolean) ?? []}
+                  <ExpressionEditorQuestion
+                    key={previewResetKey}
+                    chosenAnswer={setPreviewAnswer}
+                    isReadOnly={false}
+                    variables={(form.variables as string ?? "").split(",").map(v => v.trim()).filter(Boolean)}
+                  />
+                )}
+
+                {/* ── Inline-dropdown ── */}
+                {form.type === "inline-dropdown" && (() => {
+                  const hasBlank = (form.text ?? "").includes("[BLANK]");
+                  if (!hasBlank) return (
+                    <p className="text-xs text-slate-400 italic px-1">
+                      Add <code className="bg-zinc-100 px-1 rounded font-mono">[BLANK]</code> to the question text above to preview the dropdown.
+                    </p>
+                  );
+                  return (
+                    <InlineDropdownQuestion
+                      key={previewResetKey}
+                      text={form.text ?? ""}
+                      options={([form.choice_1, form.choice_2, form.choice_3, form.choice_4] as string[]).filter(Boolean)}
+                      chosenAnswer={setPreviewAnswer}
+                      isReadOnly={false}
+                      previousAnswer=""
+                      answer=""
+                    />
+                  );
+                })()}
+
+                {/* ── Linear graphing ── */}
+                {form.type === "linear_graphing" && (
+                  <div className="overflow-x-auto -mx-1 px-1">
+                    <SHSATGrapher
+                      key={previewResetKey}
+                      onAnswerChange={setPreviewAnswer}
+                      isReadOnly={false}
                     />
                   </div>
                 )}
 
-                {/* Multi-select preview */}
-                {form.type === "multi-select" && (
-                  <div className="flex flex-col gap-2">
-                    {form.select_count && (
-                      <p className="text-xs font-semibold text-slate-500">
-                        Select <strong className="text-slate-700">{form.select_count}</strong> correct answer{Number(form.select_count) !== 1 ? "s" : ""}.
-                      </p>
-                    )}
-                    {(["choice_1", "choice_2", "choice_3", "choice_4", "choice_5", "choice_6"] as const).map((key, i) => {
-                      const choiceText = (form[key] as string) ?? "";
-                      if (!choiceText) return null;
-                      const letter = "ABCDEF"[i];
-                      const isCorrect = (form.answer ?? "").split(",").map(s => s.trim()).includes(letter);
-                      return (
-                        <div key={key} className={`flex items-start gap-2.5 border rounded-xl p-2.5 ${
-                          isCorrect ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white"
-                        }`}>
-                          <span className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold shrink-0 border mt-0.5 ${
-                            isCorrect ? "bg-blue-600 text-white border-blue-600" : "border-slate-300 text-slate-500"
-                          }`}>{letter}</span>
-                          <span className={`text-xs leading-relaxed pt-0.5 ${isCorrect ? "text-blue-900" : "text-slate-700"}`}>
-                            {parseFormattedText(choiceText.replace(/^[A-Fa-f][).:\s]\s*/, ""))}
-                          </span>
-                          {isCorrect && <span className="text-xs font-bold text-blue-600 shrink-0 ml-auto">✓</span>}
-                        </div>
-                      );
-                    })}
+                {/* ── Table row radio ── */}
+                {form.type === "table_row_radio" && (() => {
+                  const cols = (form.tr_col_headers as string ?? "")
+                    .split(",").map((s: string) => s.trim()).filter(Boolean);
+                  const rowsArr = (form.tr_rows as string ?? "")
+                    .split("\n").map((s: string) => s.trim()).filter(Boolean);
+                  if (cols.length === 0 || rowsArr.length === 0) return (
+                    <p className="text-xs text-slate-400 italic px-1">
+                      Enter column headers and row labels above to preview.
+                    </p>
+                  );
+                  return (
+                    <TableRowRadio
+                      key={previewResetKey}
+                      colHeaders={cols}
+                      rows={rowsArr}
+                      chosenAnswer={setPreviewAnswer}
+                      isReadOnly={false}
+                      previousAnswer=""
+                    />
+                  );
+                })()}
+
+                {/* ── Number line click ── */}
+                {form.type === "number_line_click" && (
+                  <div className="overflow-x-auto -mx-1 px-1">
+                    <NumberLineClick
+                      key={previewResetKey}
+                      min={parseFloat((form.nl_min as string) || "-10")}
+                      max={parseFloat((form.nl_max as string) || "10")}
+                      step={parseFloat((form.nl_step as string) || "1")}
+                      onAnswerChange={setPreviewAnswer}
+                      isReadOnly={false}
+                    />
                   </div>
                 )}
 
-                {/* Linear graphing */}
-                {form.type === "linear_graphing" && (
-                  <div className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-500 italic">
-                    Student draws a line on a graph.{" "}
-                    <span className="not-italic font-semibold text-slate-700">Answer: <span className="font-mono">{form.answer || "—"}</span></span>
-                  </div>
+                {/* ── Drag fill single ── */}
+                {form.type === "drag_fill_single" && form.text?.includes("[BLANK]") && (
+                  <DragFillSingle
+                    key={previewResetKey}
+                    text={form.text ?? ""}
+                    options={[form.choice_1 ?? "", form.choice_2 ?? "", form.choice_3 ?? "", form.choice_4 ?? ""].filter(Boolean)}
+                    chosenAnswer={setPreviewAnswer}
+                    isReadOnly={false}
+                  />
                 )}
-                {/* Table row radio */}
-                {form.type === "table_row_radio" && (
-                  <div className="bg-white border border-violet-200 rounded-xl px-3 py-2 text-xs text-slate-500">
-                    {(() => {
-                      const cols = (form.tr_col_headers as string ?? "")
-                        .split(",").map((s: string) => s.trim()).filter(Boolean);
-                      const rowsArr = (form.tr_rows as string ?? "")
-                        .split("\n").map((s: string) => s.trim()).filter(Boolean);
-                      if (cols.length === 0 || rowsArr.length === 0) {
-                        return <span className="italic">Enter column headers and row labels above to preview.</span>;
-                      }
-                      return (
-                        <div className="flex flex-col gap-1">
-                          <span className="font-semibold text-slate-600 not-italic">
-                            {rowsArr.length} row{rowsArr.length !== 1 ? "s" : ""} × {cols.length} column{cols.length !== 1 ? "s" : ""}
-                            {" — "}Answer: <span className="font-mono">{form.answer || "—"}</span>
-                          </span>
-                          <span className="text-zinc-400">Cols: {cols.join(" · ")} | Rows: {rowsArr.slice(0, 2).join(" · ")}{rowsArr.length > 2 ? " …" : ""}</span>
-                        </div>
-                      );
-                    })()}
-                  </div>
+                {form.type === "drag_fill_single" && !form.text?.includes("[BLANK]") && (
+                  <p className="text-sm text-zinc-400 italic">Add <code className="bg-zinc-100 px-1 rounded font-mono">[BLANK]</code> to the question text and token tiles A–D to see the preview.</p>
                 )}
-                {/* Number line click */}
-                {form.type === "number_line_click" && (
-                  <div className="bg-white border border-cyan-200 rounded-xl px-3 py-2 text-xs text-slate-500">
-                    Student clicks a point on a number line.{" "}
-                    <span className="font-semibold text-slate-700">
-                      Range: <span className="font-mono">[{(form.nl_min as string) || "-10"}, {(form.nl_max as string) || "10"}]</span>,{" "}
-                      Step: <span className="font-mono">{(form.nl_step as string) || "1"}</span>,{" "}
-                      Answer: <span className="font-mono">{form.answer || "—"}</span>
-                    </span>
+
+                {/* ── Drag fill multiple ── */}
+                {form.type === "drag_fill_multiple" && /\[BLANK_\d+\]/.test(form.text ?? "") && (
+                  <DragFillMultiple
+                    key={previewResetKey}
+                    text={form.text ?? ""}
+                    options={[
+                      form.choice_1 ?? "", form.choice_2 ?? "", form.choice_3 ?? "",
+                      form.choice_4 ?? "", (form.choice_5 as string) ?? "", (form.choice_6 as string) ?? "",
+                    ].filter(Boolean)}
+                    chosenAnswer={setPreviewAnswer}
+                    isReadOnly={false}
+                  />
+                )}
+                {form.type === "drag_fill_multiple" && !/\[BLANK_\d+\]/.test(form.text ?? "") && (
+                  <p className="text-sm text-zinc-400 italic">Add <code className="bg-zinc-100 px-1 rounded font-mono">[BLANK_1]</code>, <code className="bg-zinc-100 px-1 rounded font-mono">[BLANK_2]</code>, … to the text and token tiles A–D to see the preview.</p>
+                )}
+
+                {/* ── Drag to bin ── */}
+                {form.type === "drag_to_bin" && (() => {
+                  const items = (form.df_items as string ?? "").split("\n").map((s: string) => s.trim()).filter(Boolean);
+                  const bins  = (form.df_bins  as string ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
+                  if (items.length === 0 || bins.length === 0) return (
+                    <p className="text-sm text-zinc-400 italic">Enter item chips (one per line) and bin labels above to preview.</p>
+                  );
+                  return (
+                    <DragToBin
+                      key={previewResetKey}
+                      items={items}
+                      bins={bins}
+                      chosenAnswer={setPreviewAnswer}
+                      isReadOnly={false}
+                    />
+                  );
+                })()}
+
+                {/* ── Drag to categorize ── */}
+                {form.type === "drag_to_categorize" && (() => {
+                  const items = (form.df_items as string ?? "").split("\n").map((s: string) => s.trim()).filter(Boolean);
+                  const bins  = (form.df_bins  as string ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
+                  if (items.length === 0 || bins.length === 0) return (
+                    <p className="text-sm text-zinc-400 italic">Enter item chips (one per line) and category labels above to preview.</p>
+                  );
+                  return (
+                    <DragToCategorize
+                      key={previewResetKey}
+                      items={items}
+                      bins={bins}
+                      chosenAnswer={setPreviewAnswer}
+                      isReadOnly={false}
+                    />
+                  );
+                })()}
+
+                {form.type === "in_passage_sentence_select" && (() => {
+                  const sentences = (form.pss_sentences as string ?? "").split("\n").map((s: string) => s.trim()).filter(Boolean);
+                  if (sentences.length === 0) return (
+                    <p className="text-sm text-zinc-400 italic">Enter passage sentences (one per line) above to preview.</p>
+                  );
+                  return (
+                    <PassageSentenceSelect
+                      key={previewResetKey}
+                      sentences={sentences}
+                      chosenAnswer={setPreviewAnswer}
+                      isReadOnly={false}
+                    />
+                  );
+                })()}
+
+                {form.type === "inline_text_span_click" && (() => {
+                  const passage = (form.span_passage as string ?? "").trim();
+                  if (!passage) return (
+                    <p className="text-sm text-zinc-400 italic">Enter passage text with [SPAN_A]...[/SPAN_A] markers above to preview.</p>
+                  );
+                  return (
+                    <InlineTextSpanClick
+                      key={previewResetKey}
+                      passage={passage}
+                      chosenAnswer={setPreviewAnswer}
+                      isReadOnly={false}
+                    />
+                  );
+                })()}
+
+                {/* ── Answer key + reset footer ── */}
+                {form.answer && (
+                  <div className="mt-2 pt-3 border-t border-slate-200 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider shrink-0">Answer</span>
+                      <code className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded font-mono truncate max-w-36">
+                        {form.answer}
+                      </code>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setPreviewAnswer(""); setPreviewResetKey(k => k + 1); }}
+                      className={`shrink-0 text-[11px] font-semibold transition-all duration-150 ${
+                        previewAnswer
+                          ? "text-slate-500 hover:text-slate-800"
+                          : "text-slate-300 pointer-events-none"
+                      }`}
+                    >
+                      Reset ↺
+                    </button>
                   </div>
                 )}
               </div>

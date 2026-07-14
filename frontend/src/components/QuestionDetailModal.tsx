@@ -6,6 +6,12 @@ import { MediaItem } from "./types";
 import SHSATGrapher from "./SHSATGrapher";
 import NumberLineClick from "./NumberLineClick";
 import TableRowRadio from "./TableRowRadio";
+import DragFillSingle from "./DragFillSingle";
+import DragFillMultiple from "./DragFillMultiple";
+import DragToBin from "./DragToBin";
+import DragToCategorize from "./DragToCategorize";
+import PassageSentenceSelect from "./PassageSentenceSelect";
+import InlineTextSpanClick from "./InlineTextSpanClick";
 
 interface AllQuestion {
   uid: string;
@@ -120,6 +126,12 @@ export default function QuestionDetailModal({
   const isInlineDropdown = question?.type === "inline-dropdown";
   const isNumberLine    = question?.type === "number_line_click";
   const isTableRowRadio = question?.type === "table_row_radio";
+  const isDragSingle    = question?.type === "drag_fill_single";
+  const isDragMultiple  = question?.type === "drag_fill_multiple";
+  const isDragToBin     = question?.type === "drag_to_bin";
+  const isDragToCat     = question?.type === "drag_to_categorize";
+  const isPSS           = question?.type === "in_passage_sentence_select";
+  const isSpanClick     = question?.type === "inline_text_span_click";
   const fallbackLetters = ["A", "B", "C", "D", "E", "F"];
 
   // Multi-select: build full options list including extra_data choices
@@ -269,8 +281,99 @@ export default function QuestionDetailModal({
               </div>
             )}
             <div className="p-5 flex flex-col gap-4">
+              {/* For drag fill types — component renders its own text+blanks */}
+              {isDragSingle && (
+                <DragFillSingle
+                  text={question.text ?? ""}
+                  options={[question.choice_1, question.choice_2, question.choice_3, question.choice_4].filter(Boolean) as string[]}
+                  chosenAnswer={() => {}}
+                  isReadOnly={true}
+                  previousAnswer={studentAnswer ?? ""}
+                  answer={correctAnswer}
+                />
+              )}
+              {isDragMultiple && (() => {
+                const extra = (question.extra_data ?? {}) as Record<string, unknown>;
+                const tokens = [
+                  question.choice_1, question.choice_2, question.choice_3, question.choice_4,
+                  extra.choice_5 as string | null, extra.choice_6 as string | null,
+                ].filter(Boolean) as string[];
+                return (
+                  <DragFillMultiple
+                    text={question.text ?? ""}
+                    options={tokens}
+                    chosenAnswer={() => {}}
+                    isReadOnly={true}
+                    previousAnswer={studentAnswer ?? ""}
+                    answer={correctAnswer}
+                  />
+                );
+              })()}
+
+              {/* Drag to bin / categorize — read-only review */}
+              {isDragToBin && (() => {
+                const extra = (question.extra_data ?? {}) as Record<string, unknown>;
+                const items = Array.isArray(extra.items) ? extra.items as string[] : [];
+                const bins  = Array.isArray(extra.bins)  ? extra.bins  as string[] : [];
+                return (
+                  <DragToBin
+                    items={items}
+                    bins={bins}
+                    chosenAnswer={() => {}}
+                    isReadOnly={true}
+                    previousAnswer={studentAnswer ?? ""}
+                    answer={correctAnswer}
+                  />
+                );
+              })()}
+              {isDragToCat && (() => {
+                const extra = (question.extra_data ?? {}) as Record<string, unknown>;
+                const items = Array.isArray(extra.items) ? extra.items as string[] : [];
+                const bins  = Array.isArray(extra.bins)  ? extra.bins  as string[] : [];
+                return (
+                  <DragToCategorize
+                    items={items}
+                    bins={bins}
+                    chosenAnswer={() => {}}
+                    isReadOnly={true}
+                    previousAnswer={studentAnswer ?? ""}
+                    answer={correctAnswer}
+                  />
+                );
+              })()}
+
+              {/* In-passage sentence select — read-only review */}
+              {isPSS && (() => {
+                const extra = (question.extra_data ?? {}) as Record<string, unknown>;
+                const sentences = Array.isArray(extra.sentences) ? extra.sentences as string[] : [];
+                return (
+                  <PassageSentenceSelect
+                    sentences={sentences}
+                    chosenAnswer={() => {}}
+                    isReadOnly={true}
+                    previousAnswer={studentAnswer ?? ""}
+                    answer={correctAnswer}
+                  />
+                );
+              })()}
+
+              {/* Inline text span click — read-only review */}
+              {isSpanClick && (() => {
+                const extra = (question.extra_data ?? {}) as Record<string, unknown>;
+                const passage = typeof extra.passage === "string" ? extra.passage : "";
+                return (
+                  <InlineTextSpanClick
+                    passage={passage}
+                    chosenAnswer={() => {}}
+                    isReadOnly={true}
+                    previousAnswer={studentAnswer ?? ""}
+                    answer={correctAnswer}
+                  />
+                );
+              })()}
+
               {/* For inline-dropdown, render the sentence with the blank filled in */}
-              {isInlineDropdown ? (() => {
+              {isDragSingle || isDragMultiple || isDragToBin || isDragToCat || isPSS || isSpanClick ? null : isInlineDropdown ? (() => {
                 const blankIdx = question.text?.indexOf("[BLANK]") ?? -1;
                 const before = blankIdx >= 0 ? question.text.slice(0, blankIdx) : question.text ?? "";
                 const after  = blankIdx >= 0 ? question.text.slice(blankIdx + 7) : "";
@@ -469,7 +572,7 @@ export default function QuestionDetailModal({
                     );
                   })}
                 </div>
-              ) : isInlineDropdown ? null : (
+              ) : (isInlineDropdown || isDragSingle || isDragMultiple || isDragToBin || isDragToCat || isPSS || isSpanClick) ? null : (
                 <div className="flex flex-col gap-2">
                   {choices.map(({ letter, label }) => {
                     const isStudentChoice = studentAnswer === letter;
