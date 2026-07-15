@@ -58,13 +58,15 @@ export default function TutorPage() {
   const navigate = useNavigate();
   const user = useContext(UserContext);
 
-  useEffect(() => {
+  function refreshPendingReports() {
     supabase
       .from("question_reports")
       .select("id", { count: "exact", head: true })
       .eq("status", "pending")
       .then(({ count }) => setPendingReports(count ?? 0));
-  }, []);
+  }
+
+  useEffect(() => { refreshPendingReports(); }, []);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -119,7 +121,7 @@ export default function TutorPage() {
           <AdminReportsPanel
             isAdmin={false}
             onEditQuestion={() => {}}
-            onReportResolved={() => setPendingReports(n => Math.max(0, n - 1))}
+            onReportResolved={refreshPendingReports}
           />
         )}
       </main>

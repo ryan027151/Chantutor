@@ -258,18 +258,17 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved, is
     await supabase.from("question_reports").update({ status }).eq("id", id);
     setReports((list) => list.map((r) => r.id === id ? { ...r, status } : r));
     setUpdating(null);
-    if (prev === "pending" && status !== "pending") onReportResolved();
+    onReportResolved();
   }
 
   // ── Delete a single report log ─────────────────────────────────────────────
 
   async function deleteReport(id: string) {
-    const wasPending = reports.find((r) => r.id === id)?.status === "pending";
     await supabase.from("question_reports").delete().eq("id", id);
     setReports((list) => list.filter((r) => r.id !== id));
     setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
     if (expanded === id) setExpanded(null);
-    if (wasPending) onReportResolved();
+    onReportResolved();
   }
 
   // ── Delete the flagged question from the bank ──────────────────────────────
@@ -297,10 +296,9 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved, is
     setBulkWorking(true);
     const ids = [...selected];
     await supabase.from("question_reports").delete().in("id", ids);
-    const deletedPending = reports.filter((r) => ids.includes(r.id) && r.status === "pending").length;
     setReports((list) => list.filter((r) => !ids.includes(r.id)));
     setSelected(new Set());
-    for (let i = 0; i < deletedPending; i++) onReportResolved();
+    onReportResolved();
     setBulkWorking(false);
   }
 
@@ -316,9 +314,8 @@ export default function AdminReportsPanel({ onEditQuestion, onReportResolved, is
     });
     if (ids.length > 0) {
       await supabase.from("question_reports").update({ status }).in("id", ids);
-      const prevPendingCount = reports.filter((r) => ids.includes(r.id) && r.status === "pending").length;
       setReports((list) => list.map((r) => ids.includes(r.id) ? { ...r, status } : r));
-      if (status !== "pending") for (let i = 0; i < prevPendingCount; i++) onReportResolved();
+      onReportResolved();
     }
     setSelected(new Set());
     setBulkWorking(false);

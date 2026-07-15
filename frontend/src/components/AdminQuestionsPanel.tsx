@@ -894,7 +894,8 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
   async function closeModal() {
     const wasFromReport = activeReportId !== null;
     if (activeReportId) {
-      await supabase.from("question_reports").update({ status: "reviewed" }).eq("id", activeReportId);
+      // Only advance pending→reviewed; never downgrade resolved or reviewed reports
+      await supabase.from("question_reports").update({ status: "reviewed" }).eq("id", activeReportId).eq("status", "pending");
       setActiveReportId(null);
     }
     setModalMode(null);
@@ -1175,7 +1176,10 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
     const wasFromReport = modalMode === "edit" && activeReportId !== null;
     if (modalMode === "edit" && activeReportId) {
       const reportStatus = (Object.keys(changedFields).length > 0 || mediaChanged) ? "resolved" : "reviewed";
-      await supabase.from("question_reports").update({ status: reportStatus }).eq("id", activeReportId);
+      let reportQuery = supabase.from("question_reports").update({ status: reportStatus }).eq("id", activeReportId);
+      // Never downgrade a resolved report to reviewed (only applies when no changes were made)
+      if (reportStatus === "reviewed") reportQuery = reportQuery.neq("status", "resolved");
+      await reportQuery;
       setActiveReportId(null);
     }
 
@@ -1653,12 +1657,10 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                       <span className="text-sm font-bold text-zinc-400 shrink-0">Select count</span>
                       <input
                         type="number"
-                        min={1}
-                        max={6}
+                        readOnly
                         value={(form.select_count as string) ?? ""}
-                        onChange={e => setField("select_count", e.target.value)}
-                        placeholder="How many to select (e.g. 2)"
-                        className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-base text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/25 transition-colors font-mono"
+                        placeholder="Auto — set by answer"
+                        className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-base text-zinc-500 placeholder-zinc-400 font-mono cursor-default"
                       />
                     </div>
                   )}
@@ -1840,7 +1842,15 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                   </div>
                 ) : form.type === "multi-select" ? (
                   <div className="flex flex-col gap-1.5">
-                    <Input value={form.answer ?? ""} onChange={v => setField("answer", v)} placeholder="Comma-separated correct letters, e.g. A,C or A,B,E" mono />
+                    <Input
+                      value={form.answer ?? ""}
+                      onChange={v => {
+                        const count = v.split(",").map(s => s.trim()).filter(Boolean).length;
+                        setForm(f => ({ ...f, answer: v, select_count: count > 0 ? String(count) : "" }));
+                      }}
+                      placeholder="Comma-separated correct letters, e.g. A,C or A,B,E"
+                      mono
+                    />
                     <p className="text-xs text-zinc-400">Enter all correct answer letters separated by commas.</p>
                   </div>
                 ) : form.type === "linear_graphing" ? (
@@ -1983,7 +1993,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                           {isImageType(item.media_type) ? (
                             <div className="flex flex-col gap-2">
                               {item.previewUrl && (
-                                <img src={item.previewUrl} alt="preview"
+                                <img key={item.previewUrl} src={item.previewUrl} alt="preview"
                                   className="max-h-36 object-contain rounded-lg border border-zinc-200 bg-zinc-50 p-1"
                                   onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty("display", "block"); }}
                                 />
@@ -2061,7 +2071,7 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                         </div>
                       ) : item.previewUrl ? (
                         <div key={idx} className="bg-white rounded-lg border border-slate-200 p-2 text-center">
-                          <img src={item.previewUrl} alt={item.mediaId} className="max-w-full h-auto mx-auto"
+                          <img key={item.previewUrl} src={item.previewUrl} alt={item.mediaId} className="max-w-full h-auto mx-auto"
                             onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty("display", "block"); }}
                           />
                           <p className="hidden text-xs text-red-500 mt-1">⚠ Image failed — re-upload via Edit</p>

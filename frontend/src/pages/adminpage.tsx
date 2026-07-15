@@ -74,13 +74,15 @@ export default function AdminPage() {
   const navigate = useNavigate();
   const user = useContext(UserContext);
 
-  useEffect(() => {
+  function refreshPendingReports() {
     supabase
       .from("question_reports")
       .select("id", { count: "exact", head: true })
       .eq("status", "pending")
       .then(({ count }) => setPendingReports(count ?? 0));
-  }, []);
+  }
+
+  useEffect(() => { refreshPendingReports(); }, []);
 
   function handleEditQuestion(uid: string, reportId: string) {
     setEditQuestionUid(uid);
@@ -150,7 +152,7 @@ export default function AdminPage() {
         {tab === "reports"  && (
           <AdminReportsPanel
             onEditQuestion={handleEditQuestion}
-            onReportResolved={() => setPendingReports(n => Math.max(0, n - 1))}
+            onReportResolved={refreshPendingReports}
           />
         )}
         {tab === "tokens"   && <AdminTokensPanel />}
