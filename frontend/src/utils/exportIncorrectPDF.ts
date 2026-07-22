@@ -262,6 +262,16 @@ function prepareHtml(raw: string): string {
     .replace(/\n/g, "<br>");
 }
 
+// For Revising & Editing questions: split "Which sentence…? (1)…(2)…" into
+// a question prompt and an embedded passage so they render in separate blocks.
+function extractEmbeddedPassage(text: string): { prompt: string; passageText: string } | null {
+  const idx = text.search(/\(\d{1,2}\)/);
+  if (idx === -1) return null;
+  const passageText = text.slice(idx).trim();
+  if ((passageText.match(/\(\d{1,2}\)/g) ?? []).length < 2) return null;
+  return { prompt: text.slice(0, idx).trim(), passageText };
+}
+
 function renderQuestion(q: IncorrectQuestion): string {
   const isChoiceBased = ["mcq", "multi-select", "inline-dropdown"].includes(q.type);
 
@@ -321,45 +331,120 @@ function renderQuestion(q: IncorrectQuestion): string {
     answersHTML = `<div style="margin-top:8px;">${choiceRows}${note}</div>`;
   }
 
+  const isEla = (q.subject ?? "").toLowerCase() === "english";
+  const embedded = isEla ? extractEmbeddedPassage(q.text) : null;
+
+  let questionBodyHTML: string;
+  if (embedded) {
+    const sentences = embedded.passageText.split(/\s+(?=\(\d{1,2}\))/).filter(Boolean);
+    const sentenceHTML = sentences.map(s =>
+      `<p style="margin:0 0 2px 0;font-size:11px;line-height:1.55;color:#1e3a5f;">${prepareHtml(s)}</p>`
+    ).join("");
+    questionBodyHTML = `
+      ${embedded.prompt ? `<div style="font-size:12.5px;color:#111827;line-height:1.6;margin-bottom:8px;">${prepareHtml(embedded.prompt)}</div>` : ""}
+      <div style="border:1.5px solid #bfdbfe;border-radius:8px;background:#eff6ff;padding:10px 13px;margin-bottom:8px;">
+        <div style="font-size:9px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Article</div>
+        ${sentenceHTML}
+      </div>`;
+  } else {
+    questionBodyHTML = `<div style="font-size:12.5px;color:#111827;line-height:1.6;">${prepareHtml(q.text)}</div>`;
+  }
+
   return `
     <div style="margin-bottom:14px;padding:13px 15px;border:1.5px solid #e5e7eb;border-radius:10px;background:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
       <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:4px;">
         <span style="flex-shrink:0;width:23px;height:23px;border-radius:6px;background:#1d4ed8;color:#ffffff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:1px;">${q.questionNumber}</span>
-        <div style="font-size:12.5px;color:#111827;line-height:1.6;flex:1;">${prepareHtml(q.text)}</div>
+        <div style="flex:1;">${questionBodyHTML}</div>
       </div>
       ${answersHTML}
     </div>`;
 }
 
-function renderPassageGroup(passageText: string, questions: IncorrectQuestion[]): string {
+// Each paragraph becomes its own canvas fragment with passageId so the PDF
+// layout engine can apply no-split to every paragraph and then draw one fresh
+// border rectangle around all same-id fragments visible on each page.
+function buildPassageParagraphFragments(passageText: string, passageId: string): FragSpec[] {
   const paragraphs = processPassage(passageText);
-  const passageHTML = paragraphs
-    .map((p, i) => {
-      const isTitle    = i === 0 && !/^\(\d/.test(p) && p.length < 80;
-      const isNumbered = /^\(\d+\)/.test(p);   // sentence-number markers like (1), (12)
-      // Tighter spacing between numbered sentences (they're part of the same paragraph
-      // in the source, just given sentence numbers for question references).
-      // Larger gap only between true paragraph breaks (non-numbered prose paragraphs).
-      const marginBottom = isTitle ? "10px" : isNumbered ? "1px" : "6px";
-      return `<p style="margin:0 0 ${marginBottom} 0;font-size:11px;line-height:1.6;color:#1e3a5f;${isTitle ? "font-weight:700;text-align:center;" : ""}">${prepareHtml(p)}</p>`;
-    })
-    .join("");
-
-  return `
-    <div style="border:1.5px solid #bfdbfe;border-radius:8px;background:#eff6ff;padding:13px 15px;margin-bottom:10px;">
-      <div style="font-size:9px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Passage</div>
-      ${passageHTML}
-    </div>
-    ${questions.map(q => renderQuestion(q)).join("")}`;
+  return paragraphs.map((p, i) => {
+    const isFirst    = i === 0;
+    const isLast     = i === paragraphs.length - 1;
+    const isTitle    = isFirst && !/^\(\d/.test(p) && p.length < 80;
+    const isNumbered = /^\(\d+\)/.test(p);
+    const mb         = isTitle ? "8px" : isNumbered ? "1px" : "4px";
+    const topPad     = isFirst ? "13px" : "2px";
+    const botPad     = isLast  ? "13px" : "2px";
+    const label      = isFirst
+      ? `<div style="font-size:9px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Passage</div>`
+      : "";
+    const html = `<div style="background:#eff6ff;padding:${topPad} 15px ${botPad} 15px;">${label}<p style="margin:0 0 ${mb} 0;font-size:11px;line-height:1.6;color:#1e3a5f;${isTitle ? "font-weight:700;text-align:center;" : ""}">${prepareHtml(p)}</p></div>`;
+    return { html, style: PASSAGE_PARA_FRAG_STYLE, passageId };
+  });
 }
 
-function renderSection(section: IncorrectReportSection, showHeader: boolean): string {
+function buildSubjectHeaderHTML(label: string, color: string, dividerBg: string, count: number): string {
+  return `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+      <span style="font-size:13px;font-weight:800;color:${color};">${label}</span>
+      <div style="flex:1;height:1.5px;background:${dividerBg};border-radius:1px;"></div>
+      <span style="font-size:11px;color:#6b7280;">${count} missed</span>
+    </div>`;
+}
+
+function buildSubSectionLabelHTML(label: string): string {
+  return `<p style="font-size:9.5px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin:0 0 8px 0;">${label}</p>`;
+}
+
+function buildSectionHeaderHTML(section: IncorrectReportSection): string {
+  const dateLine = section.testDate
+    ? `<span style="font-size:10px;color:#9ca3af;display:block;margin-top:1px;">${new Date(section.testDate).toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>`
+    : "";
+  // score is stored as a 0-100 percentage; derive raw counts from it
+  const correctRaw = section.totalQuestions != null && section.correctCount != null
+    ? Math.round(section.totalQuestions * section.correctCount / 100) : null;
+  const missedRaw  = section.totalQuestions != null && correctRaw != null
+    ? section.totalQuestions - correctRaw : null;
+  const statParts: string[] = [];
+  if (section.totalQuestions != null)
+    statParts.push(`<span style="color:#374151;"><b>${section.totalQuestions}</b> total</span>`);
+  if (correctRaw != null)
+    statParts.push(`<span style="color:#16a34a;"><b>${correctRaw}</b> correct</span>`);
+  if (missedRaw != null)
+    statParts.push(`<span style="color:#dc2626;"><b>${missedRaw}</b> missed</span>`);
+  const statsLine = statParts.length > 0
+    ? `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:5px;font-size:10px;">${statParts.join("")}</div>`
+    : "";
+  const badgeCount = missedRaw ?? section.questions.length;
+  return `
+    <div style="padding:10px 14px;background:#f3f4f6;border-left:4px solid #6366f1;border-radius:0 8px 8px 0;margin-bottom:14px;margin-top:8px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div>
+          <span style="font-size:14px;font-weight:800;color:#1f2937;display:block;">${section.testName}</span>
+          ${dateLine}
+          ${statsLine}
+        </div>
+        <span style="flex-shrink:0;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;background:#ffe4e6;color:#e11d48;border:1px solid #fda4af;white-space:nowrap;margin-top:2px;">${badgeCount} missed</span>
+      </div>
+    </div>`;
+}
+
+// Each fragment carries optional per-fragment CSS and a passage group ID.
+// Passage paragraphs use PASSAGE_PARA_FRAG_STYLE (no vertical padding) so they
+// stack tightly.  The PDF loop groups same-passageId fragments per page and draws
+// a single border rect around the group — creating a fresh box on every page.
+type FragSpec = { html: string; style?: string; passageId?: string };
+const frag = (html: string): FragSpec => ({ html });
+
+function buildSectionFragments(section: IncorrectReportSection, showHeader: boolean): FragSpec[] {
+  const frags: FragSpec[] = [];
+
+  if (showHeader) frags.push(frag(buildSectionHeaderHTML(section)));
+
   const elaQs  = section.questions.filter(q => (q.subject ?? "").toLowerCase() === "english");
   const mathQs = section.questions.filter(q => (q.subject ?? "").toLowerCase() !== "english");
 
-  let body = "";
-
   if (elaQs.length > 0) {
+    frags.push(frag(buildSubjectHeaderHTML("ELA", "#2563eb", "#dbeafe", elaQs.length)));
+
     const standaloneQs = elaQs.filter(q => !q.passageContent);
     const rcQs         = elaQs.filter(q =>  q.passageContent);
 
@@ -372,65 +457,26 @@ function renderSection(section: IncorrectReportSection, showHeader: boolean): st
     const passageGroups = [...passageGroupMap.entries()]
       .sort(([, a], [, b]) => a[0].questionNumber - b[0].questionNumber);
 
-    body += `
-      <div style="margin-bottom:18px;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-          <span style="font-size:13px;font-weight:800;color:#2563eb;">ELA</span>
-          <div style="flex:1;height:1.5px;background:#dbeafe;border-radius:1px;"></div>
-          <span style="font-size:11px;color:#6b7280;">${elaQs.length} missed</span>
-        </div>
-        ${standaloneQs.length > 0
-          ? `<p style="font-size:9.5px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin:0 0 8px 0;">Revising &amp; Editing</p>
-             ${standaloneQs.map(q => renderQuestion(q)).join("")}`
-          : ""}
-        ${passageGroups.map(([passageText, qs]) =>
-          `<p style="font-size:9.5px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin:0 0 8px 0;">Reading Comprehension</p>
-           ${renderPassageGroup(passageText, qs)}`
-        ).join("")}
-      </div>`;
+    if (standaloneQs.length > 0) {
+      frags.push(frag(buildSubSectionLabelHTML("Revising &amp; Editing")));
+      for (const q of standaloneQs) frags.push(frag(renderQuestion(q)));
+    }
+
+    let pIdx = 0;
+    for (const [passageText, qs] of passageGroups) {
+      const passageId = `${section.testName}::${pIdx++}`;
+      frags.push(frag(buildSubSectionLabelHTML("Reading Comprehension")));
+      frags.push(...buildPassageParagraphFragments(passageText, passageId));
+      for (const q of qs) frags.push(frag(renderQuestion(q)));
+    }
   }
 
   if (mathQs.length > 0) {
-    body += `
-      <div style="margin-bottom:18px;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-          <span style="font-size:13px;font-weight:800;color:#7c3aed;">Math</span>
-          <div style="flex:1;height:1.5px;background:#ede9fe;border-radius:1px;"></div>
-          <span style="font-size:11px;color:#6b7280;">${mathQs.length} missed</span>
-        </div>
-        ${mathQs.map(q => renderQuestion(q)).join("")}
-      </div>`;
+    frags.push(frag(buildSubjectHeaderHTML("Math", "#7c3aed", "#ede9fe", mathQs.length)));
+    for (const q of mathQs) frags.push(frag(renderQuestion(q)));
   }
 
-  if (!showHeader) return body;
-
-  const dateLine = section.testDate
-    ? `<span style="font-size:10px;color:#9ca3af;display:block;margin-top:1px;">${new Date(section.testDate).toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>`
-    : "";
-
-  const statParts: string[] = [];
-  if (section.totalQuestions != null)
-    statParts.push(`<span style="color:#374151;"><b>${section.totalQuestions}</b> total</span>`);
-  if (section.correctCount != null)
-    statParts.push(`<span style="color:#16a34a;"><b>${section.correctCount}</b> correct</span>`);
-  if (section.totalQuestions != null && section.correctCount != null)
-    statParts.push(`<span style="color:#dc2626;"><b>${section.totalQuestions - section.correctCount}</b> missed</span>`);
-  const statsLine = statParts.length > 0
-    ? `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:5px;font-size:10px;">${statParts.join("")}</div>`
-    : "";
-
-  return `
-    <div style="padding:10px 14px;background:#f3f4f6;border-left:4px solid #6366f1;border-radius:0 8px 8px 0;margin-bottom:14px;margin-top:8px;">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
-        <div>
-          <span style="font-size:14px;font-weight:800;color:#1f2937;display:block;">${section.testName}</span>
-          ${dateLine}
-          ${statsLine}
-        </div>
-        <span style="flex-shrink:0;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;background:#ffe4e6;color:#e11d48;border:1px solid #fda4af;white-space:nowrap;margin-top:2px;">${section.questions.length} missed</span>
-      </div>
-    </div>
-    ${body}`;
+  return frags;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -446,13 +492,18 @@ function buildReportHeaderHTML(data: IncorrectReportData, dateStr: string): stri
   let singleStatsHTML = "";
   if (isSingle) {
     const s = data.sections[0];
+    // score is stored as a 0-100 percentage; derive raw counts
+    const correctRaw = s.totalQuestions != null && s.correctCount != null
+      ? Math.round(s.totalQuestions * s.correctCount / 100) : null;
+    const missedRaw  = s.totalQuestions != null && correctRaw != null
+      ? s.totalQuestions - correctRaw : null;
     const parts: string[] = [];
     if (s.totalQuestions != null)
       parts.push(`<span><b>${s.totalQuestions}</b> total</span>`);
-    if (s.correctCount != null)
-      parts.push(`<span style="color:#16a34a;"><b>${s.correctCount}</b> correct</span>`);
-    if (s.totalQuestions != null && s.correctCount != null)
-      parts.push(`<span style="color:#dc2626;"><b>${s.totalQuestions - s.correctCount}</b> missed</span>`);
+    if (correctRaw != null)
+      parts.push(`<span style="color:#16a34a;"><b>${correctRaw}</b> correct</span>`);
+    if (missedRaw != null)
+      parts.push(`<span style="color:#dc2626;"><b>${missedRaw}</b> missed</span>`);
     if (s.testDate)
       parts.push(`<span>${new Date(s.testDate).toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>`);
     if (parts.length > 0)
@@ -491,72 +542,116 @@ function buildReportFooterHTML(dateStr: string): string {
 // return empty data in Chrome, which produces blank PDF pages.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Each fragment renders position:fixed at top-left so Chrome fully paints it.
-// The user briefly sees the content flash during export — that's intentional
-// and acceptable given the existing loading-spinner state on the button.
-async function renderFragment(html: string): Promise<HTMLCanvasElement> {
-  const el = document.createElement("div");
-  el.style.cssText = [
-    "position:fixed",
-    "top:0",
-    "left:0",
-    "width:794px",
-    "background:white",
-    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-    "font-size:13px",
-    "color:#111827",
-    "padding:20px 40px",
-    "box-sizing:border-box",
-    "pointer-events:none",
-  ].join(";");
-  el.innerHTML = html;
-  document.body.appendChild(el);
-  await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  const canvas = await html2canvas(el, {
-    scale: 2,
-    useCORS: true,
-    logging: false,
-    backgroundColor: "#ffffff",
-    windowWidth: 794,
+// z-index:-1 puts fragments behind the page background so users never see them
+// during generation; html2canvas captures elements by reading their properties
+// directly and is unaffected by z-index.
+const FRAG_STYLE = [
+  "position:fixed", "top:0", "left:0", "width:794px", "background:white",
+  "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+  "font-size:13px", "color:#111827", "padding:20px 40px",
+  "box-sizing:border-box", "pointer-events:none", "z-index:-1",
+].join(";");
+
+// No vertical padding — passage paragraph canvases stack tightly with no gap.
+const PASSAGE_PARA_FRAG_STYLE = [
+  "position:fixed", "top:0", "left:0", "width:794px", "background:white",
+  "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+  "font-size:13px", "color:#111827", "padding:0 40px",
+  "box-sizing:border-box", "pointer-events:none", "z-index:-1",
+].join(";");
+
+// Mount all fragments at once, wait a single double-RAF for Chrome to paint,
+// then capture each via html2canvas (DOM-based, so overlapping siblings are fine).
+// This is much faster than the old per-fragment mount-wait-capture-remove loop.
+async function renderFragmentsBatch(specs: FragSpec[]): Promise<HTMLCanvasElement[]> {
+  const elements = specs.map(spec => {
+    const el = document.createElement("div");
+    el.style.cssText = spec.style ?? FRAG_STYLE;
+    el.innerHTML = spec.html;
+    document.body.appendChild(el);
+    return el;
   });
-  document.body.removeChild(el);
-  return canvas;
+  await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const canvases: HTMLCanvasElement[] = [];
+  for (const el of elements) {
+    canvases.push(await html2canvas(el, {
+      scale: 2, useCORS: true, logging: false,
+      backgroundColor: "#ffffff", windowWidth: 794,
+    }));
+  }
+  elements.forEach(el => document.body.removeChild(el));
+  return canvases;
 }
+
+// Padding from FRAG_STYLE ("padding:20px 40px" on 794px-wide element), converted to mm.
+// Used to align the jsPDF passage border with where the passage div actually sits.
+const FRAG_PAD_H_MM = 40 / 794 * 210;  // horizontal padding → ~10.6 mm
+const FRAG_PAD_V_MM = 20 / 794 * 210;  // vertical padding   → ~5.3 mm
 
 export async function exportIncorrectPDF(data: IncorrectReportData): Promise<void> {
   const isSingle = data.sections.length === 1;
   const dateStr  = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-  const fragments: string[] = [
-    buildReportHeaderHTML(data, dateStr),
-    ...data.sections.map(s => renderSection(s, !isSingle)),
-    buildReportFooterHTML(dateStr),
+  const allSpecs: FragSpec[] = [
+    frag(buildReportHeaderHTML(data, dateStr)),
+    ...data.sections.flatMap(s => buildSectionFragments(s, !isSingle)),
+    frag(buildReportFooterHTML(dateStr)),
   ];
+  const fragPassageIds = allSpecs.map(f => f.passageId ?? null);
 
-  // Render each fragment to its own canvas (small — one section's worth of content)
-  const fragCanvases: HTMLCanvasElement[] = [];
-  for (const html of fragments) {
-    fragCanvases.push(await renderFragment(html));
+  // Loading modal — hides the brief rendering flash while giving the user
+  // clear feedback.  data-html2canvas-ignore tells html2canvas to skip it.
+  const spinKf = document.createElement("style");
+  spinKf.textContent = "@keyframes _pdfSpin{to{transform:rotate(360deg)}}";
+  document.head.appendChild(spinKf);
+
+  const overlay = document.createElement("div");
+  overlay.setAttribute("data-html2canvas-ignore", "true");
+  overlay.style.cssText = [
+    "position:fixed", "inset:0", "z-index:2147483647",
+    "background:rgba(0,0,0,0.4)",
+    "display:flex", "align-items:center", "justify-content:center",
+  ].join(";");
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:28px 36px;
+                box-shadow:0 20px 60px rgba(0,0,0,0.25);
+                display:flex;flex-direction:column;align-items:center;gap:14px;min-width:200px;
+                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+      <div style="width:36px;height:36px;border:3.5px solid #e5e7eb;border-top-color:#6366f1;
+                  border-radius:50%;animation:_pdfSpin 0.8s linear infinite;"></div>
+      <div style="font-size:15px;font-weight:700;color:#111827;">Generating PDF</div>
+      <div style="font-size:12px;color:#9ca3af;">Please wait…</div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  let fragCanvases: HTMLCanvasElement[];
+  try {
+    fragCanvases = await renderFragmentsBatch(allSpecs);
+  } finally {
+    document.body.removeChild(overlay);
+    document.head.removeChild(spinKf);
   }
 
-  const pdf       = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const PW        = pdf.internal.pageSize.getWidth();   // 210 mm
-  const PH        = pdf.internal.pageSize.getHeight();  // 297 mm
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const PW  = pdf.internal.pageSize.getWidth();   // 210 mm
+  const PH  = pdf.internal.pageSize.getHeight();  // 297 mm
 
-  // Build virtual layout: record each fragment's start Y (mm) in the final document
+  // Virtual layout:
+  // - Non-passage fragments: no-split (advance to next page if they won't fit whole)
+  // - Passage fragments: allowed to span pages; jsPDF draws borders per-page portion
   const fragHeightMm: number[] = fragCanvases.map(c => (c.height * PW) / c.width);
-  const fragStartMm: number[]  = fragHeightMm.reduce<number[]>((acc, h) => {
-    acc.push((acc.at(-1) ?? 0) + (acc.length === 0 ? 0 : fragHeightMm[acc.length - 1]));
-    return acc;
-  }, []);
-  // Fix: fragStartMm[i] = sum of heights 0..i-1
-  fragStartMm.length = 0;
+  const fragStartMm: number[]  = [];
   let vy = 0;
-  for (const h of fragHeightMm) { fragStartMm.push(vy); vy += h; }
+  for (let fi = 0; fi < fragHeightMm.length; fi++) {
+    const h = fragHeightMm[fi];
+    const usedOnPage = vy % PH;
+    const spaceLeft  = usedOnPage === 0 ? PH : PH - usedOnPage;
+    if (h > spaceLeft && h <= PH) vy = Math.ceil(vy / PH) * PH;
+    fragStartMm.push(vy);
+    vy += h;
+  }
   const totalMm = vy;
 
-  // Paginate: for each page, draw only the fragments that overlap it.
-  // Use jsPDF aliases so each fragment's JPEG is embedded only once.
   const numPages = Math.max(1, Math.ceil(totalMm / PH));
   for (let p = 0; p < numPages; p++) {
     if (p > 0) pdf.addPage();
@@ -568,9 +663,32 @@ export async function exportIncorrectPDF(data: IncorrectReportData): Promise<voi
       const fBot = fTop + fragHeightMm[fi];
       if (fBot <= pageTop || fTop >= pageBottom) continue;
 
+      const imgYOnPage = fTop - pageTop;  // can be negative when fragment started on prev page
       const imgData = fragCanvases[fi].toDataURL("image/jpeg", 0.92);
-      // y = where the fragment's top edge lands on this page (can be negative = above page)
-      pdf.addImage(imgData, "JPEG", 0, fTop - pageTop, PW, fragHeightMm[fi], `frag_${fi}`);
+      pdf.addImage(imgData, "JPEG", 0, imgYOnPage, PW, fragHeightMm[fi], `frag_${fi}`);
+    }
+
+    // Draw one fresh border rectangle per passage visible on this page.
+    // Collect the union of all same-passageId fragment ranges, then draw one rect.
+    const passageBoxes = new Map<string, { top: number; bot: number }>();
+    for (let fi = 0; fi < fragCanvases.length; fi++) {
+      const pid = fragPassageIds[fi];
+      if (!pid) continue;
+      const fTop = fragStartMm[fi];
+      const fBot = fTop + fragHeightMm[fi];
+      if (fBot <= pageTop || fTop >= pageBottom) continue;
+      const visTop = Math.max(fTop, pageTop) - pageTop;
+      const visBot = Math.min(fBot, pageBottom) - pageTop;
+      const cur = passageBoxes.get(pid);
+      if (cur) { cur.top = Math.min(cur.top, visTop); cur.bot = Math.max(cur.bot, visBot); }
+      else passageBoxes.set(pid, { top: visTop, bot: visBot });
+    }
+    for (const { top, bot } of passageBoxes.values()) {
+      if (bot - top > 0) {
+        pdf.setDrawColor(191, 219, 254);  // #bfdbfe
+        pdf.setLineWidth(0.4);
+        pdf.rect(FRAG_PAD_H_MM, top, PW - 2 * FRAG_PAD_H_MM, bot - top, "S");
+      }
     }
   }
 

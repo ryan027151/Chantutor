@@ -7,6 +7,7 @@ import { faCrown } from "@fortawesome/free-solid-svg-icons";
 import { computeSHSATScore, scoreLabel, isRevisingEditing, type Difficulty, type ScoredQuestion, type SHSATScore } from "../utils/scoring";
 import QuestionDetailModal from "../components/QuestionDetailModal";
 import { exportResultsPDF } from "../utils/exportResultsPDF";
+import { fetchIncorrectReport, fetchFullIncorrectReport, exportIncorrectPDF } from "../utils/exportIncorrectPDF";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -738,6 +739,42 @@ function ParentPage() {
   // Results modal
   const [viewResult, setViewResult] = useState<{ testID: string; studentID: string; studentName: string; duration: number } | null>(null);
 
+  // Missed-questions PDF report
+  const [pdfReportLoading, setPdfReportLoading] = useState<string | null>(null);
+
+  async function generateTestReport(test: TestRecord) {
+    if (!selectedStudent) return;
+    setPdfReportLoading(test.id);
+    const studentName = `${selectedStudent.first_name} ${selectedStudent.last_name}`;
+    try {
+      const report = await fetchIncorrectReport(
+        test.id, selectedStudent.id, test.test_name, studentName,
+        { totalQuestions: test.total_questions ?? undefined, correctCount: test.score ?? undefined, testDate: test.created_at },
+      );
+      if (report) await exportIncorrectPDF(report);
+      else alert("No missed questions found for this test.");
+    } finally {
+      setPdfReportLoading(null);
+    }
+  }
+
+  async function generateFullReport() {
+    if (!selectedStudent) return;
+    setPdfReportLoading("all");
+    const studentName = `${selectedStudent.first_name} ${selectedStudent.last_name}`;
+    try {
+      const done = tests.filter(t => t.score !== null);
+      const report = await fetchFullIncorrectReport(
+        done.map(t => ({ id: t.id, test_name: t.test_name, created_at: t.created_at, total_questions: t.total_questions ?? undefined, score: t.score ?? undefined })),
+        selectedStudent.id, studentName,
+      );
+      if (report) await exportIncorrectPDF(report);
+      else alert("No missed questions found across completed tests.");
+    } finally {
+      setPdfReportLoading(null);
+    }
+  }
+
   // Add child modal
   const [addModal,       setAddModal]       = useState(false);
   const [addEmail,       setAddEmail]       = useState("");
@@ -973,6 +1010,19 @@ function ParentPage() {
                     </div>
                   )}
                 </div>
+                {completedTests.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={generateFullReport}
+                    disabled={!!pdfReportLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-medium text-violet-600 hover:text-violet-800 bg-violet-50 hover:bg-violet-100 border border-violet-200 transition-colors disabled:opacity-50 shrink-0"
+                  >
+                    {pdfReportLoading === "all" ? (
+                      <span className="w-3 h-3 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                    ) : null}
+                    {pdfReportLoading === "all" ? "Generating…" : "Full Report"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => navigate(`/performance/${selectedStudent.id}`)}
@@ -1133,18 +1183,31 @@ function ParentPage() {
                           <ScoreBadge score={test.score} />
 
                           {isCompleted && (
-                            <button
-                              type="button"
-                              onClick={() => setViewResult({
-                                testID: test.id,
-                                studentID: selectedStudent.id,
-                                studentName: `${selectedStudent.first_name} ${selectedStudent.last_name}`,
-                                duration: test.duration,
-                              })}
-                              className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors shrink-0"
-                            >
-                              View Results
-                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => generateTestReport(test)}
+                                disabled={!!pdfReportLoading}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-violet-600 hover:text-violet-800 hover:bg-violet-50 border border-violet-200 transition-colors disabled:opacity-50"
+                              >
+                                {pdfReportLoading === test.id ? (
+                                  <span className="w-3 h-3 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                                ) : null}
+                                {pdfReportLoading === test.id ? "Generating…" : "Report"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setViewResult({
+                                  testID: test.id,
+                                  studentID: selectedStudent.id,
+                                  studentName: `${selectedStudent.first_name} ${selectedStudent.last_name}`,
+                                  duration: test.duration,
+                                })}
+                                className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                              >
+                                View Results
+                              </button>
+                            </div>
                           )}
                         </div>
                       );

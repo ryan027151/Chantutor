@@ -599,7 +599,7 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                     )}
-                    Full Report
+                    {pdfReportLoading === "all" ? "Generating…" : "Full Report"}
                   </button>
                 )}
                 <button
@@ -875,9 +875,14 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
                                 onClick={() => generateTestReport(test)}
                                 disabled={pdfReportLoading === test.id}
                                 title="Download missed questions PDF"
-                                className="text-xs font-medium px-2.5 py-1 rounded-lg border border-violet-200 text-violet-600 hover:bg-violet-50 hover:border-violet-300 transition-colors shrink-0 disabled:opacity-50"
+                                className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-lg border border-violet-200 text-violet-600 hover:bg-violet-50 hover:border-violet-300 transition-colors shrink-0 disabled:opacity-50"
                               >
-                                {pdfReportLoading === test.id ? "…" : "Report"}
+                                {pdfReportLoading === test.id ? (
+                                  <>
+                                    <span className="w-3 h-3 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                                    Generating…
+                                  </>
+                                ) : "Report"}
                               </button>
                             </>
                           )}

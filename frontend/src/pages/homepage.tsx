@@ -6,6 +6,7 @@ import MockTextPopUp from "../components/mockTestPopUp";
 import { useContext, useEffect, useState } from "react";
 import { UserContext } from "../components/userContext";
 import { Test } from "../components/types";
+import { fetchIncorrectReport, fetchFullIncorrectReport, exportIncorrectPDF } from "../utils/exportIncorrectPDF";
 
 interface AssignmentWithTest {
   id: string;
@@ -44,6 +45,7 @@ function HomePage() {
   const [resetIds, setResetIds] = useState<Set<string>>(new Set());
   const [assignments, setAssignments] = useState<AssignmentWithTest[]>([]);
   const [myTutors, setMyTutors] = useState<{ id: string; first_name: string; last_name: string }[]>([]);
+  const [pdfReportLoading, setPdfReportLoading] = useState<string | null>(null);
 
   async function getTests() {
     const { data, error } = await supabase
@@ -127,6 +129,41 @@ function HomePage() {
       .single();
     if (error) { console.error("Insert failed:", error.message); return; }
     navigate(`/mock/${data.id}`);
+  }
+
+  async function generateTestReport(testId: string) {
+    if (!user || !recentTests) return;
+    const test = recentTests.find(t => t.id === testId);
+    if (!test) return;
+    setPdfReportLoading(testId);
+    try {
+      const report = await fetchIncorrectReport(
+        testId, user.id, test.test_name,
+        `${user.first_name} ${user.last_name}`,
+        { totalQuestions: test.total_questions ?? undefined, correctCount: test.score ?? undefined, testDate: test.created_at },
+      );
+      if (report) await exportIncorrectPDF(report);
+      else alert("No missed questions found for this test.");
+    } finally {
+      setPdfReportLoading(null);
+    }
+  }
+
+  async function generateFullReport() {
+    if (!user || !recentTests) return;
+    setPdfReportLoading("all");
+    try {
+      const done = recentTests.filter(t => t.score !== null);
+      const report = await fetchFullIncorrectReport(
+        done.map(t => ({ id: t.id, test_name: t.test_name, created_at: t.created_at, total_questions: t.total_questions ?? undefined, score: t.score ?? undefined })),
+        user.id,
+        `${user.first_name} ${user.last_name}`,
+      );
+      if (report) await exportIncorrectPDF(report);
+      else alert("No missed questions found across completed tests.");
+    } finally {
+      setPdfReportLoading(null);
+    }
   }
 
   async function resetTest(testId: string) {
@@ -677,6 +714,20 @@ function HomePage() {
             <div className="flex items-center justify-between flex-wrap gap-y-2">
               <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Recent Tests</h2>
               <div className="flex items-center gap-2 flex-wrap justify-end">
+                {/* Full Report */}
+                {completedTests.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={generateFullReport}
+                    disabled={!!pdfReportLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-violet-600 hover:text-violet-800 hover:bg-violet-50 border border-violet-200 transition-colors disabled:opacity-50 shrink-0"
+                  >
+                    {pdfReportLoading === "all" ? (
+                      <span className="w-3 h-3 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                    ) : null}
+                    {pdfReportLoading === "all" ? "Generating…" : "Full Report"}
+                  </button>
+                )}
                 {/* Type filter */}
                 <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-medium shrink-0">
                   {(["all", "mock", "practice"] as const).map((f) => (
@@ -706,7 +757,13 @@ function HomePage() {
                 </select>
               </div>
             </div>
-            <TestTable tests={filteredTests} onReset={resetTest} resetIds={resetIds} />
+            <TestTable
+              tests={filteredTests}
+              onReset={resetTest}
+              resetIds={resetIds}
+              onReport={generateTestReport}
+              reportLoadingId={pdfReportLoading}
+            />
           </div>
         </div>
       </div>

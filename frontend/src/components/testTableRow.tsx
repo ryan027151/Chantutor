@@ -9,9 +9,11 @@ interface TestTableRowProps {
   score: number | null;
   wasReset?: boolean;
   onReset?: () => void;
+  onReport?: () => void;
+  reportLoading?: boolean;
 }
 
-export default function TestTableRow({ id, name, date, completed, score, wasReset = false, onReset }: TestTableRowProps) {
+export default function TestTableRow({ id, name, date, completed, score, wasReset = false, onReset, onReport, reportLoading }: TestTableRowProps) {
   const navigate = useNavigate();
   const [confirmReset, setConfirmReset] = useState(false);
   const isDiagnostic = name === "Diagnostic Test";
@@ -74,6 +76,20 @@ export default function TestTableRow({ id, name, date, completed, score, wasRese
                 Reset
               </button>
             )
+          )}
+
+          {completed && onReport && (
+            <button
+              type="button"
+              onClick={onReport}
+              disabled={reportLoading}
+              className="flex items-center gap-1.5 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium text-violet-600 hover:text-violet-800 hover:bg-violet-50 border border-violet-200 transition-colors disabled:opacity-50 shrink-0"
+            >
+              {reportLoading ? (
+                <span className="w-3 h-3 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+              ) : null}
+              {reportLoading ? "Generating…" : "Report"}
+            </button>
           )}
 
           <button

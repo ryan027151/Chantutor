@@ -5,9 +5,11 @@ interface TestTableProps {
   tests: Test[] | null;
   onReset?: (testId: string) => void;
   resetIds?: Set<string>;
+  onReport?: (testId: string) => void;
+  reportLoadingId?: string | null;
 }
 
-export default function TestTable({ tests, onReset, resetIds }: TestTableProps) {
+export default function TestTable({ tests, onReset, resetIds, onReport, reportLoadingId }: TestTableProps) {
   return (
     <div className="flex flex-col gap-3">
       {!tests ? (
@@ -25,6 +27,8 @@ export default function TestTable({ tests, onReset, resetIds }: TestTableProps) 
             score={test.score}
             wasReset={resetIds?.has(test.id) ?? false}
             onReset={onReset ? () => onReset(test.id) : undefined}
+            onReport={onReport ? () => onReport(test.id) : undefined}
+            reportLoading={reportLoadingId === test.id}
           />
         ))
       )}
