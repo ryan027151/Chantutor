@@ -1,5 +1,5 @@
 import { MediaItem } from "./types";
-import { parseFormattedText } from "../utils/textParser";
+import { parseFormattedText, processPassage } from "../utils/textParser";
 
 interface MediaDisplayProps {
   mediaItems: MediaItem[];
@@ -12,12 +12,24 @@ export default function MediaDisplay({ mediaItems }: MediaDisplayProps) {
     <div className="flex flex-col gap-4">
       {mediaItems.map((item) => {
         if (item.media_type === "passage") {
+          const paragraphs = processPassage(item.content);
           return (
             <div
               key={item.media_id}
-              className="w-full bg-gray-50 border border-gray-200 rounded p-4 text-sm leading-relaxed"
+              className="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 sm:p-4 text-sm sm:text-[15px] lg:text-base leading-relaxed space-y-3 lg:space-y-4"
             >
-              {parseFormattedText(item.content)}
+              {paragraphs.map((para, i) => {
+                // Short first chunk with no leading "(N)" is the passage title
+                const isTitle = i === 0 && !/^\(\d/.test(para) && para.length < 80;
+                return (
+                  <p
+                    key={i}
+                    className={isTitle ? "font-semibold text-center text-sm sm:text-base mb-1" : ""}
+                  >
+                    {parseFormattedText(para, `${item.media_id}_${i}`)}
+                  </p>
+                );
+              })}
             </div>
           );
         }

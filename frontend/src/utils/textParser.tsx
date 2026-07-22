@@ -56,6 +56,64 @@ function applyVarItalics(text: string, variables: string[], keyPrefix: string): 
   return nodes.length > 0 ? nodes : [text];
 }
 
+// Splits raw passage text (from dictionary_of_media.content) into clean paragraphs,
+// and wraps inline sentence/paragraph numbers in () when they form a sequential chain.
+//
+// Pass 1 — paragraph splitting and number normalisation:
+//  - Collapses mid-sentence hard line-breaks (PDF/copy-paste artefacts) to spaces.
+//  - Splits at \n\n+ (always a boundary) or at \n before a numbered paragraph marker
+//    (1-2 digit + Capital+lowercase, e.g. "1 In", "2 Roger") — conservative enough to
+//    avoid false splits on "1,500 students", "12 percent", "1 A mile", etc.
+//  - Normalises leading paragraph numbers to "(N) " format.
+//
+// Pass 2 — inline sentence-number wrapping:
+//  - After collapsing line-breaks, numbers that WERE on their own lines but started
+//    with "I " (pronoun) or other patterns that defeated the split heuristic end up
+//    inline (e.g. "... end of sentence. 2 I believe …").
+//  - Scans all paragraphs for bare word-boundary numbers before capital letters.
+//  - Only wraps them if the collected numbers form a sequential chain with at least
+//    two consecutive values (e.g. {1,2} or {2,3,4}). This is the "chain" guard:
+//    a lone stray number like "25 years" will never trigger wrapping on its own.
+//  - Numbers already wrapped as (N) count toward chain detection but are never
+//    double-wrapped.
+export function processPassage(raw: string): string[] {
+  const text = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  // ── Pass 1: split + normalise ────────────────────────────────────────────────
+  const chunks = text.split(
+    /\n{2,}|\n(?=\(?\d{1,2}\)?[.) ]*["'""']?[A-Z][a-z])/
+  );
+  const paragraphs = chunks
+    .map(chunk => {
+      let p = chunk.replace(/\n/g, " ").replace(/[ \t]{2,}/g, " ").trim();
+      if (!p) return "";
+      if (/^\(?\d{1,2}\)?[\s.)]/.test(p)) {
+        p = p.replace(/^\(?(\d{1,2})\)?[\s.)]*/, "($1) ");
+      }
+      return p;
+    })
+    .filter(Boolean);
+
+  // ── Pass 2: inline sentence-number wrapping ──────────────────────────────────
+  // Collect all numbers: already-wrapped (N) AND bare candidates at word boundaries
+  // before a capital letter (excludes digit-embedded words like "serial1").
+  const nums = new Set<number>();
+  for (const p of paragraphs) {
+    for (const m of p.matchAll(/\((\d{1,2})\)/g)) nums.add(+m[1]);
+    for (const m of p.matchAll(/(?<!\()\b(\d{1,2})\b(?!\))\s+(?=[A-Z])/g)) nums.add(+m[1]);
+  }
+  const sorted = [...nums].sort((a, b) => a - b);
+  // Chain = at least two consecutive integers anywhere in the sorted list
+  const isChain = sorted.length >= 2 && sorted.some((n, i) => i > 0 && n === sorted[i - 1] + 1);
+
+  if (!isChain) return paragraphs;
+
+  // Wrap bare inline numbers that are part of the chain (skip already-wrapped ones)
+  return paragraphs.map(p =>
+    p.replace(/(?<!\()\b(\d{1,2})\b(?!\))(\s+)(?=[A-Z])/g, "($1)$2")
+  );
+}
+
 // Parses question / choice text that contains HTML-style formatting tags and entities.
 // Handles: <b>/<strong> bold, <i>/<em> italic, <u> underline,
 //          <sup> superscript, <sub> subscript, <br>/<br/> line breaks,

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase-client";
 import ResultsModal from "./ResultsModal";
+import { fetchIncorrectReport, fetchFullIncorrectReport, exportIncorrectPDF } from "../utils/exportIncorrectPDF";
 
 interface Tutor {
   id: string;
@@ -132,6 +133,9 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
   // Results modal
   const [resultsModal, setResultsModal] = useState<{ testID: string; userID: string; studentName: string } | null>(null);
 
+  // PDF report loading: stores test.id for per-test, "all" for full report
+  const [pdfReportLoading, setPdfReportLoading] = useState<string | null>(null);
+
   // Assignments
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -220,6 +224,50 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
       .eq("test_id", test.id)
       .eq("user_id", selected!.id);
     setQuestionStats(prev => ({ ...prev, [test.id]: (data as QuestionStat[]) ?? [] }));
+  }
+
+  async function generateTestReport(test: TestRecord) {
+    if (!selected) return;
+    setPdfReportLoading(test.id);
+    try {
+      const report = await fetchIncorrectReport(
+        test.id, selected.id, test.test_name,
+        `${selected.first_name} ${selected.last_name}`,
+        {
+          totalQuestions: test.total_questions ?? undefined,
+          correctCount:   test.score          ?? undefined,
+          testDate:       test.created_at,
+        },
+      );
+      if (report) await exportIncorrectPDF(report);
+      else alert("No incorrect answers found for this test.");
+    } finally {
+      setPdfReportLoading(null);
+    }
+  }
+
+  async function generateFullReport() {
+    if (!selected) return;
+    const done = completedTests;
+    if (done.length === 0) return;
+    setPdfReportLoading("all");
+    try {
+      const report = await fetchFullIncorrectReport(
+        done.map(t => ({
+          id:              t.id,
+          test_name:       t.test_name,
+          created_at:      t.created_at,
+          total_questions: t.total_questions ?? undefined,
+          score:           t.score          ?? undefined,
+        })),
+        selected.id,
+        `${selected.first_name} ${selected.last_name}`,
+      );
+      if (report) await exportIncorrectPDF(report);
+      else alert("No incorrect answers found across any completed tests.");
+    } finally {
+      setPdfReportLoading(null);
+    }
   }
 
   function openEditProfile() {
@@ -537,6 +585,23 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
                   </svg>
                   View Performance
                 </button>
+                {completedTests.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={generateFullReport}
+                    disabled={pdfReportLoading === "all"}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-violet-600 bg-violet-500/8 hover:bg-violet-500/15 border border-violet-500/20 transition-colors disabled:opacity-50"
+                  >
+                    {pdfReportLoading === "all" ? (
+                      <span className="w-3.5 h-3.5 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    )}
+                    Full Report
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={openAssignModal}
@@ -797,13 +862,24 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
                           </span>
 
                           {test.score !== null && (
-                            <button
-                              type="button"
-                              onClick={() => setResultsModal({ testID: test.id, userID: selected!.id, studentName: `${selected!.first_name} ${selected!.last_name}` })}
-                              className="text-xs font-medium px-2.5 py-1 rounded-lg border border-zinc-200 text-zinc-600 hover:text-zinc-900 hover:border-zinc-300 hover:bg-zinc-100 transition-colors shrink-0"
-                            >
-                              View Results
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setResultsModal({ testID: test.id, userID: selected!.id, studentName: `${selected!.first_name} ${selected!.last_name}` })}
+                                className="text-xs font-medium px-2.5 py-1 rounded-lg border border-zinc-200 text-zinc-600 hover:text-zinc-900 hover:border-zinc-300 hover:bg-zinc-100 transition-colors shrink-0"
+                              >
+                                View Results
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => generateTestReport(test)}
+                                disabled={pdfReportLoading === test.id}
+                                title="Download missed questions PDF"
+                                className="text-xs font-medium px-2.5 py-1 rounded-lg border border-violet-200 text-violet-600 hover:bg-violet-50 hover:border-violet-300 transition-colors shrink-0 disabled:opacity-50"
+                              >
+                                {pdfReportLoading === test.id ? "…" : "Report"}
+                              </button>
+                            </>
                           )}
 
                           {isConfirming ? (

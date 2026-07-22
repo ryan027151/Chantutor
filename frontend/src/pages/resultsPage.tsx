@@ -6,6 +6,7 @@ import { Test } from "../components/types";
 import { computeSHSATScore, scoreLabel, isRevisingEditing, type SHSATScore, type Difficulty, type ScoredQuestion } from "../utils/scoring";
 import QuestionDetailModal from "../components/QuestionDetailModal";
 import { exportResultsPDF } from "../utils/exportResultsPDF";
+import { fetchIncorrectReport, exportIncorrectPDF } from "../utils/exportIncorrectPDF";
 import { SCORE_BAND_TW, fmtSubLocalized, type Lang } from "../utils/translations";
 
 interface QuestionResult {
@@ -257,6 +258,7 @@ function ResultsPage() {
   const [shsatScore, setShsatScore] = useState<SHSATScore | null>(null);
   const [selectedQ, setSelectedQ] = useState<SelectedQuestion | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
 
   const t = (en: string, zh: string) => lang === "zh-TW" ? zh : en;
 
@@ -454,6 +456,19 @@ function ResultsPage() {
 
   const analysis: AIAnalysis = { strengths, improvements, recommendations };
 
+  async function handleMissedQReport() {
+    if (!test || !testID) return;
+    setReportLoading(true);
+    try {
+      const studentName = user ? `${user.first_name} ${user.last_name}`.trim() : "";
+      const report = await fetchIncorrectReport(testID, test.user_id, test.test_name, studentName);
+      if (report) await exportIncorrectPDF(report);
+      else alert("No incorrect answers found for this test.");
+    } finally {
+      setReportLoading(false);
+    }
+  }
+
   async function handleExportPDF() {
     if (!test) return;
     setPdfLoading(true);
@@ -527,6 +542,22 @@ function ResultsPage() {
             ))}
           </div>
         )}
+        <button
+          type="button"
+          onClick={handleMissedQReport}
+          disabled={reportLoading}
+          title="Download missed questions report PDF"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-violet-600 hover:text-violet-800 hover:bg-violet-50 border border-violet-200 transition-colors disabled:opacity-50 shrink-0"
+        >
+          {reportLoading ? (
+            <span className="w-4 h-4 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          )}
+          <span className="hidden sm:inline">{reportLoading ? t("Generating…", "生成中…") : t("Missed Q's", "錯題報告")}</span>
+        </button>
         <button
           type="button"
           onClick={handleExportPDF}

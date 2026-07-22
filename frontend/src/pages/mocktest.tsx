@@ -268,7 +268,10 @@ function MockTest() {
   const hasInitialized = useRef(false);
   const currentSubjectRef = useRef<string>("");
   const questionStartTimeRef = useRef<number>(Date.now());
-  const answeredIdsRef = useRef<Set<string>>(new Set());
+  const answeredIdsRef  = useRef<Set<string>>(new Set());
+  // Cross-session: UIDs the student has answered correctly in ANY past test session.
+  // Populated once at init from the questions table; O(1) Set lookups everywhere else.
+  const masteredIdsRef  = useRef<Set<string>>(new Set());
   // Math adaptive: difficulty-based group selection
   const mathHistThetaRef        = useRef<number>(0.5);
   const mathCorrectRef          = useRef<number>(0);
@@ -439,25 +442,31 @@ function MockTest() {
     historicalThetaRef.current = (thetaRaw as number | null) ?? 0.5;
 
     const pool = (passages ?? []) as PassageGroup[];
-    passagePoolRef.current = pool.filter(p => p.passage_type === "rc");
+    // Only keep RC passages that have at least one question the student hasn't mastered yet
+    passagePoolRef.current = pool
+      .filter(p => p.passage_type === "rc")
+      .filter(p => (p.question_ids as string[]).some(uid => !masteredIdsRef.current.has(uid)));
     const grammarPassages  = pool.filter(p => p.passage_type === "grammar");
 
     // Select first RC passage based on historical θ
     selectNextRCPassage();
 
     // Grammar queue: grammar passages (non-adaptive, random order) → standalone
+    // Skip any individual question the student has already mastered
     const grammarPassageTarget = Math.round(grammarTarget * 0.8);
     const grammarPassageUids: string[] = [];
     for (const passage of shuffle(grammarPassages)) {
       if (grammarPassageUids.length >= grammarPassageTarget) break;
-      grammarPassageUids.push(...passage.question_ids);
+      grammarPassageUids.push(
+        ...(passage.question_ids as string[]).filter(uid => !masteredIdsRef.current.has(uid))
+      );
     }
 
     const grammarPassageUidSet = new Set(grammarPassageUids);
     const standaloneGrammarUids = shuffle(
       (grammarPool ?? [])
         .map((q: { uid: string }) => q.uid)
-        .filter((uid: string) => !grammarPassageUidSet.has(uid))
+        .filter((uid: string) => !grammarPassageUidSet.has(uid) && !masteredIdsRef.current.has(uid))
     ).slice(0, grammarTarget - grammarPassageUids.length);
 
     grammarQueueRef.current = [...grammarPassageUids, ...standaloneGrammarUids];
@@ -535,7 +544,8 @@ function MockTest() {
         uids: sorted.map(q => q.uid),
         tier: numToTier(avgDiff),
       };
-    });
+    // Drop groups where every question has already been mastered
+    }).filter(g => g.uids.some(uid => !masteredIdsRef.current.has(uid)));
 
     // Select first group based on historical θ
     selectNextMathGroup();
@@ -638,7 +648,7 @@ function MockTest() {
     if (!data || (data as unknown[]).length === 0) return;
 
     const uids = shuffle((data as { uid: string }[]).map(q => q.uid))
-      .filter(uid => !answeredIdsRef.current.has(uid));
+      .filter(uid => !answeredIdsRef.current.has(uid) && !masteredIdsRef.current.has(uid));
 
     practiceQueueRef.current    = uids;
     practiceQueuePosRef.current = 0;
@@ -741,7 +751,8 @@ function MockTest() {
       // Passages served atomically; difficulty re-evaluated at every passage boundary.
       if (isEnglishSlot && rcTargetRef.current > 0) {
         while (currentPassagePosRef.current < currentPassageUidsRef.current.length &&
-               answeredIds.has(currentPassageUidsRef.current[currentPassagePosRef.current])) {
+               (answeredIds.has(currentPassageUidsRef.current[currentPassagePosRef.current]) ||
+                masteredIdsRef.current.has(currentPassageUidsRef.current[currentPassagePosRef.current]))) {
           currentPassagePosRef.current++;
         }
 
@@ -781,7 +792,8 @@ function MockTest() {
         } else {
           // RC quota met — serve grammar
           while (grammarPosRef.current < grammarQueueRef.current.length &&
-                 answeredIds.has(grammarQueueRef.current[grammarPosRef.current])) {
+                 (answeredIds.has(grammarQueueRef.current[grammarPosRef.current]) ||
+                  masteredIdsRef.current.has(grammarQueueRef.current[grammarPosRef.current]))) {
             grammarPosRef.current++;
           }
           if (grammarPosRef.current < grammarQueueRef.current.length) {
@@ -800,7 +812,8 @@ function MockTest() {
       const isMathSlot = !isPractice && !isEnglishSlot;
       if (isMathSlot && mathGroupsRef.current.length > 0) {
         while (currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length &&
-               answeredIds.has(currentMathGroupUidsRef.current[currentMathGroupPosRef.current])) {
+               (answeredIds.has(currentMathGroupUidsRef.current[currentMathGroupPosRef.current]) ||
+                masteredIdsRef.current.has(currentMathGroupUidsRef.current[currentMathGroupPosRef.current]))) {
           currentMathGroupPosRef.current++;
         }
 
@@ -831,7 +844,8 @@ function MockTest() {
       // Pre-built at test start; avoids the 2-step random UID fetch for practice mode.
       if (topics.length > 0 && practiceQueueRef.current.length > 0) {
         while (practiceQueuePosRef.current < practiceQueueRef.current.length &&
-               answeredIds.has(practiceQueueRef.current[practiceQueuePosRef.current])) {
+               (answeredIds.has(practiceQueueRef.current[practiceQueuePosRef.current]) ||
+                masteredIdsRef.current.has(practiceQueueRef.current[practiceQueuePosRef.current]))) {
           practiceQueuePosRef.current++;
         }
         if (practiceQueuePosRef.current < practiceQueueRef.current.length) {
@@ -856,13 +870,17 @@ function MockTest() {
       }
       const { data: uidPool } = await uidQuery;
 
-      const available = (uidPool ?? [])
-        .map((q: { uid: string }) => q.uid)
-        .filter(uid => !answeredIds.has(uid));
+      const allUids = (uidPool ?? []).map((q: { uid: string }) => q.uid);
+      const available = allUids.filter(uid => !answeredIds.has(uid) && !masteredIdsRef.current.has(uid));
+      // Graceful fallback: if every question in this subject/topic has been mastered,
+      // allow already-mastered ones so the test doesn't stall (prefer wrong answers still).
+      const finalAvailable = available.length > 0
+        ? available
+        : allUids.filter(uid => !answeredIds.has(uid));
 
-      if (available.length === 0) return null;
+      if (finalAvailable.length === 0) return null;
 
-      const uid = available[Math.floor(Math.random() * available.length)];
+      const uid = finalAvailable[Math.floor(Math.random() * finalAvailable.length)];
       const { data: qData, error } = await supabase
         .from("all_questions")
         .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, extra_data, subject, sub_category, difficulty")
@@ -919,6 +937,19 @@ function MockTest() {
       .eq("user_id", user.id);
     if (error) throw error;
     answeredIdsRef.current = new Set((data ?? []).map((q: { id: string }) => q.id));
+  };
+
+  // Fetches every question UID the student has answered correctly across ALL past sessions.
+  // Runs in parallel at init (no added latency); results are used to exclude mastered
+  // questions from all pools/queues so students never see them again.
+  const initMasteredIds = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("questions")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("is_correct", true);
+    masteredIdsRef.current = new Set((data ?? []).map((q: { id: string }) => q.id));
   };
 
   // Loads a previously answered question by order_index (for back/forward review).
@@ -1227,6 +1258,7 @@ function MockTest() {
           getCurrenTest(),
           getLastAnsweredIndex(),
           initAnsweredIds(),
+          initMasteredIds(),
         ]);
         test = results[0];
         lastAnswered = results[1];
@@ -1791,11 +1823,12 @@ function MockTest() {
             {/* Left panel — full width on mobile, 45% on large screens */}
             {displayMedia.length > 0 && (
               // Outer wrapper: sized/sticky/relative — line mask lives here so it stays over the visible area
-              <div className="relative w-full lg:w-[45%] lg:min-w-72 lg:max-w-[65%] lg:h-[calc(100vh-8rem)] lg:min-h-48 lg:self-start lg:sticky lg:top-20 rounded-2xl overflow-hidden">
+              // max-h on mobile/tablet caps the passage so the question stays visible without excessive scrolling
+              <div className="relative w-full max-h-[45vh] sm:max-h-[50vh] lg:max-h-none lg:w-[45%] lg:min-w-72 lg:max-w-[65%] lg:h-[calc(100vh-8rem)] lg:min-h-48 lg:self-start lg:sticky lg:top-20 rounded-2xl overflow-hidden">
                 {/* Inner: scrollable content */}
                 <div
                   ref={passageContainerRef}
-                  className="relative flex flex-col lg:h-full lg:resize overflow-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-6"
+                  className="relative flex flex-col h-full lg:resize overflow-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-6"
                   onMouseUp={() => elaTools.activeTool === "highlight" && captureHighlight(passageContainerRef.current, `p-${questionData.uid}`)}
                 >
                   <MediaDisplay mediaItems={displayMedia} />

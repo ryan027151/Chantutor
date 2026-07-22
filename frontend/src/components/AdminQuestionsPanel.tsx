@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../supabase-client";
-import { parseFormattedText } from "../utils/textParser";
+import { parseFormattedText, processPassage } from "../utils/textParser";
 import ExpressionEditorQuestion from "./ExpressionEditorQuestion";
 import NumberLineClick from "./NumberLineClick";
 import TableRowRadio from "./TableRowRadio";
@@ -2066,8 +2066,15 @@ export default function AdminQuestionsPanel({ initialEditUid, initialReportId, o
                   <div className="flex flex-col gap-3">
                     {previewDisplayMedia.map((item, idx) => (
                       item.media_type === "passage" ? (
-                        <div key={idx} className="bg-white rounded-lg border border-slate-200 p-3 text-sm text-slate-700 leading-relaxed">
-                          {parseFormattedText(item.passageText)}
+                        <div key={idx} className="bg-white rounded-lg border border-slate-200 p-3 text-sm text-slate-700 leading-relaxed space-y-2">
+                          {processPassage(item.passageText).map((para, pi) => {
+                            const isTitle = pi === 0 && !/^\(\d/.test(para) && para.length < 80;
+                            return (
+                              <p key={pi} className={isTitle ? "font-semibold text-center" : ""}>
+                                {parseFormattedText(para, `prev_${idx}_${pi}`)}
+                              </p>
+                            );
+                          })}
                         </div>
                       ) : item.previewUrl ? (
                         <div key={idx} className="bg-white rounded-lg border border-slate-200 p-2 text-center">

@@ -172,7 +172,7 @@ export default function QuestionDetailModal({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden max-h-[90vh]"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-[92vw] flex flex-col overflow-hidden max-h-[95vh]"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
