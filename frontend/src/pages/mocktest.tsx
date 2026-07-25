@@ -624,6 +624,18 @@ function MockTest() {
     const config = test.configuration as Record<string, unknown> | null;
     let topics = (config?.practice_topics as string[] | undefined) ?? [];
 
+    // If a pre-seeded ordered question list exists (group assignment), use it directly
+    // so every student in the group gets the exact same questions in the same order.
+    const preseededIds = config?.question_ids as string[] | undefined;
+    if (preseededIds && preseededIds.length > 0) {
+      practiceTopicsRef.current = topics;
+      practiceQueueRef.current = preseededIds.filter(
+        uid => !answeredIdsRef.current.has(uid) && !masteredIdsRef.current.has(uid)
+      );
+      practiceQueuePosRef.current = 0;
+      return;
+    }
+
     // If topics not in config, look them up directly from the assignments table.
     // This is robust against any test-configuration storage issues.
     if (topics.length === 0) {

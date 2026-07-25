@@ -280,29 +280,79 @@ Deno.serve(async (req) => {
 
       const { data: rawAssignments } = await db
         .from("assignments")
-        .select("id, test_type, num_questions, difficulties, categories, due_date, duration_minutes, note, status, test_id, created_at, assigned_by, tests(score)")
+        .select("id, test_type, num_questions, difficulties, categories, due_date, duration_minutes, note, status, test_id, created_at, assigned_by, group_assignment_id, tests(score), group_assignments!group_assignment_id(student_groups!group_id(id, name))")
         .eq("student_id", student_id)
         .order("created_at", { ascending: false });
 
       // Fetch assigner names (service role bypasses RLS)
-      const assignerIds = [...new Set((rawAssignments ?? []).map(a => a.assigned_by).filter(Boolean))];
+      const assignerIds = [...new Set((rawAssignments ?? []).map((a: { assigned_by: string | null }) => a.assigned_by).filter(Boolean))];
       let assignerMap: Record<string, string> = {};
       if (assignerIds.length > 0) {
         const { data: assigners } = await db
           .from("profiles")
           .select("id, first_name, last_name")
           .in("id", assignerIds);
-        for (const p of assigners ?? []) {
+        for (const p of (assigners ?? []) as { id: string; first_name: string; last_name: string }[]) {
           assignerMap[p.id] = `${p.first_name} ${p.last_name}`;
         }
       }
 
-      const assignments = (rawAssignments ?? []).map(a => ({
+      const assignments = (rawAssignments ?? []).map((a: {
+        assigned_by: string | null;
+        group_assignments?: { student_groups?: { name: string } | null } | null;
+        [key: string]: unknown;
+      }) => ({
         ...a,
         assigner_name: a.assigned_by ? (assignerMap[a.assigned_by] ?? null) : null,
+        group_name: a.group_assignments?.student_groups?.name ?? null,
       }));
 
       return ok({ assignments });
+    }
+
+    // ── GET_STUDENT_GROUPS ───────────────────────────────────────────────────
+    // Returns all groups a student is in and their group assignment history
+    if (action === "get_student_groups") {
+      const { student_id } = body;
+      if (!student_id) return fail(400, "Missing student_id");
+
+      // Ownership check
+      const { data: link } = await db
+        .from("student_parents")
+        .select("id")
+        .eq("parent_id", caller.id)
+        .eq("student_id", student_id)
+        .maybeSingle();
+      if (!link) return fail(403, "Not linked to this student");
+
+      const { data: memberData } = await db
+        .from("student_group_members")
+        .select("group_id, student_groups!group_id(id, name)")
+        .eq("student_id", student_id);
+
+      if (!memberData || memberData.length === 0) return ok({ groups: [] });
+
+      const groupIds = (memberData as { group_id: string }[]).map(m => m.group_id);
+      const { data: gaData } = await db
+        .from("group_assignments")
+        .select("id, group_id, test_type, num_questions, difficulties, categories, due_date, duration_minutes, note, created_at")
+        .in("group_id", groupIds)
+        .order("created_at", { ascending: false });
+
+      type MemberRow = { group_id: string; student_groups?: { id: string; name: string } | null };
+      type GARow = { id: string; group_id: string; test_type: string; num_questions: number | null; difficulties: string[] | null; categories: string[] | null; due_date: string | null; duration_minutes: number | null; note: string | null; created_at: string };
+
+      const groupMap = new Map<string, { id: string; name: string; assignments: GARow[] }>();
+      for (const m of (memberData as MemberRow[])) {
+        const g = m.student_groups;
+        if (g) groupMap.set(g.id, { id: g.id, name: g.name, assignments: [] });
+      }
+      for (const ga of (gaData as GARow[] ?? [])) {
+        const group = groupMap.get(ga.group_id);
+        if (group) group.assignments.push(ga);
+      }
+
+      return ok({ groups: [...groupMap.values()] });
     }
 
     return fail(400, "Unknown action");

@@ -23,6 +23,25 @@ interface AssignmentWithTest {
   assigned_by: string | null;
   assigner_name: string | null;
   tests: { score: number | null } | null;
+  question_ids: string[] | null;
+  group_assignment_id: string | null;
+  group_name: string | null;
+}
+
+interface StudentGroupData {
+  id: string;
+  name: string;
+  assignments: {
+    id: string;
+    test_type: "mock" | "practice";
+    num_questions: number | null;
+    difficulties: string[] | null;
+    categories: string[] | null;
+    due_date: string | null;
+    duration_minutes: number | null;
+    note: string | null;
+    created_at: string;
+  }[];
 }
 
 function HomePage() {
@@ -45,6 +64,9 @@ function HomePage() {
   const [resetIds, setResetIds] = useState<Set<string>>(new Set());
   const [assignments, setAssignments] = useState<AssignmentWithTest[]>([]);
   const [myTutors, setMyTutors] = useState<{ id: string; first_name: string; last_name: string }[]>([]);
+  const [homeTab, setHomeTab] = useState<"work" | "groups">("work");
+  const [studentGroups, setStudentGroups] = useState<StudentGroupData[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
   const [pdfReportLoading, setPdfReportLoading] = useState<string | null>(null);
 
   async function getTests() {
@@ -178,12 +200,11 @@ function HomePage() {
     if (!user) return;
     const { data } = await supabase
       .from("assignments")
-      .select("*, tests(score)")
+      .select("*, tests(score), group_assignments!group_assignment_id(student_groups!group_id(id, name))")
       .eq("student_id", user.id)
       .order("created_at", { ascending: false });
-    const raw = (data as AssignmentWithTest[]) ?? [];
+    const raw = (data ?? []) as (AssignmentWithTest & { group_assignments?: { student_groups?: { name: string } | null } | null })[];
 
-    // SECURITY DEFINER RPC avoids RLS recursion (direct profiles query would loop)
     const { data: assignerRows } = await supabase.rpc("get_my_assignment_assigners");
     const nameByAssignmentId: Record<string, string> = {};
     for (const row of (assignerRows ?? []) as { assignment_id: string; assigner_name: string }[]) {
@@ -193,16 +214,46 @@ function HomePage() {
     setAssignments(raw.map(a => ({
       ...a,
       assigner_name: nameByAssignmentId[a.id] ?? null,
+      group_name: a.group_assignments?.student_groups?.name ?? null,
     })));
+  }
+
+  async function loadStudentGroups() {
+    if (!user) return;
+    setGroupsLoading(true);
+    const { data: memberData } = await supabase
+      .from("student_group_members")
+      .select("group_id, student_groups!group_id(id, name)")
+      .eq("student_id", user.id);
+
+    if (!memberData || memberData.length === 0) { setStudentGroups([]); setGroupsLoading(false); return; }
+
+    const groupIds = (memberData as { group_id: string }[]).map(m => m.group_id);
+    const { data: gaData } = await supabase
+      .from("group_assignments")
+      .select("id, group_id, test_type, num_questions, difficulties, categories, due_date, duration_minutes, note, created_at")
+      .in("group_id", groupIds)
+      .order("created_at", { ascending: false });
+
+    const groupMap = new Map<string, StudentGroupData>();
+    for (const m of memberData as { group_id: string; student_groups?: { id: string; name: string } | null }[]) {
+      const g = m.student_groups;
+      if (g) groupMap.set(g.id, { id: g.id, name: g.name, assignments: [] });
+    }
+    for (const ga of (gaData ?? []) as StudentGroupData["assignments"][number][]) {
+      const group = groupMap.get((ga as { group_id: string }).group_id as string);
+      if (group) group.assignments.push(ga);
+    }
+    setStudentGroups([...groupMap.values()]);
+    setGroupsLoading(false);
   }
 
   async function startAssignment(a: AssignmentWithTest) {
     if (a.test_id) {
       if (a.test_type === "practice" && a.categories && a.categories.length > 0) {
-        await supabase
-          .from("tests")
-          .update({ configuration: { assignment_id: a.id, practice_topics: a.categories } })
-          .eq("id", a.test_id);
+        const patchConfig: Record<string, unknown> = { assignment_id: a.id, practice_topics: a.categories };
+        if (a.question_ids && a.question_ids.length > 0) patchConfig.question_ids = a.question_ids;
+        await supabase.from("tests").update({ configuration: patchConfig }).eq("id", a.test_id);
       }
       navigate(`/mock/${a.test_id}`);
       return;
@@ -213,6 +264,9 @@ function HomePage() {
     const config: Record<string, unknown> = { assignment_id: a.id };
     if (a.test_type === "practice" && a.categories && a.categories.length > 0) {
       config.practice_topics = a.categories;
+    }
+    if (a.question_ids && a.question_ids.length > 0) {
+      config.question_ids = a.question_ids;
     }
     const { data: testData, error } = await supabase
       .from("tests")
@@ -248,6 +302,7 @@ function HomePage() {
     if (user.role === "student") checkDiagnosticTest();
     getTests();
     getAssignments();
+    loadStudentGroups();
     loadTopics();
     supabase.rpc("get_my_tutors").then(({ data }) => {
       if (data) setMyTutors(data as { id: string; first_name: string; last_name: string }[]);
@@ -560,8 +615,107 @@ function HomePage() {
             )}
           </div>
 
+          {/* Tab bar: Assigned Work / My Groups */}
+          <div className="flex gap-1 border-b border-slate-200 -mb-1">
+            <button
+              type="button"
+              onClick={() => setHomeTab("work")}
+              className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${homeTab === "work" ? "text-slate-900 border-blue-500" : "text-slate-400 border-transparent hover:text-slate-600"}`}
+            >
+              Assigned Work
+              {(() => { const n = assignments.filter(a => { const s = a.tests?.score; return s === null || s === undefined; }).length; return n > 0 ? <span className="ml-1.5 text-xs font-bold bg-rose-500 text-white rounded-full px-1.5 py-0.5 leading-none">{n}</span> : null; })()}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setHomeTab("groups"); if (studentGroups.length === 0 && !groupsLoading) loadStudentGroups(); }}
+              className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${homeTab === "groups" ? "text-slate-900 border-teal-500" : "text-slate-400 border-transparent hover:text-slate-600"}`}
+            >
+              My Groups
+              {studentGroups.length > 0 && <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-medium ${homeTab === "groups" ? "bg-teal-100 text-teal-700" : "bg-slate-100 text-slate-400"}`}>{studentGroups.length}</span>}
+            </button>
+          </div>
+
+          {/* My Groups tab */}
+          {homeTab === "groups" && (
+            <div className="flex flex-col gap-4">
+              {groupsLoading ? (
+                <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-8 flex items-center justify-center">
+                  <div className="w-5 h-5 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : studentGroups.length === 0 ? (
+                <div className="bg-white rounded-xl border border-slate-100 shadow-sm px-5 py-8 text-center text-slate-400 text-sm">
+                  You are not in any groups yet.
+                </div>
+              ) : studentGroups.map(group => {
+                const myAssignmentMap = new Map(assignments.filter(a => a.group_assignment_id).map(a => [a.group_assignment_id!, a]));
+                return (
+                  <div key={group.id} className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 bg-teal-50 border-b border-teal-100 flex items-center gap-2">
+                      <svg className="w-4 h-4 text-teal-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      <span className="text-sm font-bold text-teal-800">{group.name}</span>
+                    </div>
+                    {group.assignments.length === 0 ? (
+                      <p className="px-4 py-4 text-sm text-slate-400">No assignments in this group yet.</p>
+                    ) : (
+                      <div className="divide-y divide-slate-50">
+                        {group.assignments.map(ga => {
+                          const myA = myAssignmentMap.get(ga.id);
+                          const score = myA?.tests?.score ?? null;
+                          const isCompleted = score !== null;
+                          const isInProgress = !!myA?.test_id && !isCompleted;
+                          const isDue = ga.due_date && new Date(ga.due_date) < new Date();
+                          return (
+                            <div key={ga.id} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2">
+                              <div className="flex-1 min-w-0 flex flex-col gap-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${ga.test_type === "mock" ? "bg-violet-50 text-violet-700 border-violet-200" : "bg-blue-50 text-blue-700 border-blue-200"}`}>
+                                    {ga.test_type === "mock" ? "Mock Test" : "Practice"}
+                                  </span>
+                                  {isCompleted ? (
+                                    <><span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Completed</span><span className="text-xs font-bold text-emerald-600">{score}%</span></>
+                                  ) : isInProgress ? (
+                                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">In Progress</span>
+                                  ) : myA ? (
+                                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">Assigned</span>
+                                  ) : (
+                                    <span className="text-xs text-slate-300">—</span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-x-3 text-xs text-slate-500">
+                                  <span>{ga.test_type === "mock" ? "114 questions" : `${ga.num_questions ?? "?"} questions`}</span>
+                                  {ga.duration_minutes ? <span>· {Math.floor(ga.duration_minutes / 60) > 0 ? `${Math.floor(ga.duration_minutes / 60)}h ` : ""}{ga.duration_minutes % 60 > 0 ? `${ga.duration_minutes % 60}m` : ""} limit</span> : null}
+                                  {ga.due_date && <span className={isDue && !isCompleted ? "text-rose-500 font-medium" : "text-slate-400"}>· Due {new Date(ga.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>}
+                                </div>
+                                {ga.categories && ga.categories.length > 0 && <p className="text-xs text-slate-400 truncate">Topics: {ga.categories.join(", ")}</p>}
+                                {ga.note && <p className="text-xs text-slate-400 italic">"{ga.note}"</p>}
+                              </div>
+                              {myA && !isCompleted && (
+                                <button type="button" onClick={() => startAssignment(myA)}
+                                  className={`shrink-0 px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors ${isInProgress ? "bg-amber-500 hover:bg-amber-400 text-zinc-950" : "bg-blue-600 hover:bg-blue-700 text-white"}`}>
+                                  {isInProgress ? "Continue" : "Start"}
+                                </button>
+                              )}
+                              {isCompleted && myA?.test_id && (
+                                <button type="button" onClick={() => navigate(`/results/${myA.test_id}`)}
+                                  className="shrink-0 px-4 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+                                  View Results
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Assigned Work */}
-          {(() => {
+          {homeTab === "work" && (() => {
             const activeAssignments = assignments.filter(a => {
               const s = a.tests?.score;
               return s === null || s === undefined;
@@ -613,6 +767,9 @@ function HomePage() {
                                   </span>
                                   {isInProgress && (
                                     <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">In Progress</span>
+                                  )}
+                                  {a.group_name && (
+                                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">Group: {a.group_name}</span>
                                   )}
                                   {dueLabel && (
                                     <span className={`text-xs font-medium ${isOverdue ? "text-rose-500" : dueSoon ? "text-amber-500" : "text-slate-400"}`}>
@@ -672,6 +829,9 @@ function HomePage() {
                                   <span className="text-xs font-bold text-emerald-600">
                                     {a.tests?.score}%
                                   </span>
+                                  {a.group_name && (
+                                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">Group: {a.group_name}</span>
+                                  )}
                                 </div>
                                 <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-slate-500">
                                   <span>{a.test_type === "mock" ? "114 questions" : `${a.num_questions ?? "?"} questions`}</span>

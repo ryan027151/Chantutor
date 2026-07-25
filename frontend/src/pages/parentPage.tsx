@@ -65,7 +65,25 @@ interface AssignmentRecord {
   test_id: string | null;
   created_at: string;
   assigner_name: string | null;
+  group_name: string | null;
+  group_assignment_id: string | null;
   tests: { score: number | null } | null;
+}
+
+interface StudentGroupData {
+  id: string;
+  name: string;
+  assignments: {
+    id: string;
+    test_type: "mock" | "practice";
+    num_questions: number | null;
+    difficulties: string[] | null;
+    categories: string[] | null;
+    due_date: string | null;
+    duration_minutes: number | null;
+    note: string | null;
+    created_at: string;
+  }[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -735,6 +753,9 @@ function ParentPage() {
   const [loadingTests,   setLoadingTests]   = useState(false);
   const [assignments,    setAssignments]    = useState<AssignmentRecord[]>([]);
   const [loadingAssignments, setLoadingAssignments] = useState(false);
+  const [studentGroups,  setStudentGroups]  = useState<StudentGroupData[]>([]);
+  const [loadingGroups,  setLoadingGroups]  = useState(false);
+  const [studentTab,     setStudentTab]     = useState<"work" | "groups">("work");
 
   // Results modal
   const [viewResult, setViewResult] = useState<{ testID: string; studentID: string; studentName: string; duration: number } | null>(null);
@@ -809,16 +830,22 @@ function ParentPage() {
     setSelectedStudent(s);
     setTests([]);
     setAssignments([]);
+    setStudentGroups([]);
+    setStudentTab("work");
     setLoadingTests(true);
     setLoadingAssignments(true);
-    const [testsRes, assignRes] = await Promise.all([
+    setLoadingGroups(true);
+    const [testsRes, assignRes, groupsRes] = await Promise.all([
       invoke("get_tests", { student_id: s.id }),
       invoke("get_assignments", { student_id: s.id }),
+      invoke("get_student_groups", { student_id: s.id }),
     ]);
     if (!testsRes.error && testsRes.data?.tests) setTests(testsRes.data.tests as TestRecord[]);
     if (!assignRes.error && assignRes.data?.assignments) setAssignments(assignRes.data.assignments as AssignmentRecord[]);
+    if (!groupsRes.error && groupsRes.data?.groups) setStudentGroups(groupsRes.data.groups as StudentGroupData[]);
     setLoadingTests(false);
     setLoadingAssignments(false);
+    setLoadingGroups(false);
   }
 
   // ── Add child ────────────────────────────────────────────────────────────
@@ -1057,17 +1084,84 @@ function ParentPage() {
 
               {/* Assigned Work */}
               <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400">Assigned Work</h2>
-                  {(() => {
-                    const active = assignments.filter(a => { const s = a.tests?.score; return s === null || s === undefined; });
-                    return active.length > 0 ? (
-                      <span className="text-xs font-bold bg-rose-500 text-white rounded-full px-1.5 py-0.5 leading-none">{active.length}</span>
-                    ) : null;
-                  })()}
+                {/* Tab bar */}
+                <div className="flex gap-1 border-b border-slate-200 mb-3 -mx-0.5">
+                  <button type="button" onClick={() => setStudentTab("work")}
+                    className={`px-4 py-2 text-xs font-bold uppercase tracking-widest border-b-2 -mb-px transition-colors ${studentTab === "work" ? "text-slate-900 border-blue-500" : "text-slate-400 border-transparent hover:text-slate-600"}`}>
+                    Assigned Work
+                    {(() => { const n = assignments.filter(a => { const s = a.tests?.score; return s === null || s === undefined; }).length; return n > 0 ? <span className="ml-1.5 text-xs font-bold bg-rose-500 text-white rounded-full px-1.5 py-0.5 leading-none">{n}</span> : null; })()}
+                  </button>
+                  <button type="button" onClick={() => setStudentTab("groups")}
+                    className={`px-4 py-2 text-xs font-bold uppercase tracking-widest border-b-2 -mb-px transition-colors ${studentTab === "groups" ? "text-slate-900 border-teal-500" : "text-slate-400 border-transparent hover:text-slate-600"}`}>
+                    Groups
+                    {studentGroups.length > 0 && <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-medium ${studentTab === "groups" ? "bg-teal-100 text-teal-700" : "bg-slate-100 text-slate-400"}`}>{studentGroups.length}</span>}
+                  </button>
                 </div>
 
-                {loadingAssignments ? (
+                {/* Groups tab */}
+                {studentTab === "groups" && (loadingGroups ? (
+                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 flex items-center justify-center">
+                    <div className="w-5 h-5 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : studentGroups.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 text-center text-sm text-slate-400">
+                    Not in any groups yet.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {studentGroups.map(group => {
+                      const gaIdToMyAssignment = new Map(assignments.filter(a => a.group_name === group.name).map(a => [a.group_assignment_id, a]));
+                      return (
+                        <div key={group.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                          <div className="px-4 py-3 bg-teal-50 border-b border-teal-100 flex items-center gap-2">
+                            <svg className="w-4 h-4 text-teal-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <span className="text-sm font-bold text-teal-800">{group.name}</span>
+                          </div>
+                          {group.assignments.length === 0 ? (
+                            <p className="px-4 py-4 text-sm text-slate-400">No assignments in this group yet.</p>
+                          ) : (
+                            <div className="divide-y divide-slate-50">
+                              {group.assignments.map(ga => {
+                                const myA = gaIdToMyAssignment.get(ga.id);
+                                const score = myA?.tests?.score ?? null;
+                                const isCompleted = score !== null;
+                                const isInProgress = !!myA?.test_id && !isCompleted;
+                                const isDue = ga.due_date && new Date(ga.due_date) < new Date();
+                                return (
+                                  <div key={ga.id} className="px-4 py-3 flex flex-col gap-1.5">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${ga.test_type === "mock" ? "bg-violet-50 text-violet-700 border-violet-200" : "bg-blue-50 text-blue-700 border-blue-200"}`}>
+                                        {ga.test_type === "mock" ? "Mock Test" : "Practice"}
+                                      </span>
+                                      {isCompleted ? (
+                                        <><span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Completed</span><ScoreBadge score={score} /></>
+                                      ) : isInProgress ? (
+                                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">In Progress</span>
+                                      ) : myA ? (
+                                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">Assigned</span>
+                                      ) : null}
+                                    </div>
+                                    <div className="flex flex-wrap gap-x-3 text-xs text-slate-500">
+                                      <span>{ga.test_type === "mock" ? "114 questions" : `${ga.num_questions ?? "?"} questions`}</span>
+                                      {ga.duration_minutes ? <span>· {Math.floor(ga.duration_minutes / 60) > 0 ? `${Math.floor(ga.duration_minutes / 60)}h ` : ""}{ga.duration_minutes % 60 > 0 ? `${ga.duration_minutes % 60}m` : ""} limit</span> : null}
+                                      {ga.due_date && <span className={isDue && !isCompleted ? "text-rose-500 font-medium" : "text-slate-400"}>· Due {new Date(ga.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>}
+                                    </div>
+                                    {ga.note && <p className="text-xs text-slate-400 italic">"{ga.note}"</p>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+
+                {/* Assigned Work tab */}
+                {studentTab === "work" && (loadingAssignments ? (
                   <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 flex items-center justify-center">
                     <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
                   </div>
@@ -1110,6 +1204,9 @@ function ParentPage() {
                                 <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">Assigned</span>
                               )}
                               {isCompleted && <ScoreBadge score={score ?? null} />}
+                              {a.group_name && (
+                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">Group: {a.group_name}</span>
+                              )}
                               {!isCompleted && dueLabel && (
                                 <span className={`text-xs font-medium ${isOverdue ? "text-rose-500" : "text-slate-400"}`}>{dueLabel}</span>
                               )}
@@ -1147,7 +1244,7 @@ function ParentPage() {
                       );
                     })}
                   </div>
-                )}
+                ))}
               </div>
 
               {/* Tests list */}
