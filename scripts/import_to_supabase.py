@@ -26,10 +26,10 @@ import requests
 OUT_DIR = Path(__file__).parent / "output"
 
 TESTS = {
-    "A": "25A",
-    "B": "25B",
-    "C": "25C",
-    "D": "25D",
+    "A": "STA",
+    "B": "STB",
+    "C": "STC",
+    "D": "STD",
 }
 
 BATCH_SIZE = 50
@@ -147,7 +147,7 @@ def main():
     print(f"\nTotal imported{suffix}: {total_imported}")
     if not args.dry_run:
         print("\nNext steps:")
-        print("  1. In the Admin panel → Questions, filter by source=25A/25B/25C/25D")
+        print("  1. In the Admin panel → Questions, filter by source=STA/STB/STC/STD")
         print("  2. Set difficulty for each question (easy/medium/hard)")
         print("  3. Review and correct any wrong answers")
         print("  4. Change status from 'pending' to 'approved' when ready")

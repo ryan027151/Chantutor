@@ -1,0 +1,231 @@
+uid,type,subject,sub_category,difficulty,text,choice_1,choice_2,choice_3,choice_4,answer,media_refs,source,status,extra_data
+STD_Q1,mcq,english,Reading_Comprehension,,The details in paragraph 3 about cognitive offloading convey a central idea of the passage by,suggesting that reliance on the Internet for information is inevitable.,demonstrating how the methods used to store and find information have changed over time.,explaining how encyclopedias and the Internet are similar sources of information.,implying that more information can be understood now than ever before.,B,,STD,pending,
+STD_Q2,mcq,english,Reading_Comprehension,,How do the details about the experiment described in paragraph 5 convey a central idea of the passage?,They suggest that the act of repeating information by typing it on a keyboard may improve a person's memory.,They explain that a person will forget information faster if the information is considered unimportant.,They indicate that a person may start to forget details when the amount of information becomes overwhelming.,They suggest that memory is affected by whether a person expects to have access to the information in the future.,D,,STD,pending,
+STD_Q3,mcq,english,Reading_Comprehension,,"Read this sentence from paragraph 7.
+
+As the Internet's resources continue to expand our ""external"" memory, some question whether the process may cause people to depend too heavily on technology.
+
+How does the sentence contribute to the structure and development of ideas in the passage?",It presents a claim about the risks of relying on the Internet that prompted the research described in paragraphs 2 and 6.,It contrasts a disadvantage of relying on the Internet with the benefits of Internet use that are described in paragraphs 2 and 6.,It signals a shift from a neutral viewpoint in paragraphs 2 and 6 to a presentation of an argument and a counterargument.,It introduces a counterargument and marks a transition from an optimistic tone in paragraphs 2 and 6 to a cautious tone as the counterargument is developed.,D,,STD,pending,
+STD_Q4,mcq,english,Reading_Comprehension,,The study described in paragraph 6 influenced researchers' ideas about memory in the digital age by,highlighting instances when organizing detailed information made it easier to remember.,confirming that keywords can be remembered more easily than large amounts of information.,identifying a shift in focus from remembering specific information to knowing where to find it.,emphasizing that remembering a basic idea is more important than storing detailed information.,C,,STD,pending,
+STD_Q5,mcq,english,Reading_Comprehension,,How does the diagram provide additional support for the topic presented in the passage?,It reveals why human brains must adapt to obtaining information from the Internet as opposed to other sources.,It indicates how people can use the Internet to help improve their long-term recollection of information.,It shows how study participants' brains distinguished between important and unimportant details.,It depicts the idea that repetition and rehearsal are necessary to recall information when tools such as search engines are unavailable.,B,,STD,pending,
+STD_Q6,mcq,english,Reading_Comprehension,,"Which evidence from the passage is most relevant to the claim in paragraph 7 that "" 'far from making us stupid, these technologies are the only things that will keep us smart' ""?",the revelation that most people opted to use the Internet to answer relatively easy trivia questions rather than relying on their own brainpower (paragraph 2),the assertion that the storage of information on the Internet frees people to focus on higher-order tasks such as problem solving (paragraph 3),the connection between how people organize information in their mind and their ability to recall that information (paragraph 5),the description of transactive memory as an expansive external source that people can use to store information (paragraph 6),B,,STD,pending,
+STD_Q7,mcq,english,Reading_Comprehension,,The effect of the Internet on a person's memory is illustrated in the passage through the presentation of studies that,examine how the use of search engines changes the way people evaluate and store information for future access.,highlight the difference between the capacity of the Internet and the ability of the human brain to locate information.,compare the type of information that can be obtained from the Internet with the type of information that is stored in the human brain.,emphasize the ease of obtaining information through search engines rather than remembering it without assistance.,A,,STD,pending,
+STD_Q8,mcq,english,Reading_Comprehension,,How does paragraph 1 introduce the idea that the Wright brothers knew that their flight attempt was risky?,through the mention of a signal to notify lifesaving experts that the flight attempt was about to begin,by providing specific details about the speed of the wind and the Wright brothers' response to the windy conditions,by suggesting that a slower landing would be necessary at the end of the flight in order to maintain safety,through the indication that the Wright brothers waited indoors for most of the morning because of the poor weather,A,,STD,pending,
+STD_Q9,mcq,english,Reading_Comprehension,,"Read this sentence from paragraph 4.
+
+Wilbur having used his turn in the unsuccessful attempt on the 14th, the right to the first trial now belonged to me.
+
+The sentence contributes to the development of ideas in the excerpt by",demonstrating the challenge of the extreme winter conditions during the flight.,revealing how many tries it took for Wilbur Wright to finally get the machine to take flight.,demonstrating that both Orville and Wilbur Wright were eager to pilot what could potentially be the first flight.,suggesting a sense that both brothers felt confident they would soon succeed in completing the first flight.,C,,STD,pending,
+STD_Q10,mcq,english,Reading_Comprehension,,The photograph mentioned in paragraph 4 is significant because it,documents that the machine rose into the air as soon as the tethering wire was released.,provides proof of the critical moment the machine took flight.,documents that the wind reduced the speed of the plane at the start of the flight.,provides proof that the pilot had to gradually increase the height of the plane in the air.,B,,STD,pending,
+STD_Q11,mcq,english,Reading_Comprehension,,How do the details in paragraph 5 about the uneven nature of the flight convey a central idea of the excerpt?,by explaining how the flawed design of the machine caused it to turn unpredictably in the air and brought the first flight by a person to an abrupt end,by indicating that the difficulty in controlling the flight was caused by the rudimentary instruments of the machine and the inexperience of the pilot,by explaining how the pilot and the plane overcame adverse conditions in order to complete the first piloted flight,by indicating that the gradual change in wind velocity created an extreme environment in which to maneuver the plane and maintain its flight,C,,STD,pending,
+STD_Q12,mcq,english,Reading_Comprehension,,"Read this sentence from paragraph 5.
+
+As the velocity of the wind was over 35 feet per second and the speed of the machine over the ground against this wind ten feet per second, the speed of the machine relative to the air was over 45 feet per second, and the length of the flight was equivalent to a flight of 540 feet made in calm air.
+
+How does the sentence help convey Orville Wright's perspective about this first flight?",It suggests that he was frustrated by the poor flying conditions on the day of the flight.,It emphasizes that he believed the flight was successful despite its short distance.,It provides a comparison between flight distances under calm and high wind conditions.,It highlights the importance of such calculations in the success of future flights.,B,,STD,pending,
+STD_Q13,mcq,english,Reading_Comprehension,,Which sentence from the excerpt best supports the idea that the Wright brothers had to adapt their plans for the flight in order to accommodate the weather conditions?,"""When we arose on the morning of the 17th, the puddles of water, which had been standing about camp since the recent rains, were covered with ice."" (paragraph 1)","""We realized the difficulties of flying in so high a wind, but estimated that the added dangers in flight would be partly compensated for by the slower speed in landing."" (paragraph 1)","""After running the motor a few minutes to heat it up, I released the wire that held the machine to the track, and the machine started forward in the wind."" (paragraph 4)","""The course of the flight up and down was exceedingly erratic, partly due to the irregularity of the air, and partly to lack of experience in handling this machine."" (paragraph 5)",B,,STD,pending,
+STD_Q14,mcq,english,Reading_Comprehension,,The use of chronological structure contributes to the development of ideas in the excerpt by,outlining the actions that the Wright brothers took to prepare for and successfully complete the first flight.,identifying the primary factors that allowed the Wright brothers to overcome obstacles and achieve the first flight.,showing how the Wright brothers applied lessons learned from their previous flight attempts to accomplish the first flight.,demonstrating how the Wright brothers analyzed the impact of wind velocity to identify the ideal conditions for the first flight.,A,,STD,pending,
+STD_Q15,mcq,english,Reading_Comprehension,,The details in paragraph 1 contribute to a central idea of the passage by showing that Darimont,believed the Great Bear Rainforest was an ideal location to study wolves in their natural habitat because it is a protected area.,"values different perspectives, because the information that Starr provided influenced the focus of Darimont's research.",thought the Great Bear Rainforest would provide opportunities to study different groups of wolves because the area includes forests and islands.,"understands the importance of respecting local community members, because Darimont sought permission from an elder of the Heiltsuk Nation before starting his research.",D,,STD,pending,
+STD_Q16,mcq,english,Reading_Comprehension,,Why does the author include details about the conversation between Starr and Darimont in paragraph 2?,to explain why Starr had closely observed the relationship between the two groups of wolves Darimont wanted to study,to show that Darimont was hoping to work with Starr and to study both groups of wolves in the area,to highlight that Darimont was unfamiliar with the area and expected Starr to help him find wolves to study,to emphasize that the question asked by Starr caused Darimont to review his initial assumption about the wolves,D,,STD,pending,
+STD_Q17,mcq,english,Reading_Comprehension,,"Read this sentence from paragraph 4.
+
+After collecting and analyzing the DNA in 800 samples of gray fur and wolf waste, researchers could produce hard biological evidence that sea wolves had genetic markers that made them distinct from the mainland wolves.
+
+The phrase ""hard biological evidence"" conveys that the goal of the research team was to",develop a procedure in order to ensure their study yielded plentiful data about the wolves.,seek definitive scientific proof of the number of wolf species present in the area of the study.,conduct a study to evaluate multiple theories about the diets of different wolf species.,discover if the new data would provide information different from that of previous studies.,D,,STD,pending,
+STD_Q18,mcq,english,Reading_Comprehension,,The author uses the word “admits” in paragraph 5 most likely to,note that Darimont’s genetic research verified a theory based solely on field observations.,imply that Darimont’s study was disappointing because the conclusion that he reached was not original.,emphasize that Darimont’s study ultimately confirmed an idea that he had initially doubted.,highlight that Darimont’s results led him to draw a conclusion from his research that his team did not agree with.,C,,STD,pending,
+STD_Q19,mcq,english,Reading_Comprehension,,Which sentence from the passage best supports the idea that sea wolves had successfully adapted to living on the islands?,"""While mainland wolves almost exclusively eat meat, such as deer and elk, and teach their young to hunt for land animals, sea wolves get as much as 90 percent of their nutrition from the sea and teach their young to dig for clams and to catch fish."" (paragraph 3)","""Sea wolves regularly swim between islands and have been known to sneak up on a seal sunning itself on a rock and make a leaping attack from the water."" (paragraph 3)","""Darimont suspects that some sea wolves live their entire life on the islands."" (paragraph 3)","""Darimont hypothesizes that a change in habitat led to the eventual genetic differences between sea wolves and mainland wolves."" (paragraph 4)",B,,STD,pending,
+STD_Q20,mcq,english,Reading_Comprehension,,How did a change in habitat most affect the wolf population of the Great Bear Rainforest over time?,It caused some of the wolves to learn new hunting techniques in order to catch increasingly scarce prey.,"It caused the wolves to form smaller packs and eventually separate, establishing distinct territories.","It caused some of the wolves to gradually become a new, genetically distinct species as they adapted behaviorally.",It caused the wolves to adapt their diet as different food sources became available in the area.,C,,STD,pending,
+STD_Q21,mcq,english,Reading_Comprehension,,The comparison in lines 8-9 of the poem is used to convey,the muffled pounding of explosions in the distance.,the way lightning streaks through the clouds.,the echoes of thunder on an autumn night.,the glow of sparks falling from the sky.,A,,STD,pending,
+STD_Q22,mcq,english,Reading_Comprehension,,"Read lines 22-23 from the poem.
+
+the sky at night written upon
+with those jewels.
+
+What does the word choice in these lines convey about the speaker?",The speaker values material possessions.,The speaker imagines that the fireworks are magical.,The speaker believes that the country setting is distinctive.,The speaker cherishes the memory of seeing fireworks as a child.,B,,STD,pending,
+STD_Q23,mcq,english,Reading_Comprehension,,"The use of italics on the word ""night"" in line 24 is most likely intended to emphasize the",sense of mystery in the darkness.,sense of absolute darkness.,speaker's fear of night.,speaker's certainty about that night.,D,,STD,pending,
+STD_Q24,mcq,english,Reading_Comprehension,,What is the purpose of the repeated words “rising and falling” in lines 26 and 37?,to create a distinction between solitude and meaningful interaction,to demonstrate a connection between the speaker's past and present,to emphasize the speaker's attention to the surrounding sounds,to compare the fireworks to common sights and sounds,D,,STD,pending,
+STD_Q25,mcq,english,Reading_Comprehension,,"Read lines 41-42 from the poem.
+
+I kept waiting for those
+childhood bursts, watching as they escorted us home.
+
+How does this memory affect the speaker?",The speaker believes it is impossible to ever return to a place in the past.,The speaker is still amused by the impatience felt during fireworks displays.,The speaker now regrets abandoning the rural way of life.,The speaker feels a sense of comfort when reflecting on the past.,D,,STD,pending,
+STD_Q26,mcq,english,Reading_Comprehension,,The fireworks in the poem represent the speaker's,wish to return to a simpler way of living.,bittersweet feelings about leaving the past behind.,high expectations for everyday life.,reflections on past interactions with relatives.,B,,STD,pending,
+STD_Q27,mcq,english,Reading_Comprehension,,"In paragraph 3, the phrase ""the butterflies of the sea"" conveys the idea that",nudibranchs do not have to work as hard as other animals to survive in the ocean.,nudibranchs have colorful features that make them stand out.,nudibranchs are delicate and have trouble adapting to their environment.,nudibranchs are rare and difficult to find in the ocean.,B,,STD,pending,
+STD_Q28,mcq,english,Reading_Comprehension,,"Read these sentences from paragraph 4.
+
+I'm not sure why I decided to take a look. It was still an hour before sunrise, and I knew exactly what the bars looked like in the moonlight, but for some reason, I couldn't resist.
+
+The sentences contribute to the overall structure of the excerpt by",introducing the mysterious creature that the narrator discovers.,indicating a shift from the narrator recalling the past to the narrator reflecting on the present.,establishing a struggle with fear that the narrator must overcome.,building tension through indicating that the narrator is going to see something unexpected.,B,,STD,pending,
+STD_Q29,mcq,english,Reading_Comprehension,,The narrator's actions in paragraph 5 reveal that he is,expecting to see the familiar sight of a stranded minke.,confident about exploring farther into the mudflats.,unconcerned about becoming stuck in the mudflats.,determined to discover the source of the sound.,D,,STD,pending,
+STD_Q30,mcq,english,Reading_Comprehension,,How does the setting affect the plot of the excerpt?,The darkness of the mudflats before sunrise causes the narrator to pay close attention to his surroundings.,The rugged terrain of the mudflats makes it more difficult for the narrator to do his job.,The slow return of the tide along the mudflats forces the narrator to be patient during his journey.,The barren appearance of the mudflats creates a sense of mystery that unsettles the narrator.,C,,STD,pending,
+STD_Q31,mcq,english,Reading_Comprehension,,Which sentence from paragraph 5 supports the idea that the narrator is taking a risk?,"""It was an exhale, a release of sorts, and I instantly wondered if a whale was stranded again.""","""I looked for a hulking silhouette but couldn't find one.""","""I waited, but there were no more sounds.""","""I knew the flats well enough to know I could get stuck just about anywhere.""",D,,STD,pending,
+STD_Q32,mcq,english,Reading_Comprehension,,"Read this sentence from paragraph 6.
+
+I kept stepping toward the one sound I'd heard, a growing part of me hoping I'd find nothing at all.
+
+How do the narrator's actions develop a central idea of the excerpt?",The narrator's concern about the origin of the noise shows dedication to helping preserve sea life in the mudflats.,The narrator's curiosity about the sea life in the mudflats outweighs any fear about the situation.,The narrator's knowledge about a variety of sea life encourages a search for more specimens to study.,The narrator's eagerness about new specimens of sea life outweighs the reality that the area is an unlikely place to find them.,B,,STD,pending,
+STD_Q33,mcq,english,Reading_Comprehension,,"Read these sentences from paragraph 8.
+
+So, I was looking at it and not looking at it while my heart spangled my vision. I saw fragments, pieces, and tried to fuse them in my mind but couldn't be certain of the whole.
+
+The sensory language ""spangled my vision,"" ""I saw fragments, pieces,"" and ""tried to fuse them in my mind"" conveys the narrator's",extreme excitement about making a great discovery.,reluctant acceptance that he needs to leave the mudflats.,terrified confusion about the creature in the mudflats.,sudden concern about his personal safety.,C,,STD,pending,
+STD_Q34,mcq,english,Reading_Comprehension,,The author develops the narrator's point of view when the narrator sees the creature by,describing the narrator's movements as he approaches the creature.,emphasizing the odds of finding the creature in an area inhabited by a rival species.,showing the narrator's growing realization of the creature's identity.,comparing the size of the creature to the size of a vehicle.,C,,STD,pending,
+STD_Q35,mcq,english,Revising_Editing,,What is the best way to combine sentences 2 and 3?,"Historians, who are unsure of exactly when and where martial arts were first used, know that martial arts have been practiced by several different societies for many centuries.","While historians are unsure of exactly when and where martial arts were first used, they do know that martial arts have been practiced by several different societies for many centuries.","Because historians know that martial arts have been practiced by several different societies for many centuries, they are unsure of exactly when and where martial arts were first used.","Martial arts have been practiced by several different societies for many centuries, and historians are unsure of exactly when and where martial arts were first used.",B,,STD,pending,
+STD_Q36,mcq,english,Revising_Editing,,Where should sentence 10 be moved to improve the organization of the second paragraph (sentences 6-10)?,to the beginning of the paragraph (before sentence 6),between sentences 6 and 7,between sentences 7 and 8,between sentences 8 and 9,D,,STD,pending,
+STD_Q37,mcq,english,Revising_Editing,,Which revision of sentence 12 best maintains the formal style established in the passage?,A lot of teens have to put up with difficult things while trying to do well in school and in life.,Many teenagers deal with tough situations as they try to stay on top of their studies and do well in life.,Many teenagers encounter challenges as they work to succeed both academically and personally.,A lot of teens face problems as they work to keep up with their schoolwork and find personal success.,C,,STD,pending,
+STD_Q38,mcq,english,Revising_Editing,,Which transitional phrase should be added to the beginning of sentence 17?,"Over time,","In fact,","Even so,","For instance,",A,,STD,pending,
+STD_Q39,mcq,english,Revising_Editing,,Which sentence would best follow and support sentence 18?,"Adult students gain discipline, focus, self-control, and respect, which are qualities that help them advance in their careers.",Many adults initially train in a martial art simply to get exercise without realizing that the training also helps develop other skills.,"The exercise involved in training helps people strengthen their heart, boost endurance, improve balance, and develop muscle tone.",People who commit to training in the martial arts are usually concerned about improving their overall physical health.,C,,STD,pending,
+STD_Q40,mcq,english,Revising_Editing,,Which concluding sentence should replace sentence 23 to best support the topic presented in the passage?,"With so many ways to begin studying martial arts, people can easily discover how the skills needed to progress in rank may help them in life.","By taking advantage of opportunities to practice martial arts, people can experience the satisfaction of achieving goals while also improving themselves.","Because people are eager to reap the mental and physical benefits of studying martial arts, enrollment in martial arts courses has increased.","While taking martial arts classes can improve health for both young people and adults, the effects are clearly more immediate for adults.",B,,STD,pending,
+STD_Q41,mcq,english,Revising_Editing,,Which sentence should be added after sentence 5 to introduce the main topic of the passage?,"The construction of the Gotthard Base Tunnel was approved by Swiss voters in 1992 and was funded by tolls, fuel taxes, and government loans.","Leaders from several European countries attended the opening ceremonies for the Gotthard Base Tunnel, a Swiss tunnel.","The Gotthard Base Tunnel is the world's longest and deepest railway tunnel, stretching 35.5 miles straight through the base of the Swiss Alps.",The Gotthard Base Tunnel continues to help reduce the number of freight trucks on the roadways in the Swiss Alps.,C,,STD,pending,
+STD_Q42,mcq,english,Revising_Editing,,Which sentence should be added to follow and support sentence 7?,The tunnel-boring machine is helpful to tunnel builders in the modern era and has been an improvement over dynamite.,"These enormous tunnel-boring machines function somewhat like a cheese grater, with the cutter head grinding slowly through rock and stone.","Engineers had considered making a tunnel under the mountains for many years, but it was impossible to do without modern tunnel-boring machines.",Different types of cutter heads are used with tunnel-boring machines depending on the geology of the area where the tunnel is being created.,B,,STD,pending,
+STD_Q43,mcq,english,Revising_Editing,,Where should sentence 11 be moved in order to improve the organization of the second paragraph (sentences 6-11)?,to the beginning of the paragraph (before sentence 6),between sentences 6 and 7,between sentences 8 and 9,between sentences 9 and 10,A,,STD,pending,
+STD_Q44,mcq,english,Revising_Editing,,Which sentence presents information that shifts away from the main topic of the third paragraph (sentences 12-16) and should be removed?,sentence 13,sentence 14,sentence 15,sentence 16,C,,STD,pending,
+STD_Q45,mcq,english,Revising_Editing,,Which transition phrase should be added to the beginning of sentence 18?,"Although the Gotthard Base Tunnel is mainly for freight trains,","With the Gotthard Base Tunnel taking ten years to complete,","Because of the successful completion of the Gotthard Base Tunnel,","As the number of trains using the Gotthard Base Tunnel increases,",C,,STD,pending,
+STD_Q46,mcq,english,Revising_Editing,,Which concluding sentence should be added after sentence 18 to support the topic presented in the passage?,There is proof that underground tunnels such as the Gotthard Base Tunnel are beneficial to the economy of the surrounding area.,The Gotthard Base Tunnel is an extraordinary example of how human ingenuity and persistence can overcome great obstacles.,The completion of the Gotthard Base Tunnel shows that people can work together to achieve important goals.,The Swiss government is confident that the economic impact of the Gotthard Base Tunnel will be worth its construction cost.,B,,STD,pending,
+STD_Q47,mcq,english,Revising_Editing,,"Which sentence contains an error in its construction and should be revised?
+
+(1) Walking dogs, cleaning kennels, hand-feeding newborn kittens, and supporting the pet-adoption process, the animal shelter is looking for volunteers to help with a variety of tasks. (2) Working at the animal shelter is a great way for young people, especially those who aspire to care for and protect animals, to gain valuable work experience. (3) In addition to hands-on training with animal care, volunteers will learn important job skills, such as punctuality, responsibility, and personal initiative. (4) Caring for animals can also help volunteers develop empathy, which is the awareness and understanding of the feelings of others.",sentence 1,sentence 2,sentence 3,sentence 4,A,,STD,pending,
+STD_Q48,mcq,english,Revising_Editing,,"In the Whispering Gallery of Grand Central Terminal, people whispering a message in one corner can be clearly heard in the opposite corner, regardless of surrounding noise, because the tiled archways send the sound through the environment. Which revision to the words send the sound through the environment uses the most precise language? Drag the correct phrase into the box.",guide the sound waves in a specific direction,focus the sound waves to travel through the space,direct the sound waves to move along the curves of the arches,transfer the sound waves to a variety of different locations,C,,STD,pending,
+STD_Q49,multi-select,english,Revising_Editing,,"Robert Cornelius is credited with taking the first, official selfie as a daguerreotype, an image recorded on a copper plate coated in silver, using a process that was more complicated than photos of today which are digitized or printed from film and do not require subjects to sit for nearly fifteen minutes to avoid blurring the image.
+
+Which two edits should be made to correct the sentence?",Delete the comma after first.,Delete the comma after daguerreotype.,Delete the comma after silver.,Add a comma after today.,"A,D",,STD,pending,"{""select_count"": 2, ""choice_5"": ""Add a comma after film.""}"
+STD_Q50,mcq,english,Revising_Editing,,"What is the best way to combine the sentences?
+(1) Scientists now believe that Jupiter may have as many as seventy-nine moons.
+(2) One of Jupiter's moons is named Io.
+(3) Io has the greatest number of active volcanoes in the solar system.","Io, which is one of Jupiter's moons, has the greatest number of active volcanoes in the solar system, and scientists now believe that Jupiter may have as many as seventy-nine moons.","Scientists now believe that Jupiter may have as many as seventy-nine moons, and one of them is named Io, which has the greatest number of active volcanoes in the solar system.","Scientists now believe that Jupiter may have as many as seventy-nine moons, including one named Io, which has the greatest number of active volcanoes in the solar system.","Io, a moon with the greatest number of active volcanoes in the solar system, is one of Jupiter's moons, and scientists now believe that Jupiter may have as many as seventy-nine moons.",C,,STD,pending,
+STD_Q51,mcq,math,Arithmetic,,"What is the prime factorization of 3,575?",5 · 11 · 13,5² · 11 · 13,5 · 715,5² · 143,B,,STD,pending,
+STD_Q52,mcq,math,Algebraic_Expressions,,What is the value of z in x/10 + (y-x)/5 = z/10?,1,5,y,2y - x,D,,STD,pending,
+STD_Q53,mcq,math,Algebra_and_Equations,,"Two sets, R and S, are described below. The sum of the elements in set R equals the sum of the elements in set S.
+
+R = {5, x, 3, 8}
+S = {6, y, 4, 1}
+
+What is the value of x - y?",-7,-5,5,7,B,,STD,pending,
+STD_Q54,mcq,math,Algebraic_Expressions,,"If x = 1/4, what is the value of 2/(2-x)?",3/4,8/9,1 1/7,3 1/2,C,,STD,pending,
+STD_Q55,grid-in,math,Probability,,"In a school raffle, 1 out of every 25 students wins a prize. Each prize includes a randomly selected trading card from a set of 100 different cards, labeled C1 through C100, with each card equally likely to be chosen. If one student is selected at random, what is the probability that the student both wins a prize and receives Card C17?
+
+Write an expression that represents the probability that a student wins the prize and receives Card C17.
+
+Enter your answer in the space provided. Enter only your answer.",,,,,1/2500,,STD,pending,
+STD_Q56,mcq,math,Algebraic_Expressions,,"The cost of shipping a package is $12, plus $2 for each additional pound over 3 pounds. Which expression represents the total cost, in dollars, of shipping a package that weighs p pounds? Assume that p ≥ 3.",12 + 2(p + 3),12 + 2(p - 3),14p + 3,14p - 3,B,,STD,pending,
+STD_Q57,grid-in,math,Probability,,"A middle school library has a shelf with 40 books, each labeled with a different number from 201 to 240. One book is selected at random. What is the probability, as a percentage, of selecting book number 223?
+
+Enter your answer in the space provided.",,,,,2.5,,STD,pending,
+STD_Q58,grid-in,math,Geometry,,"A square metal plate has a side length of 3 inches. A circular hole with a diameter of 2 inches is cut out from the center of the plate. What is the area of the shaded region, to the nearest hundredth of a square inch? Enter your answer in the space.",,,,,5.86,,STD,pending,
+STD_Q59,multi-select,math,Algebraic_Expressions,,Let m be a negative integer and k be a positive integer. Which of the expressions below must result in a positive value? Select the three correct answers.,-m + k,-m · k,m - k,-k · m,"A,B,D",,STD,pending,"{""select_count"": 3, ""choice_5"": ""m/k""}"
+STD_Q60,mcq,math,Inequalities,,"2x + 11 > 3x + 9
+
+For what values of x is the above inequality true?",x < 2,x > 2,x < 20,x > 20,A,,STD,pending,
+STD_Q61,mcq,math,Ratios_and_Proportions,,"In a scale drawing of a triangular park, the sides measure 5 inches, 7 inches, and 8 inches. The perimeter of the actual park is 25 miles. What is the actual length of the shortest side of the park?",6.25 mi,8.75 mi,10 mi,15.625 mi,A,,STD,pending,
+STD_Q62,mcq,math,Geometry,,"P is the center of the circle above, and R, S, and T are points on the circle. What is the value of x?",12,15,17,19,D,,STD,pending,
+STD_Q63,mcq,math,Geometry,,"In the right triangle shown above, what is the measure of the smallest angle?",43°,44°,46°,47°,A,,STD,pending,
+STD_Q64,mcq,math,Fraction_Word_Problems,,"James must read 84 pages of a book for a class assignment. If he reads 1/4 of the pages in the morning and 1/3 of the remaining pages in the afternoon, how many pages will he still need to read?",35,42,45,56,B,,STD,pending,
+STD_Q65,mcq,math,Arithmetic,,"1/11 + 1/22 + 1/33
+
+What is the value of the expression shown above?",1/22,1/11,1/6,3/22,C,,STD,pending,
+STD_Q66,grid-in,math,Ratios_and_Proportions,,"The table shows the proportional relationship between x cups of oatmeal and y ounces of raisins in a bread recipe.
+
+BREAD RECIPE
+Cups of Oatmeal (x) | Ounces of Raisins (y)
+2 | 1.0
+3 | 1.5
+6 | 3.0
+
+What is the constant of proportionality of the number of ounces of raisins to the number of cups of oatmeal?
+
+Enter your answer in the space.",,,,,0.5,,STD,pending,
+STD_Q67,mcq,math,Fraction_Word_Problems,,"At Midville High School, 64 students are members of either the orchestra or the choir, or both. Of these students, 38 are members of the orchestra, and 46 are members of the choir. What fraction of the total is the number of students who are members of both the orchestra and the choir?",16/21,10/19,10/23,5/16,D,,STD,pending,
+STD_Q68,mcq,math,Arithmetic,,Which of the following decimals is equivalent to 1 2/3 + 2 4/9?,3.overline(1),3.overline(6),4.overline(1),4.overline(9),C,,STD,pending,
+STD_Q69,mcq,math,Percentage,,"A store manager purchases a piece of furniture for $456.00. To determine the selling price, the manager increases the purchase cost by 125%. A customer buys the furniture and pays an additional 8% sales tax. How much does the customer pay for the furniture?",$615.60,$627.48,"$1,108.08","$1,846.80",C,,STD,pending,
+STD_Q70,mcq,math,Algebraic_Expressions,,What is the value of (-9(-4)^2+36(-4)+304)/(-4)?,-76,-4,4,148,B,,STD,pending,
+STD_Q71,mcq,math,Arithmetic,,"Maxie borrowed $7.75 from her mother, $11.00 from her father, and $4.50 from her brother to purchase a video game. Her grandmother gave her $25.00 as a gift. How much money will Maxie have left or still owe if she uses the money her grandmother gave her to pay back the money she borrowed?",Maxie will still owe $2.25.,Maxie will still owe $1.75.,Maxie will have $1.75 left.,Maxie will have $2.25 left.,C,,STD,pending,
+STD_Q72,mcq,math,Fraction_Word_Problems,,"Seth grows strawberries in his garden.
+• He picked 2 1/2 cups of strawberries on Monday.
+• He picked 4 cups of strawberries on Tuesday.
+• He ate 3/4 cup of strawberries for breakfast each day on Wednesday, Thursday, and Friday.
+How many cups of strawberries did Seth have left?",3 1/2,4 1/4,6,9,B,,STD,pending,
+STD_Q73,mcq,math,Arithmetic,,Which situation involves quantities that combine to equal zero?,receiving $5 as a gift and then giving $5 to a friend,buying a book for $10 and then buying lunch for $10,"getting on an elevator at the ground floor, rising 3 floors, and then rising 3 more floors","starting in a cave 20 feet below the ground, climbing up 20 feet, and then climbing up 20 feet more",D,,STD,pending,
+STD_Q74,mcq,math,Ratios_and_Proportions,,"An athlete runs 1/8 kilometer in 3/4 minute. At this rate, how many kilometers would the athlete run in 1 minute?",3/32,1/6,1 1/2,6,B,,STD,pending,
+STD_Q75,mcq,math,Ratios_and_Proportions,,A bus trip takes 9 hours if the mean speed is 50 miles per hour. How many hours would this trip take if the mean speed was 45 miles per hour?,8,10,12,14,B,,STD,pending,
+STD_Q76,grid-in,math,Inequalities,,"Jordan has a budget of $120 to rent a food truck. The rental company charges $18 per hour to rent the truck, plus a one-time cleaning fee of $30.
+
+Write an inequality that represents this situation, in which x is the number of hours Jordan can rent the truck.
+
+Enter your answer in the space provided. Enter only your answer.",,,,,18x+30≤120,,STD,pending,
+STD_Q77,mcq,math,Fraction_Word_Problems,,"A birdseed mixture is 2/5 sunflower seeds. The cost of the sunflower seeds is $0.10 per ounce. At this rate, what is the cost of the sunflower seeds in 25 pounds of this birdseed? (Note: 1 lb = 16 oz.)",$10.00,$16.00,$40.00,$160.00,B,,STD,pending,
+STD_Q78,mcq,math,Linear_Eq._Formula,,"A graph shows the relationship between the number of gallons of water, y, that has been added to a tank and the number of hours, x, that water has been added to the tank at a constant rate. What does the ordered pair (3, 24) represent?",Three gallons of water was added in 24 hours.,Three gallons of water was added per hour.,Twenty-four gallons of water was added in 3 hours.,Twenty-four gallons of water was added per hour.,C,,STD,pending,
+STD_Q79,mcq,math,Probability,,"Karl has one red spinner and one blue spinner. Each spinner is divided into 4 equal sections, numbered 1 through 4. He spins each spinner once and writes down the number that each lands on. What is the probability that the two numbers, when multiplied together, will have 4 as a product?",1/16,3/16,4/7,7/16,B,,STD,pending,
+STD_Q80,mcq,math,Ratios_and_Proportions,,A recipe uses 2/3 cup of sugar for every 1 1/4 cups of flour. A cook wants to increase the recipe. How many cups of sugar are needed for each cup of flour?,8/15,5/6,1 7/8,3 2/3,A,,STD,pending,
+STD_Q81,mcq,math,Ratios_and_Proportions,,"A box contains an unknown number of green marbles. An experimenter adds 100 red marbles to the box, mixes the marbles thoroughly, and then draws out 10 marbles at random. Assume that this sample is representative of the proportion in the box. If there are 2 red marbles and 8 green marbles in this sample, approximately how many green marbles are in the box?",80,300,400,500,C,,STD,pending,
+STD_Q82,mcq,math,Arithmetic,,"There were 36 people at Emily's party. If each person at the party drank 2 cups of juice, how many gallons of juice did they drink altogether?
+
+Note: 1 gallon = 4 quarts; 1 quart = 4 cups.",2 1/4,4 1/2,9,72,B,,STD,pending,
+STD_Q83,mcq,math,Percentage,,"A car costing $24,000 is subject to a sales tax of 8%. If Bindu made a $10,000 down payment on this car, what is the total amount she has left to pay?","$14,000","$15,620","$15,920","$25,920",C,,STD,pending,
+STD_Q84,mcq,math,Probability,,"Last week, Emily rode the bus to school on 3 of the 5 mornings and rode the bus home on 4 of the 5 afternoons. Based on last week’s events, what is the probability that Emily will ride the bus in the morning and the afternoon next Monday?",1/5,7/25,12/25,7/10,C,,STD,pending,
+STD_Q85,mcq,math,Probability,,"XYZ Corporation hired 6 people as summer workers. Of these 6 people, 3 will be hired as permanent employees in the fall. If 2 of the 6 people are male, how many of the possible groups of 3 people hired in the fall will include only 1 male?",4,6,12,24,C,,STD,pending,
+STD_Q86,grid-in,math,Percentage,,"Leah has set a goal to read a total of 500 pages of a textbook. The table shows the book page numbers for the reading she did during three days.
+
+DAILY READING LOG
+Day | Pages Read
+1 | pages 45–90, inclusive
+2 | pages 100–135, inclusive
+3 | pages 145–190, inclusive
+
+What percentage of her 500-page goal did Leah read on these three days? Round your answer to the nearest tenth.
+
+Enter your answer in the space.",,,,,25.6,,STD,pending,
+STD_Q87,grid-in,math,Arithmetic,,"What 3-digit number between 630 and 650 is divisible by both 5 and 8?
+
+Enter your answer in the space.",,,,,640,,STD,pending,
+STD_Q88,mcq,math,Probability,,"Melissa has a bag of marbles that are all the same size. The bag contains three red (R) marbles, three green (G) marbles, and two white (W) marbles. For an experiment, she will take two marbles out of the bag without looking. Which list shows the sample space for Melissa's experiment?","R, G, W","RG, RW, GW","R, R, R, G, G, G, W, W","RR, RG, RW, GG, GW, WW",D,,STD,pending,
+STD_Q89,mcq,math,Probability,,"The table shows the probabilities of a hockey team scoring different numbers of goals in a game.
+
+HOCKEY GOAL PROBABILITIES
+Number of Goals | Probability
+0 | 0.16
+1 | 0.21
+2 | 0.29
+3 | 0.21
+4 | 0.09
+5 | 0.04
+
+What is the probability that the team will score three or more goals in the next game?",0.13,0.21,0.34,0.50,C,,STD,pending,
+STD_Q90,mcq,math,Inequalities,,"A team is participating in a contest to collect canned goods for a food drive. The team has 53 points and must have a total of at least 100 points to win a prize. The team earns 5 points for each can of food a member collects. Which inequality can be used to find x, the number of cans of food the team needs to collect to win a prize?",5 + 53x ≤ 100,5 + 53x ≥ 100,53 + 5x ≤ 100,53 + 5x ≥ 100,D,,STD,pending,
+STD_Q91,mcq,math,Ratios_and_Proportions,,The distance an eagle flies is proportional to the time the eagle spends flying. An eagle flies 90 miles in 3 hours. What is the constant of proportionality for this relationship?,3,30,60,90,B,,STD,pending,
+STD_Q92,mcq,math,Fraction_Word_Problems,,A student reads 1/12 of a book in 1/3 hour. What fraction of the book can the student read in 1 hour?,1/36,1/4,5/12,12/3,B,,STD,pending,
+STD_Q93,multi-select,math,Ratios_and_Proportions,,"Two student clubs are selling snacks as part of a fundraiser. The Art Club sells a 24-pack of granola bars for $12.00. The Science Club sells a 10-pack of granola bars for $6.50. To the nearest cent, what is the difference in cost per bar between the two clubs? Select the correct answer from each drop-down to complete the sentences. The cost for the Art Club's bar is [Choose...] per bar. The cost for the Science Club's bar is [Choose...] per bar. The difference between the cost of the bars is [Choose...] .","RESPONSE_A1: $0.40, $0.50, $0.60, $0.75","RESPONSE_A2: $0.55, $0.65, $0.75, $0.85","RESPONSE_A3: $0.05, $0.10, $0.15, $0.25",,"A1:$0.50, A2:$0.65, A3:$0.15",,STD,pending,"{""select_count"": 3}"
+STD_Q94,mcq,math,Linear_Eq._Formula,,"A bakery charges $1.25 for each cupcake and $2.50 for a serving tray. The equation describes p, the price of c cupcakes and a serving tray, not including tax.
+
+p = 2.50 + 1.25c
+
+If Samantha bought some cupcakes and a serving tray for a total of $22.50, not including tax, how many cupcakes did she buy?",4,9,16,18,C,,STD,pending,
+STD_Q95,grid-in,math,Algebra_and_Equations,,"Marcus and Isla are saving money to buy concert tickets.
+• They decide to save the same amount each week.
+• They already have $8 saved.
+• After 3 weeks, the two have $26 saved in total.
+How much money, in dollars, is being saved by Marcus and Isla each week?
+Enter your answer in the space.",,,,,6,,STD,pending,
+STD_Q96,grid-in,math,Linear_Eq._Formula,,"A company charges $3.00 to ship a 4-pound package. The cost includes a base fee of $1.50 plus $0.50 for each pound over the first pound. The table below illustrates how the cost depends on the total weight of the package. Complete the table by matching each total weight to its correct total shipping cost.
+
+Move the correct answer to each box. Not all answers will be used.
+
+Options: 2, 2.5, 3, 3.5, 4, 6, 7, 9
+
+SHIPPING COSTS
+Total Weight (pounds) | Total Cost to Ship (dollars)
+2 | ___
+___ | 2.50
+6 | ___
+___ | 5.50",,,,,"2.00, 3, 4.00, 9",,STD,pending,
+STD_Q97,mcq,math,Geometry,,What shape will result from a horizontal slice of the figure above?,a square that has 2-inch sides,a triangle that has 2-inch sides,a rectangle that has a 2-inch side and a 6-inch side,a triangle that has one 2-inch side and two 6-inch sides,A,,STD,pending,
+STD_Q98,mcq,math,Ratios_and_Proportions,,The perimeter of square W is twice the perimeter of equilateral triangle X. What is the ratio of the length of one side of square W to the length of one side of equilateral triangle X?,3:8,2:3,3:2,2:1,C,,STD,pending,
+STD_Q99,mcq,math,Arithmetic,,"Anise has a piece of cloth measuring 45 inches by 75 inches. She wants to cut it into squares of equal size, without any cloth left over. What is the greatest possible side length, in inches, of one of those squares?",3,5,15,45,C,,STD,pending,
+STD_Q100,mcq,math,Percentage,,"This table shows the number of birds that came to a bird feeder on Monday and Tuesday.
+
+BIRDS AT BIRD FEEDER
+Day | Number of Birds
+Monday | 30
+Tuesday | 24
+
+What was the percent decrease in the number of birds from Monday to Tuesday?",6%,20%,24%,25%,B,,STD,pending,

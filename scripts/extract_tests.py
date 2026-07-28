@@ -42,10 +42,10 @@ OUT_DIR = Path(__file__).parent / "output"
 OUT_DIR.mkdir(exist_ok=True)
 
 TESTS = {
-    "A": ("SHSAT Practice Test A Printable Test.pdf", "25A"),
-    "B": ("SHSAT Practice Test B Printable Test.pdf", "25B"),
-    "C": ("SHSAT Practice Test C Printable Test.pdf", "25C"),
-    "D": ("SHSAT Practice Test D Printable Test.pdf", "25D"),
+    "A": ("SHSAT Practice Test A Printable Test.pdf", "STA"),
+    "B": ("SHSAT Practice Test B Printable Test.pdf", "STB"),
+    "C": ("SHSAT Practice Test C Printable Test.pdf", "STC"),
+    "D": ("SHSAT Practice Test D Printable Test.pdf", "STD"),
 }
 
 # Matches the all_questions table column order
@@ -217,8 +217,8 @@ ANSWER RULES:
 - For Math: solve the problem to determine the correct answer"""
 
     body = {
-        "model": "claude-opus-4-8",
-        "max_tokens": 800,
+        "model": "claude-sonnet-5",
+        "max_tokens": 4000,
         "messages": [{
             "role": "user",
             "content": [
@@ -231,19 +231,44 @@ ANSWER RULES:
         }],
     }
 
-    resp = requests.post(
-        CLAUDE_URL,
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        json=body,
-        timeout=90,
-    )
-    resp.raise_for_status()
+    last_exc = None
+    for attempt in range(1, 4):  # retry up to 3 times on transient errors
+        try:
+            resp = requests.post(
+                CLAUDE_URL,
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json=body,
+                timeout=120,
+            )
+            if not resp.ok:
+                raise ValueError(f"HTTP {resp.status_code}: {resp.text[:600]}")
+            break  # success
+        except Exception as exc:
+            last_exc = exc
+            if attempt < 3:
+                print(f"[retry {attempt}/3 in 10s] ", end="", flush=True)
+                time.sleep(10)
+    else:
+        raise last_exc
 
-    raw = resp.json()["content"][0]["text"]
+    data = resp.json()
+
+    # Fable 5 returns stop_reason "refusal" when it declines to answer
+    if data.get("stop_reason") == "refusal":
+        raise ValueError("Claude refused to process this question")
+
+    # Fable 5 adaptive thinking prepends a thinking block; find the text block
+    raw = next(
+        (block["text"] for block in data["content"] if block.get("type") == "text"),
+        None,
+    )
+    if raw is None:
+        raise ValueError(f"No text block in response: {data}")
+
     # Strip accidental markdown fences
     cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.MULTILINE)
     cleaned = re.sub(r"\s*```\s*$", "", cleaned.strip())

@@ -906,7 +906,7 @@ Deno.serve(async (req) => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-opus-4-8",
+        model: "claude-opus-5",
         max_tokens: 16000,
         system:
           "You are an expert SHSAT question writer for math and ELA. You write clear, accurate, grade-appropriate questions. " +
