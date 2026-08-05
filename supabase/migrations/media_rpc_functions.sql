@@ -25,11 +25,12 @@ BEGIN
   END IF;
 
   IF EXISTS (SELECT 1 FROM public.dictionary_of_media WHERE media_id = p_media_id) THEN
-    -- Row exists: update media_type + content in-place.
-    -- question_id is intentionally NOT updated — it tracks original ownership.
+    -- Row exists: update all fields including question_id so the passage is
+    -- correctly linked to the question it belongs to.
     UPDATE public.dictionary_of_media
-    SET media_type = p_media_type,
-        content    = p_content
+    SET media_type  = p_media_type,
+        content     = p_content,
+        question_id = p_question_id
     WHERE media_id = p_media_id;
   ELSE
     -- Row does not exist: compute a unique index (MAX + 1) and insert.

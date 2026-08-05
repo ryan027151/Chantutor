@@ -569,8 +569,18 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
       setAssignError("Duration must be greater than 0 minutes.");
       return;
     }
+    // Derive subjects from selected sub-categories to prevent cross-subject question bleed.
+    const selectedSubjects = assignForm.categories.length > 0
+      ? Object.entries(assignTopics)
+          .filter(([, cats]) => cats.some(c => assignForm.categories.includes(c)))
+          .map(([subj]) => subj)
+      : [];
+    const shouldFilterSubject = selectedSubjects.length > 0 && selectedSubjects.length < Object.keys(assignTopics).length;
+
     if (assignForm.test_type === "practice" && assignForm.categories.length > 0) {
-      const { count } = await supabase.from("all_questions").select("uid", { count: "exact", head: true }).eq("status", "approved").in("sub_category", assignForm.categories);
+      let countQ = supabase.from("all_questions").select("uid", { count: "exact", head: true }).eq("status", "approved").in("sub_category", assignForm.categories);
+      if (shouldFilterSubject) countQ = countQ.in("subject", selectedSubjects);
+      const { count } = await countQ;
       const available = count ?? 0;
       if (available === 0) { setAssignError("No approved questions found for the selected categories."); return; }
       if (available < numQ) setAssignWarning(`Only ${available} question${available === 1 ? "" : "s"} available (requested ${numQ}). Test will end when questions run out.`);
@@ -599,6 +609,7 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
 
       let q = supabase.from("all_questions").select("uid").eq("status", "approved");
       if (assignForm.categories.length > 0) q = q.in("sub_category", assignForm.categories);
+      if (shouldFilterSubject) q = q.in("subject", selectedSubjects);
       if (assignForm.difficulties.length > 0) q = q.in("difficulty", assignForm.difficulties);
       const { data: qData } = await q;
       if (qData && qData.length > 0) {
@@ -755,13 +766,24 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
       setAssignError("Duration must be greater than 0 minutes.");
       return;
     }
+    // Derive which subjects the selected sub-categories belong to so queries never
+    // return questions from the wrong subject (e.g. English returned for a Math assignment).
+    const selectedSubjects = assignForm.categories.length > 0
+      ? Object.entries(assignTopics)
+          .filter(([, cats]) => cats.some(c => assignForm.categories.includes(c)))
+          .map(([subj]) => subj)
+      : [];
+    const shouldFilterSubject = selectedSubjects.length > 0 && selectedSubjects.length < Object.keys(assignTopics).length;
+
     // Warn if selected categories don't have enough approved questions
     if (assignForm.test_type === "practice" && assignForm.categories.length > 0) {
-      const { count } = await supabase
+      let countQ = supabase
         .from("all_questions")
         .select("uid", { count: "exact", head: true })
         .eq("status", "approved")
         .in("sub_category", assignForm.categories);
+      if (shouldFilterSubject) countQ = countQ.in("subject", selectedSubjects);
+      const { count } = await countQ;
       const available = count ?? 0;
       if (available === 0) {
         setAssignError("No approved questions found for the selected categories. Choose different categories.");
@@ -793,6 +815,7 @@ export default function AdminStudentsPanel({ isAdmin = true }: { isAdmin?: boole
 
       let q = supabase.from("all_questions").select("uid").eq("status", "approved");
       if (assignForm.categories.length > 0) q = q.in("sub_category", assignForm.categories);
+      if (shouldFilterSubject) q = q.in("subject", selectedSubjects);
       if (assignForm.difficulties.length > 0) q = q.in("difficulty", assignForm.difficulties);
       const { data: qData } = await q;
       if (qData && qData.length > 0) {

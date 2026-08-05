@@ -20,7 +20,7 @@ export default function MediaDisplay({ mediaItems }: MediaDisplayProps) {
             >
               {paragraphs.map((para, i) => {
                 // Short first chunk with no leading "(N)" is the passage title
-                const isTitle = i === 0 && !/^\(\d/.test(para) && para.length < 80;
+                const isTitle = i === 0 && !/^\(\d/.test(para) && para.length < 300 && !/[.!?]$/.test(para.trim());
                 return (
                   <p
                     key={i}

@@ -81,7 +81,7 @@ export function processPassage(raw: string): string[] {
 
   // ── Pass 1: split + normalise ────────────────────────────────────────────────
   const chunks = text.split(
-    /\n{2,}|\n(?=\(?\d{1,2}\)?[.) ]*["'""']?[A-Z][a-z])/
+    /\n{2,}|\n(?=\(?\d{1,2}[.)]\s*["'""']?[A-Z])/
   );
   const paragraphs = chunks
     .map(chunk => {

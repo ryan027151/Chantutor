@@ -605,7 +605,7 @@ function MockTest() {
     // Cache miss: fetch question from DB; media will be fetched by the useEffect
     const { data, error } = await supabase
       .from("all_questions")
-      .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, subject, sub_category, difficulty")
+      .select("uid, text, answer, type, choice_1, choice_2, choice_3, choice_4, extra_data, subject, sub_category, difficulty")
       .eq("uid", uid)
       .single();
     if (error || !data) return null;
@@ -870,14 +870,16 @@ function MockTest() {
         // Fall through to random if practice queue exhausted
       }
 
-      // Random fallback: use ilike for case-insensitive subject matching so questions
-      // stored as "Math" or "English" (any case) are still correctly filtered.
+      // Random fallback: always enforce subject for mock/diagnostic tests regardless of
+      // whether topics are set — topics narrow the sub_category pool but must never
+      // override the section's subject boundary.
       const expectedSubject = isEnglishSlot ? "english" : "math";
       let uidQuery = supabase.from("all_questions").select("uid").eq("status", "approved");
       if (topics.length > 0) {
         uidQuery = uidQuery.in("sub_category", topics);
-      } else if (!isPractice) {
-        // Mock/Diagnostic tests filter by subject slot; practice tests serve any subject
+      }
+      if (!isPractice) {
+        // Mock/Diagnostic: enforce subject on every path, including when topics are set
         uidQuery = uidQuery.ilike("subject", expectedSubject);
       }
       const { data: uidPool } = await uidQuery;
@@ -901,10 +903,10 @@ function MockTest() {
 
       if (error || !qData) { console.error("Question fetch error:", error); return null; }
 
-      // Hard subject guard: never let a question from the wrong section through,
-      // even if DB data has incorrect subject values.
+      // Hard subject guard: final check to never serve a wrong-subject question even if
+      // DB has incorrect subject values — applies on all non-practice paths.
       const returnedSubject = ((qData as Record<string, string>).subject ?? "").toLowerCase();
-      if (!isPractice && topics.length === 0 && returnedSubject !== expectedSubject) {
+      if (!isPractice && returnedSubject !== expectedSubject) {
         console.warn(`Subject mismatch: expected ${expectedSubject}, got ${returnedSubject} for uid ${(qData as Record<string, string>).uid}`);
         return null;
       }
@@ -1336,6 +1338,8 @@ function MockTest() {
       return;
     }
 
+    // Clear stale media immediately so the previous question's image never bleeds through
+    setMediaItems([]);
     let cancelled = false;
     (async () => {
       const { data } = await supabase
