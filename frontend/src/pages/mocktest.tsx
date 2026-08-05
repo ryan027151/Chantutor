@@ -1,5 +1,5 @@
 import { supabase } from "../supabase-client";
-import { useEffect, useState, useContext, useRef, useCallback } from "react";
+import { useEffect, useLayoutEffect, useState, useContext, useRef, useCallback } from "react";
 import { icons } from "../assets/icons.tsx";
 import { useNavigate } from "react-router-dom";
 import QuestionRenderer from "../components/questionRenderer.tsx";
@@ -651,11 +651,24 @@ function MockTest() {
     practiceTopicsRef.current = topics;
     if (topics.length === 0) return;
 
-    const { data } = await supabase
+    // Derive subject from topics: any topic in GRAMMAR_SUBCATEGORIES → english; otherwise
+    // check if any topic looks like a reading/English topic. If topics span both subjects
+    // (mixed assignment) we skip the filter to avoid over-restricting.
+    const hasEnglishTopic = topics.some(t => GRAMMAR_SUBCATEGORIES.includes(t) ||
+      /reading|inference|implied|vocabulary|context|figurative|author|literary|sentence_structure|word_choice/i.test(t));
+    const hasMathTopic = topics.some(t =>
+      /algebra|geometry|arithmetic|number|fraction|percent|ratio|statistic|probability|linear|equation|expression|coordinate|angle|area|volume|triangle|circle|data/i.test(t));
+    const singleSubject = hasEnglishTopic && !hasMathTopic ? "english"
+                        : hasMathTopic && !hasEnglishTopic ? "math"
+                        : null;
+
+    let practiceQuery = supabase
       .from("all_questions")
       .select("uid")
       .eq("status", "approved")
       .in("sub_category", topics);
+    if (singleSubject) practiceQuery = practiceQuery.ilike("subject", singleSubject);
+    const { data } = await practiceQuery;
 
     if (!data || (data as unknown[]).length === 0) return;
 
@@ -782,7 +795,7 @@ function MockTest() {
             itemTotal: currentPassageUidsRef.current.length,
           });
           const q = await fetchByUID(uid, next);
-          if (q) return q;
+          if (q && ((q as Record<string,string>).subject ?? "").toLowerCase() === "english") return q;
 
         } else if (rcServedRef.current < rcTargetRef.current) {
           // Passage boundary — select next passage (θ re-evaluated here)
@@ -798,7 +811,7 @@ function MockTest() {
               itemTotal: currentPassageUidsRef.current.length,
             });
             const q = await fetchByUID(uid, next);
-            if (q) return q;
+            if (q && ((q as Record<string,string>).subject ?? "").toLowerCase() === "english") return q;
           }
 
         } else {
@@ -813,7 +826,7 @@ function MockTest() {
             const next = grammarPosRef.current < grammarQueueRef.current.length
               ? grammarQueueRef.current[grammarPosRef.current] : undefined;
             const q = await fetchByUID(uid, next);
-            if (q) return q;
+            if (q && ((q as Record<string,string>).subject ?? "").toLowerCase() === "english") return q;
           }
         }
         // Fall through to random if all queues exhausted
@@ -837,7 +850,7 @@ function MockTest() {
           const next = currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length
             ? currentMathGroupUidsRef.current[currentMathGroupPosRef.current] : undefined;
           const q = await fetchByUID(uid, next);
-          if (q) return q;
+          if (q && ((q as Record<string,string>).subject ?? "").toLowerCase() === "math") return q;
         } else {
           // Group boundary — select next group (θ re-evaluated here)
           selectNextMathGroup();
@@ -846,7 +859,7 @@ function MockTest() {
             const next = currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length
               ? currentMathGroupUidsRef.current[currentMathGroupPosRef.current] : undefined;
             const q = await fetchByUID(uid, next);
-            if (q) return q;
+            if (q && ((q as Record<string,string>).subject ?? "").toLowerCase() === "math") return q;
           }
         }
         // Fall through to random if pool exhausted
@@ -1326,10 +1339,10 @@ function MockTest() {
   }, [user]);
 
   // Fetch media whenever the active question changes.
-  // If media was already applied synchronously from the pre-fetch cache (cache hit),
-  // skip the async DB fetch — mediaSetForRef marks this case.
+  // useLayoutEffect so the setMediaItems([]) clear runs before the browser paints —
+  // eliminates the one-frame flash of the previous question's media on cache misses.
   // A cancel flag prevents a slow previous fetch from overwriting fresher media.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!questionData?.uid) { setMediaItems([]); return; }
 
     // Cache hit path: media was already set synchronously in fetchByUID — skip async fetch
