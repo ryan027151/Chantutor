@@ -590,10 +590,12 @@ function MockTest() {
   const fetchByUID = async (
     uid: string,
     nextUidToPrefetch?: string,
+    requiredSubject?: string,
   ): Promise<Record<string, string> | null> => {
     if (prefetchedRef.current?.uid === uid) {
       const { data: cached, media: cachedMedia } = prefetchedRef.current;
       prefetchedRef.current = null;
+      if (requiredSubject && (cached.subject ?? "").toLowerCase() !== requiredSubject) return null;
       questionStartTimeRef.current = Date.now();
       // Mark that media is already set so the useEffect skips its async fetch
       mediaSetForRef.current = uid;
@@ -609,6 +611,7 @@ function MockTest() {
       .eq("uid", uid)
       .single();
     if (error || !data) return null;
+    if (requiredSubject && ((data as unknown as Record<string,string>).subject ?? "").toLowerCase() !== requiredSubject) return null;
     questionStartTimeRef.current = Date.now();
     setQuestionData(data as unknown as Record<string, string>);
     if (nextUidToPrefetch) triggerPrefetch(nextUidToPrefetch);
@@ -794,8 +797,8 @@ function MockTest() {
             itemPos:   currentPassagePosRef.current,   // post-increment → 1-indexed current position
             itemTotal: currentPassageUidsRef.current.length,
           });
-          const q = await fetchByUID(uid, next);
-          if (q && ((q as Record<string,string>).subject ?? "").toLowerCase() === "english") return q;
+          const q = await fetchByUID(uid, next, "english");
+          if (q) return q;
 
         } else if (rcServedRef.current < rcTargetRef.current) {
           // Passage boundary — select next passage (θ re-evaluated here)
@@ -810,8 +813,8 @@ function MockTest() {
               itemPos:   currentPassagePosRef.current,   // post-increment → 1-indexed current position
               itemTotal: currentPassageUidsRef.current.length,
             });
-            const q = await fetchByUID(uid, next);
-            if (q && ((q as Record<string,string>).subject ?? "").toLowerCase() === "english") return q;
+            const q = await fetchByUID(uid, next, "english");
+            if (q) return q;
           }
 
         } else {
@@ -825,8 +828,8 @@ function MockTest() {
             const uid  = grammarQueueRef.current[grammarPosRef.current++];
             const next = grammarPosRef.current < grammarQueueRef.current.length
               ? grammarQueueRef.current[grammarPosRef.current] : undefined;
-            const q = await fetchByUID(uid, next);
-            if (q && ((q as Record<string,string>).subject ?? "").toLowerCase() === "english") return q;
+            const q = await fetchByUID(uid, next, "english");
+            if (q) return q;
           }
         }
         // Fall through to random if all queues exhausted
@@ -849,8 +852,8 @@ function MockTest() {
           const uid  = currentMathGroupUidsRef.current[currentMathGroupPosRef.current++];
           const next = currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length
             ? currentMathGroupUidsRef.current[currentMathGroupPosRef.current] : undefined;
-          const q = await fetchByUID(uid, next);
-          if (q && ((q as Record<string,string>).subject ?? "").toLowerCase() === "math") return q;
+          const q = await fetchByUID(uid, next, "math");
+          if (q) return q;
         } else {
           // Group boundary — select next group (θ re-evaluated here)
           selectNextMathGroup();
@@ -858,8 +861,8 @@ function MockTest() {
             const uid  = currentMathGroupUidsRef.current[currentMathGroupPosRef.current++];
             const next = currentMathGroupPosRef.current < currentMathGroupUidsRef.current.length
               ? currentMathGroupUidsRef.current[currentMathGroupPosRef.current] : undefined;
-            const q = await fetchByUID(uid, next);
-            if (q && ((q as Record<string,string>).subject ?? "").toLowerCase() === "math") return q;
+            const q = await fetchByUID(uid, next, "math");
+            if (q) return q;
           }
         }
         // Fall through to random if pool exhausted
