@@ -1358,12 +1358,26 @@ function MockTest() {
     setMediaItems([]);
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
-        .from("dictionary_of_media")
-        .select("*")
-        .eq("question_id", questionData.uid)
-        .order("media_id");
-      if (!cancelled) setMediaItems((data as MediaItem[]) ?? []);
+      const RETRY_DELAYS = [0, 500, 1000, 2000, 4000]; // ms between attempts
+      for (let attempt = 0; attempt < RETRY_DELAYS.length; attempt++) {
+        if (cancelled) return;
+        if (RETRY_DELAYS[attempt] > 0) {
+          await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+        }
+        if (cancelled) return;
+        const { data, error } = await supabase
+          .from("dictionary_of_media")
+          .select("*")
+          .eq("question_id", questionData.uid)
+          .order("media_id");
+        if (cancelled) return;
+        if (!error) {
+          setMediaItems((data as MediaItem[]) ?? []);
+          return;
+        }
+        // error — retry after delay
+      }
+      // All retries exhausted with errors — leave media empty
     })();
     return () => { cancelled = true; };
   }, [questionData?.uid]);
